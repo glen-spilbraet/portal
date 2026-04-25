@@ -21,6 +21,7 @@
 				<a href="/catalogues" class="nav-link" class:active={active === 'catalogues'}>Catalogues</a>
 				<a href="/data" class="nav-link" class:active={active === 'data'}>Data</a>
 				<a href="/translations" class="nav-link" class:active={active === 'translations'}>Translations</a>
+				<a href="/planograms" class="nav-link" class:active={active === 'planograms'}>Planograms</a>
 			</nav>
 		</div>
 

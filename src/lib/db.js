@@ -330,3 +330,93 @@ export async function updateDataProduct(db, id, patch) {
 export async function deleteDataProduct(db, id) {
 	await db.prepare('DELETE FROM data_products WHERE id = ?').bind(id).run();
 }
+
+// ── Planogram ─────────────────────────────────────────────────────────────────
+
+export async function listPlanogramProjects(db) {
+	const rows = await db.prepare('SELECT * FROM planogram_projects ORDER BY updated_at DESC').all();
+	return rows.results;
+}
+
+export async function getPlanogramProject(db, id) {
+	return db.prepare('SELECT * FROM planogram_projects WHERE id = ?').bind(id).first();
+}
+
+export async function getPlanogramProjectByShareToken(db, token) {
+	return db.prepare('SELECT * FROM planogram_projects WHERE share_token = ?').bind(token).first();
+}
+
+export async function createPlanogramProject(db, id, name) {
+	const now = new Date().toISOString();
+	await db.prepare(
+		'INSERT INTO planogram_projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)'
+	).bind(id, name, now, now).run();
+}
+
+export async function updatePlanogramProject(db, id, patch) {
+	const fields = [], values = [];
+	for (const [k, v] of Object.entries(patch)) { fields.push(`${k} = ?`); values.push(v); }
+	fields.push('updated_at = ?'); values.push(new Date().toISOString());
+	values.push(id);
+	await db.prepare(`UPDATE planogram_projects SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+
+export async function deletePlanogramProject(db, id) {
+	await db.prepare('DELETE FROM planogram_projects WHERE id = ?').bind(id).run();
+}
+
+export async function generatePlanogramShareToken(db, id) {
+	const token = crypto.randomUUID().replace(/-/g, '').slice(0, 20);
+	await db.prepare('UPDATE planogram_projects SET share_token = ?, updated_at = ? WHERE id = ?')
+		.bind(token, new Date().toISOString(), id).run();
+	return token;
+}
+
+export async function revokePlanogramShareToken(db, id) {
+	await db.prepare('UPDATE planogram_projects SET share_token = NULL, updated_at = ? WHERE id = ?')
+		.bind(new Date().toISOString(), id).run();
+}
+
+export async function listPlanogramItems(db, projectId) {
+	const rows = await db.prepare(
+		'SELECT * FROM planogram_library_items WHERE project_id = ? ORDER BY id ASC'
+	).bind(projectId).all();
+	return rows.results;
+}
+
+export async function addPlanogramItem(db, projectId, sku, name, widthCm, heightCm, isPlaceholder) {
+	const now = new Date().toISOString();
+	const result = await db.prepare(
+		'INSERT INTO planogram_library_items (project_id, sku, name, width_cm, height_cm, is_placeholder, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+	).bind(projectId, sku, name ?? null, widthCm, heightCm, isPlaceholder ? 1 : 0, now).run();
+	return result.meta.last_row_id;
+}
+
+export async function updatePlanogramItem(db, itemId, patch) {
+	const fields = [], values = [];
+	for (const [k, v] of Object.entries(patch)) { fields.push(`${k} = ?`); values.push(v); }
+	values.push(itemId);
+	await db.prepare(`UPDATE planogram_library_items SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+
+export async function deletePlanogramItem(db, itemId) {
+	const row = await db.prepare('SELECT photo_key FROM planogram_library_items WHERE id = ?').bind(itemId).first();
+	await db.prepare('DELETE FROM planogram_library_items WHERE id = ?').bind(itemId).run();
+	return row?.photo_key ?? null;
+}
+
+export async function getPlanogramItem(db, itemId) {
+	return db.prepare('SELECT * FROM planogram_library_items WHERE id = ?').bind(itemId).first();
+}
+
+/** Returns all library items from OTHER projects (for import dialog) */
+export async function getPlanogramImportCandidates(db, excludeProjectId) {
+	const rows = await db.prepare(`
+		SELECT li.*, p.name as project_name
+		FROM planogram_library_items li
+		JOIN planogram_projects p ON p.id = li.project_id
+		WHERE li.project_id != ?
+		ORDER BY li.created_at DESC
+	`).bind(excludeProjectId).all();
+	return rows.results;
+}
