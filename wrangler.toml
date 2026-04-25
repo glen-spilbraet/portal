@@ -1,0 +1,17 @@
+name = "portal"
+pages_build_output_dir = ".svelte-kit/cloudflare"
+compatibility_date = "2025-04-25"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "portal-db"
+database_id = "2dca2f5d-21fd-4515-ba49-d5970c249571"
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "portal-images"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "portal-photos"
