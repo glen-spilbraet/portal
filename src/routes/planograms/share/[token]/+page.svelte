@@ -1,8 +1,8 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 
-	const token = $derived($page.params.token);
+	const token = page.params.token;
 
 	// Constants (same as editor)
 	const MAX_DISPLAY = 600;

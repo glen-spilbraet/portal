@@ -1,8 +1,8 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 
-	const projectId = $derived($page.params.id);
+	const projectId = page.params.id;
 
 	// ── Constants ──────────────────────────────────────────────────────────────
 	const MAX_DISPLAY = 600;
@@ -669,11 +669,13 @@
 		}
 	}
 
+	/** Returns { name, width, height, sizeUnit } — matches portal's /api/rackbeat/[sku] response */
 	async function fetchProduct(sku) {
 		const res = await fetch(`/api/rackbeat/${encodeURIComponent(sku)}`);
 		const data = await res.json();
-		if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-		return data;
+		if (!res.ok) throw new Error(data.message ?? data.error ?? `Product not found (${res.status})`);
+		if (!data.name) throw new Error('Product not found in Rackbeat.');
+		return data; // { name, width, height, sizeUnit, ... }
 	}
 
 	// ── Photo modal ────────────────────────────────────────────────────────────
@@ -687,8 +689,8 @@
 	function handlePhotoFile(file) {
 		photoModalFile = file;
 		photoModalObjectUrl = URL.createObjectURL(file);
-		const base = file.name.replace(/\.[^.]+$/, '');
-		const match = base.match(/\b([A-Z]{2,8}\d{2,8})\b/);
+		const base = file.name.replace(/\.[^.]+$/, '').toUpperCase();
+		const match = base.match(/\b([A-Z]{2,8}[-]?\d{2,8})\b/) ?? base.match(/([A-Z]{2,8}\d{2,8})/);
 		photoModalSku = match ? match[1] : '';
 		photoModalMsg = match ? 'Found this code in the filename — please confirm:' : 'No product code found — please enter it below.';
 		photoModalStep = 'sku';
@@ -700,12 +702,10 @@
 		photoModalBusy = true; photoModalError = '';
 		try {
 			const data = await fetchProduct(sku);
-			if (!data.product) throw new Error('Product not found in Rackbeat.');
-			photoModalProduct = data.product;
-			const phys = data.product.physical || {};
-			const unit = phys.size_unit || 'cm';
-			const wC = toCm(phys.width || 0, unit);
-			const hC = toCm(phys.height || 0, unit);
+			photoModalProduct = data; // { name, width, height, sizeUnit }
+			const unit = data.sizeUnit || 'cm';
+			const wC = toCm(data.width || 0, unit);
+			const hC = toCm(data.height || 0, unit);
 			photoModalW = wC > 0 ? String(wC) : '';
 			photoModalH = hC > 0 ? String(hC) : '';
 			photoModalStep = 'confirm';
@@ -749,12 +749,10 @@
 		phBusy = true; phError = '';
 		try {
 			const data = await fetchProduct(sku);
-			if (!data.product) throw new Error('Product not found in Rackbeat.');
-			phProduct = data.product;
-			const phys = data.product.physical || {};
-			const unit = phys.size_unit || 'cm';
-			const wC = toCm(phys.width || 0, unit);
-			const hC = toCm(phys.height || 0, unit);
+			phProduct = data; // { name, width, height, sizeUnit }
+			const unit = data.sizeUnit || 'cm';
+			const wC = toCm(data.width || 0, unit);
+			const hC = toCm(data.height || 0, unit);
 			phW = wC > 0 ? String(wC) : '';
 			phH = hC > 0 ? String(hC) : '';
 		} catch (err) {
