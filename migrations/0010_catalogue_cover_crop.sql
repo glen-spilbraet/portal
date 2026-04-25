@@ -1,0 +1,2 @@
+ALTER TABLE catalogues ADD COLUMN cover_crop_x REAL NOT NULL DEFAULT 50;
+ALTER TABLE catalogues ADD COLUMN cover_crop_y REAL NOT NULL DEFAULT 50;
