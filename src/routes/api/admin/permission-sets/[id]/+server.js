@@ -23,7 +23,6 @@ export async function PUT({ params, request, cookies, platform }) {
 	if (typeof body.access_sheets     === 'boolean') patch.access_sheets     = body.access_sheets     ? 1 : 0;
 	if (typeof body.access_catalogues === 'boolean') patch.access_catalogues = body.access_catalogues ? 1 : 0;
 	if (typeof body.access_planograms === 'boolean') patch.access_planograms = body.access_planograms ? 1 : 0;
-	if (typeof body.access_orders     === 'boolean') patch.access_orders     = body.access_orders     ? 1 : 0;
 	if (typeof body.access_data       === 'boolean') patch.access_data       = body.access_data       ? 1 : 0;
 
 	if (Object.keys(patch).length === 0) error(400, 'Nothing to update');

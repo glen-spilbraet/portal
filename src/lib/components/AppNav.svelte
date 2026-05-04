@@ -2,13 +2,12 @@
 	let { active = 'sheets', user = null } = $props();
 
 	// Permissions — default to full access so the nav never breaks if not provided
-	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, orders: true, mail: true });
+	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true });
 
 	const salesItems = $derived([
 		p.sheets     && { href: '/',           label: 'Sheets',     key: 'sheets' },
 		p.catalogues && { href: '/catalogues', label: 'Catalogues', key: 'catalogues' },
 		p.planograms && { href: '/planograms', label: 'Planograms', key: 'planograms' },
-		p.orders     && { href: '/orders',     label: 'Orders',     key: 'orders' },
 	].filter(Boolean));
 
 	const showSales = $derived(salesItems.length > 0);
@@ -21,7 +20,7 @@
 		{ href: '/mail/campaigns', label: 'Campaigns',    key: 'mail-campaigns' },
 	];
 
-	const adminRoutes = ['translations', 'admin', 'permissions', 'item-library'];
+	const adminRoutes = ['translations', 'admin', 'permissions', 'item-library', 'orders'];
 	const salesActive = $derived(salesItems.some(i => i.key === active));
 	const mailActive  = $derived(active.startsWith('mail-'));
 	const adminActive = $derived(adminRoutes.includes(active));
@@ -150,6 +149,8 @@
 						</button>
 						<div class="dropdown">
 							<div class="dropdown-inner">
+								<a href="/orders" class="dropdown-item" class:active={active === 'orders'}>Orders</a>
+								<div class="dropdown-divider"></div>
 								<a href="/translations" class="dropdown-item" class:active={active === 'translations'}>Translations</a>
 								<a href="/admin/users" class="dropdown-item" class:active={active === 'admin'}>Users</a>
 								<a href="/admin/permissions" class="dropdown-item" class:active={active === 'permissions'}>Permission Sets</a>

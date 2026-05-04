@@ -8,7 +8,6 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/catalogues'))                  return 'catalogues';
 	if (pathname.startsWith('/planograms'))                  return 'planograms';
 	if (pathname.startsWith('/data'))                        return 'data';
-	if (pathname.startsWith('/orders'))                      return 'orders';
 	if (pathname.startsWith('/mail'))                        return 'mail';
 	return null;
 }
@@ -32,7 +31,7 @@ export async function load({ cookies, url, platform }) {
 
 	const realPermissions = db
 		? await getUserPermissions(db, user)
-		: { sheets: true, catalogues: true, planograms: true, data: true, orders: true };
+		: { sheets: true, catalogues: true, planograms: true, data: true };
 
 	// ── Simulation (admins only) ─────────────────────────────────────────────
 	let simulatedAs = null;
@@ -60,6 +59,11 @@ export async function load({ cookies, url, platform }) {
 	// Block routes based on effective (possibly simulated) permissions
 	const section = sectionForPath(url.pathname);
 	if (section && !effectivePermissions[section]) {
+		error(403, "You don't have access to this section.");
+	}
+
+	// Orders is admin-only
+	if (url.pathname.startsWith('/orders') && effectiveRole !== 'admin') {
 		error(403, "You don't have access to this section.");
 	}
 

@@ -687,14 +687,13 @@ export async function getPermissionSet(db, id) {
 
 export async function createPermissionSet(db, id, name, access) {
 	await db.prepare(`
-		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_orders)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`).bind(id, name,
-		access.sheets  ? 1 : 0,
+		access.sheets     ? 1 : 0,
 		access.catalogues ? 1 : 0,
 		access.planograms ? 1 : 0,
-		access.data    ? 1 : 0,
-		access.orders  ? 1 : 0
+		access.data       ? 1 : 0
 	).run();
 }
 
@@ -717,16 +716,15 @@ export async function deletePermissionSet(db, id) {
  */
 export async function getUserPermissions(db, user) {
 	if (user.role === 'admin' || !user.permission_set_id) {
-		return { sheets: true, catalogues: true, planograms: true, data: true, orders: true, mail: true };
+		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true };
 	}
 	const ps = await getPermissionSet(db, user.permission_set_id);
-	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, orders: true, mail: true };
+	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true };
 	return {
 		sheets:     !!ps.access_sheets,
 		catalogues: !!ps.access_catalogues,
 		planograms: !!ps.access_planograms,
 		data:       !!ps.access_data,
-		orders:     !!ps.access_orders,
 		mail:       !!ps.access_mail,
 	};
 }

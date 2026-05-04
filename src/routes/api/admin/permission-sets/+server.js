@@ -31,7 +31,6 @@ export async function POST({ request, cookies, platform }) {
 		sheets:     body.access_sheets     !== false,
 		catalogues: body.access_catalogues !== false,
 		planograms: body.access_planograms !== false,
-		orders:     body.access_orders     !== false,
 		data:       body.access_data       !== false,
 	};
 	await createPermissionSet(db, id, name, access);

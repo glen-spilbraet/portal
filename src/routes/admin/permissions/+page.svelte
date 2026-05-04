@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ sheets: true, catalogues: true, planograms: true, orders: true, data: true });
+	let newAccess = $state({ sheets: true, catalogues: true, planograms: true, data: true });
 	let creating = $state(false);
 	let createError = $state('');
 
@@ -19,7 +19,6 @@
 		{ key: 'sheets',     label: 'Sheets' },
 		{ key: 'catalogues', label: 'Catalogues' },
 		{ key: 'planograms', label: 'Planograms' },
-		{ key: 'orders',     label: 'Orders' },
 		{ key: 'data',       label: 'Data' },
 	];
 
@@ -36,7 +35,6 @@
 					access_sheets:     newAccess.sheets,
 					access_catalogues: newAccess.catalogues,
 					access_planograms: newAccess.planograms,
-					access_orders:     newAccess.orders,
 					access_data:       newAccess.data,
 				})
 			});
@@ -48,11 +46,10 @@
 				access_sheets:     newAccess.sheets     ? 1 : 0,
 				access_catalogues: newAccess.catalogues ? 1 : 0,
 				access_planograms: newAccess.planograms ? 1 : 0,
-				access_orders:     newAccess.orders     ? 1 : 0,
 				access_data:       newAccess.data       ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { sheets: true, catalogues: true, planograms: true, orders: true, data: true };
+			newAccess = { sheets: true, catalogues: true, planograms: true, data: true };
 		} catch (e) {
 			createError = e.message;
 		} finally {
@@ -66,7 +63,6 @@
 			access_sheets:     !!set.access_sheets,
 			access_catalogues: !!set.access_catalogues,
 			access_planograms: !!set.access_planograms,
-			access_orders:     set.access_orders !== 0,  // default true if column not yet set
 			access_data:       !!set.access_data,
 		};
 	}
@@ -89,7 +85,6 @@
 					access_sheets:     e.access_sheets,
 					access_catalogues: e.access_catalogues,
 					access_planograms: e.access_planograms,
-					access_orders:     e.access_orders,
 					access_data:       e.access_data,
 				})
 			});
@@ -100,7 +95,6 @@
 				access_sheets:     e.access_sheets     ? 1 : 0,
 				access_catalogues: e.access_catalogues ? 1 : 0,
 				access_planograms: e.access_planograms ? 1 : 0,
-				access_orders:     e.access_orders     ? 1 : 0,
 				access_data:       e.access_data       ? 1 : 0,
 			});
 			cancelEdit(id);
