@@ -43,7 +43,7 @@
 	}
 </script>
 
-<AppNav active="item-library" />
+<AppNav active="item-library" user={data.user} />
 
 <main class="page-wrap">
 	<div class="page-header">
