@@ -113,25 +113,27 @@
     {/if}
 
     <div class="card">
-      <!-- Add row -->
-      <div class="add-row">
-        <input
-          class="input"
-          type="text"
-          placeholder="Company name"
-          bind:value={newName}
-          onkeydown={handleAddKeydown}
-          disabled={busy}
-        />
-        <select class="select" bind:value={newLanguage} disabled={busy}>
-          {#each LANGUAGES as lang}
-            <option value={lang.code}>{lang.label}</option>
-          {/each}
-        </select>
-        <button class="btn-primary" onclick={addAccount} disabled={busy || !newName.trim()}>
-          + Add Company
-        </button>
-      </div>
+      <!-- Add row (admin only) -->
+      {#if data.user?.role === 'admin'}
+        <div class="add-row">
+          <input
+            class="input"
+            type="text"
+            placeholder="Company name"
+            bind:value={newName}
+            onkeydown={handleAddKeydown}
+            disabled={busy}
+          />
+          <select class="select" bind:value={newLanguage} disabled={busy}>
+            {#each LANGUAGES as lang}
+              <option value={lang.code}>{lang.label}</option>
+            {/each}
+          </select>
+          <button class="btn-primary" onclick={addAccount} disabled={busy || !newName.trim()}>
+            + Add Company
+          </button>
+        </div>
+      {/if}
 
       {#if accounts.length === 0}
         <div class="empty-state">
