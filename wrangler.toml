@@ -13,6 +13,14 @@ binding = "DB"
 database_name = "portal-db-dev"
 database_id = "57e39bf4-7c9e-4f12-a109-48c5cd8dd2e3"
 
+[[env.preview.r2_buckets]]
+binding = "IMAGES"
+bucket_name = "portal-images"
+
+[[env.preview.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "portal-photos"
+
 [[r2_buckets]]
 binding = "IMAGES"
 bucket_name = "portal-images"
