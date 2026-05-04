@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
-import { getAllowedUser, getUserPermissions } from '$lib/db.js';
+import { getAllowedUser } from '$lib/db.js';
 
 const RACKBEAT_BASE = 'https://app.rackbeat.com/api';
 
@@ -16,8 +16,7 @@ export async function GET({ params, cookies, platform }) {
 	const user = await getAllowedUser(db, email);
 	if (!user) error(403, 'Access denied');
 
-	const permissions = await getUserPermissions(db, user);
-	if (!permissions.orders) error(403, 'No access to orders');
+	if (user.role !== 'admin') error(403, 'No access to orders');
 
 	const apiKey = platform?.env?.RACKBEAT_API_KEY;
 	if (!apiKey) error(500, 'Rackbeat API key not configured');
