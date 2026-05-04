@@ -93,13 +93,11 @@ export async function fetchRackbeatProductFull(sku, apiKey) {
 
 		if (pricesRes.ok) {
 			const pricesData = await pricesRes.json();
-			for (const entry of (pricesData.prices ?? [])) {
-				const groupName = entry.price_group?.name ?? entry.currency_code ?? entry.currency ?? String(entry.id);
-				const key = `price:${groupName}`;
-				// Only keep first entry per group (lowest qty break)
-				if (!(key in prices)) {
-					prices[key] = entry.price ?? entry.amount ?? null;
-				}
+			for (const entry of (pricesData.currency_prices ?? [])) {
+				const cur = entry.currency;
+				if (!cur) continue;
+				prices[`price:${cur}`]       = entry.sales_price ?? null;
+				prices[`price:${cur}:cost`]  = entry.recommended_cost_price ?? null;
 			}
 		}
 	} catch { /* best-effort */ }
@@ -148,19 +146,79 @@ export async function fetchRackbeatFieldDefinitions(sku, apiKey) {
 
 		if (pricesRes.ok) {
 			const data = await pricesRes.json();
-			const seen = new Set();
-			for (const entry of (data.prices ?? [])) {
-				const groupName = entry.price_group?.name ?? entry.currency_code ?? entry.currency ?? String(entry.id);
-				const key = `price:${groupName}`;
-				if (!seen.has(key)) {
-					seen.add(key);
-					priceFields.push({ key, label: `Price: ${groupName}`, group: 'price', type: 'price' });
-				}
+			for (const entry of (data.currency_prices ?? [])) {
+				const cur = entry.currency;
+				if (!cur) continue;
+				priceFields.push({ key: `price:${cur}`,      label: `Price: ${cur} (Sales)`, group: 'price', type: 'price' });
+				priceFields.push({ key: `price:${cur}:cost`, label: `Price: ${cur} (Cost)`,  group: 'price', type: 'price' });
 			}
 		}
 	} catch { /* best-effort */ }
 
 	return { standardFields, customFields, priceFields };
+}
+
+/**
+ * Fetches all non-invoiced orders from Rackbeat, handling pagination.
+ * If filterEmail is provided, only returns orders whose our_reference.contact_email matches.
+ */
+export async function fetchRackbeatOrders(apiKey, filterEmail = null) {
+	if (!apiKey) return { orders: [], debug: { error: 'No API key' } };
+	const headers = RB_HEADERS(apiKey);
+	const LIMIT = 100; // max Rackbeat supports per page
+
+	// ── Page 1: discover total page count, then fetch remaining pages in parallel ─
+	const firstUrl = new URL(`${RACKBEAT_BASE}/orders`);
+	firstUrl.searchParams.set('limit', String(LIMIT));
+	firstUrl.searchParams.set('page', '1');
+	firstUrl.searchParams.set('is_archived', 'false');
+
+	const firstRes = await fetch(firstUrl.toString(), { headers });
+	if (!firstRes.ok) {
+		let errBody = '';
+		try { errBody = await firstRes.text(); } catch {}
+		return { orders: [], debug: { error: errBody, status: firstRes.status } };
+	}
+
+	const firstBody = await firstRes.json();
+	const rawFirst  = Array.isArray(firstBody) ? firstBody : (firstBody.orders ?? firstBody.data ?? []);
+	const totalPages = firstBody.pages ?? 1; // Rackbeat returns { orders, total, pages, limit, page }
+
+	// Fetch all remaining pages in parallel (pages 2…N)
+	const remainingPages = [];
+	for (let p = 2; p <= totalPages; p++) remainingPages.push(p);
+
+	const extraResults = await Promise.all(
+		remainingPages.map(async (p) => {
+			const url = new URL(`${RACKBEAT_BASE}/orders`);
+			url.searchParams.set('limit', String(LIMIT));
+			url.searchParams.set('page', String(p));
+			url.searchParams.set('is_archived', 'false');
+			const res = await fetch(url.toString(), { headers });
+			if (!res.ok) return [];
+			const body = await res.json();
+			return Array.isArray(body) ? body : (body.orders ?? body.data ?? []);
+		})
+	);
+
+	// Merge all pages, deduplicate by order number
+	const allRaw = [rawFirst, ...extraResults].flat();
+	const seenIds = new Set();
+	const allOrders = [];
+
+	for (const o of allRaw) {
+		const key = o.number ?? JSON.stringify(o);
+		if (seenIds.has(key)) continue;
+		seenIds.add(key);
+		if (filterEmail) {
+			const ownerEmail = (o.our_reference?.contact_email ?? '').toLowerCase();
+			if (ownerEmail !== filterEmail.toLowerCase()) continue;
+		}
+		allOrders.push(o);
+	}
+
+	const debug = { totalPages, totalRaw: allRaw.length, totalReturned: allOrders.length, filterEmail };
+	return { orders: allOrders, debug };
 }
 
 /**

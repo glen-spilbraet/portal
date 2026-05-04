@@ -5,6 +5,18 @@
 	let products = $state(data.products);
 	let creating = $state(false);
 	let newName = $state('');
+	let search = $state('');
+
+	const filtered = $derived(
+		search.trim()
+			? products.filter(p => p.name.toLowerCase().includes(search.trim().toLowerCase()))
+			: products
+	);
+
+	function displayName(email) {
+		if (!email) return '';
+		return data.userNames?.[email] || email.split('@')[0];
+	}
 
 	function formatDate(ts) {
 		return new Date(ts * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -41,25 +53,33 @@
 
 
 <div class="page">
-	<AppNav active="data" />
+	<AppNav active="data" user={data.user} />
 
 	<main>
 		<div class="page-header">
 			<h1 class="page-title">Projects</h1>
-			<div class="create-wrap">
+			<div class="header-right">
 				<input
-					class="name-input"
+					class="search-input"
 					type="text"
-					placeholder="New project name…"
-					bind:value={newName}
-					onkeydown={(e) => e.key === 'Enter' && create()}
+					placeholder="Search projects…"
+					bind:value={search}
 				/>
-				<button class="btn-new" onclick={create} disabled={creating || !newName.trim()}>
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-						<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-					</svg>
-					{creating ? 'Creating…' : 'New Project'}
-				</button>
+				<div class="create-wrap">
+					<input
+						class="name-input"
+						type="text"
+						placeholder="New project name…"
+						bind:value={newName}
+						onkeydown={(e) => e.key === 'Enter' && create()}
+					/>
+					<button class="btn-new" onclick={create} disabled={creating || !newName.trim()}>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+							<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+						</svg>
+						{creating ? 'Creating…' : 'New Project'}
+					</button>
+				</div>
 			</div>
 		</div>
 
@@ -73,9 +93,14 @@
 				<p class="empty-title">No data products yet</p>
 				<p class="empty-sub">Create a product to start mapping and exporting data.</p>
 			</div>
+		{:else if filtered.length === 0}
+			<div class="empty">
+				<p class="empty-title">No results for "{search}"</p>
+				<p class="empty-sub">Try a different search term.</p>
+			</div>
 		{:else}
 			<div class="list">
-				{#each products as product}
+				{#each filtered as product}
 					{@const headers = JSON.parse(product.template_headers || '[]')}
 					{@const skus = JSON.parse(product.skus || '[]')}
 					{@const mappings = JSON.parse(product.mappings || '{}')}
@@ -100,7 +125,10 @@
 									{/if}
 								</span>
 							</div>
-							<span class="row-date">{formatDate(product.updated_at)}</span>
+							<span class="row-date">
+								{formatDate(product.updated_at)}
+								{#if product.created_by}<span class="created-by">· {displayName(product.created_by)}</span>{/if}
+							</span>
 						</a>
 						<div class="row-actions">
 							<a href="/data/{product.id}" class="action-btn">Open</a>
@@ -114,7 +142,7 @@
 </div>
 
 <style>
-	.page { min-height: 100vh; display: flex; flex-direction: column; background: #FFF5D2; }
+	.page { min-height: 100vh; display: flex; flex-direction: column; }
 
 	main {
 		flex: 1;
@@ -130,9 +158,27 @@
 		justify-content: space-between;
 		margin-bottom: 24px;
 		gap: 16px;
+		flex-wrap: wrap;
 	}
 
 	.page-title { font-size: 18px; font-weight: 700; color: #18181B; letter-spacing: -0.3px; }
+
+	.header-right { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+	.search-input {
+		padding: 7px 14px;
+		border: 1px solid var(--border);
+		border-radius: 100px;
+		font-size: 13px;
+		font-family: inherit;
+		color: #18181B;
+		background: white;
+		outline: none;
+		width: 180px;
+		transition: border-color 0.15s;
+	}
+	.search-input:focus { border-color: #A1A1AA; }
+	.search-input::placeholder { color: #A1A1AA; }
 
 	.create-wrap { display: flex; gap: 8px; align-items: center; }
 
@@ -195,7 +241,7 @@
 	.empty-sub { font-size: 14px; color: #71717A; }
 
 	/* List */
-	.list { display: flex; flex-direction: column; gap: 2px; }
+	.list { display: flex; flex-direction: column; gap: 10px; }
 
 	.row {
 		display: flex;
@@ -240,6 +286,7 @@
 	.row-name { font-size: 14px; font-weight: 700; color: #18181B; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.row-meta { font-size: 12px; color: #A1A1AA; font-weight: 500; }
 	.row-date { font-size: 12px; color: #A1A1AA; white-space: nowrap; flex-shrink: 0; }
+	.created-by { color: #C4B99A; }
 
 	.row-actions {
 		display: flex;

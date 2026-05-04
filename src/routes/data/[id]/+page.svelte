@@ -9,13 +9,26 @@
 	let headers = $state(JSON.parse(p.template_headers || '[]'));
 	let mappings = $state(JSON.parse(p.mappings || '{}'));
 	let skuText = $state(JSON.parse(p.skus || '[]').join('\n'));
-	let hasTemplate = $state(!!p.template_key);
+	let hasTemplateFile = $state(!!p.template_key);
+	// 'upload' = use R2 file, 'custom' = manually defined headers
+	let templateMode = $state(
+		p.template_key
+			? 'upload'
+			: (JSON.parse(p.template_headers || '[]').length > 0 ? 'custom' : 'upload')
+	);
+	let hasTemplate = $derived(templateMode === 'upload' ? hasTemplateFile : headers.length > 0);
+
+	// Custom header builder state
+	let newHeaderInput = $state('');
+	let customHeadersDirty = $state(false);
+	let savingCustomHeaders = $state(false);
 
 	// UI state
 	let templateUploading = $state(false);
 	let savingMappings = $state(false);
 	let savedMappingsJson = $state(p.mappings || '{}');
 	let mappingsDirty = $derived(JSON.stringify(mappings) !== savedMappingsJson);
+	let hasCostMapping = $derived(Object.values(mappings).some(v => typeof v === 'string' && v.endsWith(':cost')));
 	let exporting = $state(false);
 	let exportProgress = $state({ done: 0, total: 0 }); // SKU fetch progress
 	let exportResult = $state(null);
@@ -174,6 +187,42 @@
 		await savePatch({ skus: JSON.stringify(skuList) });
 	}
 
+	// ── Custom header builder ──────────────────────────────────────────────────
+	function addCustomHeader() {
+		const h = newHeaderInput.trim();
+		if (!h || headers.includes(h)) return;
+		headers = [...headers, h];
+		newHeaderInput = '';
+		customHeadersDirty = true;
+	}
+
+	function removeCustomHeader(index) {
+		const removed = headers[index];
+		headers = headers.filter((_, i) => i !== index);
+		const updated = { ...mappings };
+		delete updated[removed];
+		mappings = updated;
+		customHeadersDirty = true;
+	}
+
+	async function saveCustomHeaders() {
+		savingCustomHeaders = true;
+		try {
+			const res = await fetch(`/api/data-products/${p.id}/template`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ headers })
+			});
+			if (res.ok) {
+				customHeadersDirty = false;
+			} else {
+				alert('Failed to save headers.');
+			}
+		} finally {
+			savingCustomHeaders = false;
+		}
+	}
+
 	// ── Template upload ────────────────────────────────────────────────────────
 	let templateInput;
 
@@ -208,7 +257,8 @@
 				headers = extractedHeaders;
 				mappings = {};
 				savedMappingsJson = '{}';
-				hasTemplate = true;
+				templateMode = 'upload';
+				hasTemplateFile = true;
 			} else {
 				alert('Failed to upload template.');
 			}
@@ -223,7 +273,10 @@
 	// ── Export ─────────────────────────────────────────────────────────────────
 	async function runExport() {
 		if (skuList.length === 0) { alert('Add at least one SKU before exporting.'); return; }
-		if (!hasTemplate) { alert('Upload a template first.'); return; }
+		if (!hasTemplate) {
+			alert(templateMode === 'custom' ? 'Add at least one column header first.' : 'Upload a template first.');
+			return;
+		}
 		exporting = true;
 		exportResult = null;
 		try {
@@ -266,15 +319,21 @@
 			});
 			await Promise.all(workers);
 
-			// 2. Download template file
-			const templateRes = await fetch(`/api/data-products/${p.id}/template-file`);
-			if (!templateRes.ok) throw new Error('Failed to download template');
-			const templateBuffer = await templateRes.arrayBuffer();
-
-			// 3. Parse template
-			const wb = XLSX.read(templateBuffer, { type: 'array' });
-			const sheetName = wb.SheetNames[0];
-			const ws = wb.Sheets[sheetName];
+			// 2. Build / download workbook
+			let wb, ws;
+			if (templateMode === 'custom') {
+				// Custom mode: create a fresh workbook with the defined headers
+				wb = XLSX.utils.book_new();
+				ws = XLSX.utils.aoa_to_sheet([headers]);
+				XLSX.utils.book_append_sheet(wb, ws, 'Export');
+			} else {
+				// Upload mode: fetch the stored template from R2
+				const templateRes = await fetch(`/api/data-products/${p.id}/template-file`);
+				if (!templateRes.ok) throw new Error('Failed to download template');
+				const templateBuffer = await templateRes.arrayBuffer();
+				wb = XLSX.read(templateBuffer, { type: 'array' });
+				ws = wb.Sheets[wb.SheetNames[0]];
+			}
 
 			// Get the header row to understand column positions
 			const allRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
@@ -452,36 +511,138 @@
 							<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
 							<polyline points="14 2 14 8 20 8"/>
 						</svg>
-						Excel Template
+						Template
 					</h2>
+					<div class="mode-tabs">
+						<button
+							class="mode-tab"
+							class:mode-tab-active={templateMode === 'upload'}
+							onclick={() => { templateMode = 'upload'; }}
+							type="button"
+						>
+							<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+								<polyline points="17 8 12 3 7 8"/>
+								<line x1="12" y1="3" x2="12" y2="15"/>
+							</svg>
+							Upload file
+						</button>
+						<button
+							class="mode-tab"
+							class:mode-tab-active={templateMode === 'custom'}
+							onclick={() => { templateMode = 'custom'; }}
+							type="button"
+						>
+							<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+							</svg>
+							Define manually
+						</button>
+					</div>
+				</div>
+
+				{#if templateMode === 'upload'}
+					<!-- ── Upload mode ── -->
 					<input bind:this={templateInput} type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange={handleTemplateUpload} />
+					<p class="section-hint">Upload an Excel file to use as the output structure. The first row should contain your column headers.</p>
 					<button class="btn-upload" onclick={() => templateInput.click()} disabled={templateUploading}>
 						{#if templateUploading}
 							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.7s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
 							Uploading…
-						{:else if hasTemplate}
+						{:else if hasTemplateFile}
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+							</svg>
 							Replace template
 						{:else}
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+							</svg>
 							Upload template
 						{/if}
 					</button>
-				</div>
-
-				{#if !hasTemplate}
-					<div class="empty-section">
-						<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-							<polyline points="14 2 14 8 20 8"/>
-						</svg>
-						<p>Upload an Excel file to define the output structure. The first row should contain your column headers.</p>
-					</div>
+					{#if hasTemplateFile}
+						<p class="template-ok" style="margin-top: 12px">
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<polyline points="20 6 9 17 4 12"/>
+							</svg>
+							Template loaded · {headers.length} columns detected
+						</p>
+					{/if}
 				{:else}
-					<p class="template-ok">
-						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-							<polyline points="20 6 9 17 4 12"/>
-						</svg>
-						Template loaded · {headers.length} columns detected
-					</p>
+					<!-- ── Custom / manual mode ── -->
+					<p class="section-hint">Add column headers manually. They will become the columns of your exported Excel file.</p>
+
+					<div class="custom-add-row">
+						<input
+							class="custom-header-input"
+							type="text"
+							placeholder="Column header name…"
+							bind:value={newHeaderInput}
+							onkeydown={(e) => e.key === 'Enter' && addCustomHeader()}
+						/>
+						<button
+							class="btn-add-header"
+							onclick={addCustomHeader}
+							disabled={!newHeaderInput.trim() || headers.includes(newHeaderInput.trim())}
+							type="button"
+						>
+							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+								<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+							</svg>
+							Add
+						</button>
+					</div>
+
+					{#if headers.length > 0}
+						<div class="custom-header-list">
+							{#each headers as header, i}
+								<div class="custom-header-item">
+									<span class="custom-header-index">{i + 1}</span>
+									<span class="custom-header-name">{header}</span>
+									<button
+										class="custom-header-remove"
+										onclick={() => removeCustomHeader(i)}
+										type="button"
+										title="Remove column"
+									>
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+											<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+										</svg>
+									</button>
+								</div>
+							{/each}
+						</div>
+						<div class="custom-header-footer">
+							<span class="custom-header-count">{headers.length} column{headers.length !== 1 ? 's' : ''} defined</span>
+							<button
+								class="btn-save"
+								class:btn-save-dirty={customHeadersDirty}
+								onclick={saveCustomHeaders}
+								disabled={savingCustomHeaders || !customHeadersDirty}
+								type="button"
+							>
+								{#if savingCustomHeaders}
+									<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.7s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+									Saving…
+								{:else if customHeadersDirty}
+									<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v14a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+									Save columns
+								{:else}
+									<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+									Saved
+								{/if}
+							</button>
+						</div>
+					{:else}
+						<div class="empty-section" style="padding: 20px 16px">
+							<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+								<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+								<line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+							</svg>
+							<p>Type a header name above and press <strong>Add</strong> to define your columns.</p>
+						</div>
+					{/if}
 				{/if}
 			</div>
 
@@ -556,7 +717,7 @@
 						{#each headers as header}
 							{@const sample = sampleValue(mappings[header])}
 							{@const isOpen = openDropdown === header}
-							<div class="mapping-row">
+							<div class="mapping-row" class:mapping-row-cost={mappings[header]?.endsWith(':cost')}>
 								<span class="col-header" title={header}>{header}</span>
 								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A1A1AA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
 									<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
@@ -619,6 +780,16 @@
 							</div>
 						{/each}
 					</div>
+
+					{#if hasCostMapping}
+						<div class="cost-warning">
+							<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
+								<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+								<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+							</svg>
+							<span>Be aware this includes <strong>COST DATA</strong> that should never be shared with clients.</span>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -681,7 +852,8 @@
 
 			{#if !hasTemplate || skuList.length === 0}
 				<p class="export-prereq">
-					{#if !hasTemplate}Upload a template{:else}Add SKUs{/if} to enable export.
+					{#if !hasTemplate}
+						{templateMode === 'custom' ? 'Add column headers' : 'Upload a template'}{:else}Add SKUs{/if} to enable export.
 				</p>
 			{/if}
 
@@ -926,6 +1098,23 @@
 	.mapping-row {
 		display: flex; align-items: center; gap: 10px;
 	}
+	.mapping-row-cost .dd-trigger { border-color: #fca5a5 !important; background: #fff5f5 !important; }
+
+	.cost-warning {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+		margin-top: 14px;
+		padding: 12px 16px;
+		background: #fff7ed;
+		border: 1.5px solid #fb923c;
+		border-radius: 10px;
+		font-size: 13px;
+		color: #9a3412;
+		line-height: 1.45;
+	}
+	.cost-warning svg { margin-top: 1px; color: #ea580c; }
+	.cost-warning strong { font-weight: 800; letter-spacing: 0.02em; }
 
 	.col-header {
 		flex: 0 0 180px;
@@ -1195,4 +1384,83 @@
 	}
 	.fetch-error-sku { font-weight: 700; color: #ef4444; flex-shrink: 0; }
 	.fetch-error-msg { color: #71717A; font-size: 11px; }
+
+	/* ── Mode tabs ───────────────────────────────────────────────────────────── */
+	.mode-tabs {
+		display: flex;
+		background: #F4F4F5;
+		border-radius: 8px;
+		padding: 3px;
+		gap: 2px;
+		flex-shrink: 0;
+	}
+	.mode-tab {
+		display: inline-flex; align-items: center; gap: 5px;
+		padding: 4px 10px; border: none; border-radius: 6px;
+		font-size: 12px; font-weight: 600; font-family: inherit;
+		color: #71717A; background: none; cursor: pointer;
+		transition: background 0.15s, color 0.15s; white-space: nowrap;
+	}
+	.mode-tab:hover { color: #18181B; }
+	.mode-tab.mode-tab-active { background: white; color: #18181B; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+	/* ── Custom header builder ───────────────────────────────────────────────── */
+	.custom-add-row {
+		display: flex; gap: 6px; align-items: center;
+		margin-bottom: 12px;
+	}
+	.custom-header-input {
+		flex: 1; min-width: 0;
+		font-size: 13px; font-family: inherit; color: #18181B;
+		border: 1px solid var(--border); border-radius: 8px;
+		background: white; padding: 7px 12px; outline: none;
+		transition: border-color 0.15s;
+	}
+	.custom-header-input:focus { border-color: #A1A1AA; }
+	.custom-header-input::placeholder { color: #C4C4C4; }
+
+	.btn-add-header {
+		display: inline-flex; align-items: center; gap: 5px;
+		padding: 7px 14px; background: #18181B; color: white;
+		border: none; border-radius: 8px; font-size: 13px;
+		font-weight: 600; font-family: inherit; cursor: pointer;
+		transition: background 0.15s; flex-shrink: 0;
+	}
+	.btn-add-header:hover:not(:disabled) { background: #3F3F46; }
+	.btn-add-header:disabled { opacity: 0.4; cursor: not-allowed; }
+
+	.custom-header-list {
+		display: flex; flex-direction: column; gap: 4px;
+		margin-bottom: 12px;
+	}
+	.custom-header-item {
+		display: flex; align-items: center; gap: 8px;
+		padding: 7px 10px;
+		background: #F8F8F6;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+	}
+	.custom-header-index {
+		font-size: 11px; font-weight: 700; color: #A1A1AA;
+		min-width: 18px; text-align: right; flex-shrink: 0;
+	}
+	.custom-header-name {
+		flex: 1; font-size: 13px; font-weight: 600; color: #18181B;
+		min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+	}
+	.custom-header-remove {
+		display: flex; align-items: center; justify-content: center;
+		width: 24px; height: 24px; border: none; border-radius: 6px;
+		background: none; color: #A1A1AA; cursor: pointer; flex-shrink: 0;
+		transition: background 0.15s, color 0.15s; padding: 0;
+	}
+	.custom-header-remove:hover { background: #FEF2F2; color: #ef4444; }
+
+	.custom-header-footer {
+		display: flex; align-items: center; justify-content: space-between;
+		gap: 10px;
+	}
+	.custom-header-count {
+		font-size: 12px; color: #A1A1AA; font-weight: 500;
+	}
 </style>

@@ -177,7 +177,6 @@
 			if (res.ok) {
 				const { id } = await res.json();
 				const sheet = data.sheets.find(s => s.id === sheetId);
-				const fields = JSON.parse(sheet?.data_fields || '[]');
 				const productName = sheet?.name_en || sheet?.name_da || sheet?.name_sv || sheet?.name_no || '';
 				items = [...items, {
 					id,
@@ -192,6 +191,39 @@
 			}
 		} finally {
 			addingSheet = false;
+		}
+	}
+
+	// Add all visible search results that aren't already added
+	let addingAll = $state(false);
+	async function addAllSheets() {
+		const toAdd = sheetResults.filter(s => !isAdded(s.id));
+		if (toAdd.length === 0 || addingAll) return;
+		addingAll = true;
+		try {
+			for (const sheet of toAdd) {
+				const res = await fetch(`/api/catalogues/${data.catalogue.id}/items`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ sheetId: sheet.id })
+				});
+				if (res.ok) {
+					const { id } = await res.json();
+					const productName = sheet?.name_en || sheet?.name_da || sheet?.name_sv || sheet?.name_no || '';
+					items = [...items, {
+						id,
+						catalogue_id: data.catalogue.id,
+						sheet_id: sheet.id,
+						display_order: items.length,
+						box_image_key: sheet?.box_image_key ?? null,
+						product_name: productName,
+						data_fields: sheet?.data_fields ?? '[]'
+					}];
+				}
+			}
+			sheetQuery = '';
+		} finally {
+			addingAll = false;
 		}
 	}
 
@@ -605,6 +637,26 @@
 				</div>
 
 				{#if sheetResults.length > 0}
+					{@const unadded = sheetResults.filter(s => !isAdded(s.id))}
+					{#if unadded.length > 1}
+						<button
+							class="add-all-btn"
+							onclick={addAllSheets}
+							disabled={addingAll}
+						>
+							{#if addingAll}
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="spin">
+									<path d="M21 12a9 9 0 11-6.219-8.56"/>
+								</svg>
+								Adding…
+							{:else}
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+									<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+								</svg>
+								Add all {unadded.length}
+							{/if}
+						</button>
+					{/if}
 					<div class="results-list">
 						{#each sheetResults as sheet}
 							<button
@@ -829,7 +881,7 @@
 		min-height: 100vh;
 		display: flex;
 		flex-direction: column;
-		background: #FFF5D2;
+		background: #F2F2F3;
 	}
 
 	/* ── Toolbar ─────────────────────────────────────────────────────────── */
@@ -1218,6 +1270,34 @@
 		border-color: #A1A1AA;
 		box-shadow: 0 0 0 3px rgba(0,0,0,0.05);
 	}
+
+	@keyframes spin { to { transform: rotate(360deg); } }
+	.spin { animation: spin 0.7s linear infinite; }
+
+	.add-all-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		width: 100%;
+		padding: 7px 12px;
+		margin-bottom: 6px;
+		background: white;
+		border: 1px solid var(--border);
+		border-radius: 9px;
+		font-size: 12.5px;
+		font-weight: 700;
+		font-family: inherit;
+		color: #52525B;
+		cursor: pointer;
+		transition: background 0.15s, border-color 0.15s, color 0.15s;
+	}
+	.add-all-btn:hover:not(:disabled) {
+		background: #F57832;
+		border-color: #F57832;
+		color: white;
+	}
+	.add-all-btn:disabled { opacity: 0.6; cursor: default; }
 
 	.results-list {
 		display: flex;

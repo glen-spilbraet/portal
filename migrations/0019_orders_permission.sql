@@ -1,0 +1,1 @@
+ALTER TABLE permission_sets ADD COLUMN access_orders INTEGER NOT NULL DEFAULT 1;

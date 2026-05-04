@@ -3,12 +3,19 @@
 export async function listSheets(db) {
 	const rows = await db
 		.prepare(
-			`SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields,
+			`SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by,
+              COALESCE(u.first_name, '') as creator_first_name,
               t_en.value as name_en,
               t_da.value as name_da,
               t_sv.value as name_sv,
-              t_no.value as name_no
+              t_no.value as name_no,
+              COALESCE(s.usp_count, 3) as usp_count,
+              (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'en' AND key LIKE 'usp_%' AND value != '') as usp_filled_en,
+              (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'da' AND key LIKE 'usp_%' AND value != '') as usp_filled_da,
+              (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'sv' AND key LIKE 'usp_%' AND value != '') as usp_filled_sv,
+              (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'no' AND key LIKE 'usp_%' AND value != '') as usp_filled_no
        FROM sales_sheets s
+       LEFT JOIN allowed_users u ON u.email = s.created_by
        LEFT JOIN translations t_en ON t_en.sheet_id = s.id AND t_en.language = 'en' AND t_en.key = 'product_name'
        LEFT JOIN translations t_da ON t_da.sheet_id = s.id AND t_da.language = 'da' AND t_da.key = 'product_name'
        LEFT JOIN translations t_sv ON t_sv.sheet_id = s.id AND t_sv.language = 'sv' AND t_sv.key = 'product_name'
@@ -23,20 +30,25 @@ export async function getSheet(db, id) {
 	return db.prepare('SELECT * FROM sales_sheets WHERE id = ?').bind(id).first();
 }
 
-export async function createSheet(db, id, sku, primaryLanguage = 'en') {
+export async function getSheetByShareToken(db, token) {
+	return db.prepare('SELECT * FROM sales_sheets WHERE share_token = ?').bind(token).first();
+}
+
+export async function createSheet(db, id, sku, primaryLanguage = 'en', createdBy = null) {
 	const defaultFields = JSON.stringify([
-		{ key: 'sku', label: 'SKU', value: sku },
-		{ key: 'ean', label: 'EAN', value: '' },
-		{ key: 'stock_date', label: 'Est. stock date', value: '' },
-		{ key: 'age', label: 'Age', value: '' },
-		{ key: 'time', label: 'Time', value: '' },
-		{ key: 'players', label: 'Players', value: '' }
+		{ key: 'sku',    label: 'SKU',    value: sku },
+		{ key: 'ean',    label: 'EAN',    value: '' },
+		{ key: 'weight', label: 'Weight', value: '' },
+		{ key: 'height', label: 'Height', value: '' },
+		{ key: 'width',  label: 'Width',  value: '' },
+		{ key: 'depth',  label: 'Depth',  value: '' },
 	]);
+	const shareToken = crypto.randomUUID().replace(/-/g, '').slice(0, 20);
 	await db
 		.prepare(
-			`INSERT INTO sales_sheets (id, sku, data_fields, primary_language) VALUES (?, ?, ?, ?)`
+			`INSERT INTO sales_sheets (id, sku, data_fields, primary_language, created_by, share_token) VALUES (?, ?, ?, ?, ?, ?)`
 		)
-		.bind(id, sku, defaultFields, primaryLanguage)
+		.bind(id, sku, defaultFields, primaryLanguage, createdBy, shareToken)
 		.run();
 }
 
@@ -177,9 +189,94 @@ export async function getCtaVersionTranslations(db, ctaId) {
 
 // ── Catalogues ────────────────────────────────────────────────────────────────
 
+/** Admin: all catalogues */
 export async function listCatalogues(db) {
 	const rows = await db.prepare('SELECT * FROM catalogues ORDER BY updated_at DESC').all();
 	return rows.results;
+}
+
+/** Non-admin: only catalogues owned by this user */
+export async function listOwnCatalogues(db, createdBy) {
+	const rows = await db.prepare(
+		'SELECT * FROM catalogues WHERE created_by = ? ORDER BY updated_at DESC'
+	).bind(createdBy).all();
+	return rows.results;
+}
+
+// ── Catalogue folders ─────────────────────────────────────────────────────────
+
+export async function listFolders(db, createdBy) {
+	const rows = await db.prepare(
+		'SELECT * FROM catalogue_folders WHERE created_by = ? ORDER BY name ASC'
+	).bind(createdBy).all();
+	return rows.results;
+}
+
+/** Admin: all folders from all users */
+export async function listAllFolders(db) {
+	const rows = await db.prepare(
+		'SELECT * FROM catalogue_folders ORDER BY name ASC'
+	).all();
+	return rows.results;
+}
+
+export async function createFolder(db, id, name, parentId, createdBy) {
+	await db.prepare(
+		'INSERT INTO catalogue_folders (id, name, parent_id, created_by) VALUES (?, ?, ?, ?)'
+	).bind(id, name, parentId ?? null, createdBy).run();
+}
+
+export async function renameFolder(db, id, name) {
+	await db.prepare('UPDATE catalogue_folders SET name = ? WHERE id = ?').bind(name, id).run();
+}
+
+/** Delete a folder; its children and catalogues move up to the deleted folder's parent. */
+export async function deleteFolder(db, id) {
+	const folder = await db.prepare('SELECT parent_id FROM catalogue_folders WHERE id = ?').bind(id).first();
+	if (!folder) return;
+	await db.batch([
+		db.prepare('UPDATE catalogue_folders SET parent_id = ? WHERE parent_id = ?').bind(folder.parent_id ?? null, id),
+		db.prepare('UPDATE catalogues SET folder_id = ? WHERE folder_id = ?').bind(folder.parent_id ?? null, id),
+		db.prepare('DELETE FROM catalogue_folders WHERE id = ?').bind(id),
+	]);
+}
+
+export async function setCatalogueFolder(db, catalogueId, folderId) {
+	await db.prepare(
+		'UPDATE catalogues SET folder_id = ?, updated_at = ? WHERE id = ?'
+	).bind(folderId ?? null, Math.floor(Date.now() / 1000), catalogueId).run();
+}
+
+// ── Catalogue shares (user-to-user) ──────────────────────────────────────────
+
+/** Catalogues shared WITH this user by others */
+export async function listSharedCatalogues(db, email) {
+	const rows = await db.prepare(`
+		SELECT c.*, cs.shared_by_email FROM catalogues c
+		JOIN catalogue_shares cs ON cs.catalogue_id = c.id
+		WHERE cs.shared_with_email = ?
+		ORDER BY cs.shared_at DESC
+	`).bind(email).all();
+	return rows.results;
+}
+
+export async function getSharesForCatalogue(db, catalogueId) {
+	const rows = await db.prepare(
+		'SELECT * FROM catalogue_shares WHERE catalogue_id = ? ORDER BY shared_at ASC'
+	).bind(catalogueId).all();
+	return rows.results;
+}
+
+export async function shareCatalogueWith(db, catalogueId, sharedWithEmail, sharedByEmail) {
+	await db.prepare(
+		'INSERT OR IGNORE INTO catalogue_shares (id, catalogue_id, shared_with_email, shared_by_email) VALUES (?, ?, ?, ?)'
+	).bind(crypto.randomUUID(), catalogueId, sharedWithEmail, sharedByEmail).run();
+}
+
+export async function unshareCatalogueWith(db, catalogueId, sharedWithEmail) {
+	await db.prepare(
+		'DELETE FROM catalogue_shares WHERE catalogue_id = ? AND shared_with_email = ?'
+	).bind(catalogueId, sharedWithEmail).run();
 }
 
 export async function getCatalogue(db, id) {
@@ -197,8 +294,8 @@ export async function generateShareToken(db, id) {
 	return token;
 }
 
-export async function createCatalogue(db, id, name, language) {
-	await db.prepare('INSERT INTO catalogues (id, name, language) VALUES (?, ?, ?)').bind(id, name, language).run();
+export async function createCatalogue(db, id, name, language, createdBy = null) {
+	await db.prepare('INSERT INTO catalogues (id, name, language, created_by) VALUES (?, ?, ?, ?)').bind(id, name, language, createdBy).run();
 }
 
 export async function updateCatalogue(db, id, patch) {
@@ -306,16 +403,21 @@ export async function listDataProducts(db) {
 	return rows.results;
 }
 
+export async function listOwnDataProducts(db, createdBy) {
+	const rows = await db.prepare('SELECT * FROM data_products WHERE created_by = ? ORDER BY created_at DESC').bind(createdBy).all();
+	return rows.results;
+}
+
 export async function getDataProduct(db, id) {
 	return db.prepare('SELECT * FROM data_products WHERE id = ?').bind(id).first();
 }
 
-export async function createDataProduct(db, name) {
+export async function createDataProduct(db, name, createdBy = null) {
 	const id = crypto.randomUUID();
 	const now = Math.floor(Date.now() / 1000);
 	await db.prepare(
-		'INSERT INTO data_products (id, name, template_headers, mappings, skus, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-	).bind(id, name, '[]', '{}', '[]', now, now).run();
+		'INSERT INTO data_products (id, name, template_headers, mappings, skus, created_at, updated_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+	).bind(id, name, '[]', '{}', '[]', now, now, createdBy).run();
 	return id;
 }
 
@@ -338,6 +440,84 @@ export async function listPlanogramProjects(db) {
 	return rows.results;
 }
 
+export async function listOwnPlanogramProjects(db, createdBy) {
+	const rows = await db.prepare(
+		'SELECT * FROM planogram_projects WHERE created_by = ? ORDER BY updated_at DESC'
+	).bind(createdBy).all();
+	return rows.results;
+}
+
+// ── Planogram folders ─────────────────────────────────────────────────────────
+
+export async function listPlanogramFolders(db, createdBy) {
+	const rows = await db.prepare(
+		'SELECT * FROM planogram_folders WHERE created_by = ? ORDER BY name ASC'
+	).bind(createdBy).all();
+	return rows.results;
+}
+
+export async function listAllPlanogramFolders(db) {
+	const rows = await db.prepare('SELECT * FROM planogram_folders ORDER BY name ASC').all();
+	return rows.results;
+}
+
+export async function createPlanogramFolder(db, id, name, parentId, createdBy) {
+	await db.prepare(
+		'INSERT INTO planogram_folders (id, name, parent_id, created_by) VALUES (?, ?, ?, ?)'
+	).bind(id, name, parentId ?? null, createdBy).run();
+}
+
+export async function renamePlanogramFolder(db, id, name) {
+	await db.prepare('UPDATE planogram_folders SET name = ? WHERE id = ?').bind(name, id).run();
+}
+
+export async function deletePlanogramFolder(db, id) {
+	const folder = await db.prepare('SELECT parent_id FROM planogram_folders WHERE id = ?').bind(id).first();
+	if (!folder) return;
+	await db.batch([
+		db.prepare('UPDATE planogram_folders SET parent_id = ? WHERE parent_id = ?').bind(folder.parent_id ?? null, id),
+		db.prepare('UPDATE planogram_projects SET folder_id = ? WHERE folder_id = ?').bind(folder.parent_id ?? null, id),
+		db.prepare('DELETE FROM planogram_folders WHERE id = ?').bind(id),
+	]);
+}
+
+export async function setPlanogramFolder(db, projectId, folderId) {
+	await db.prepare(
+		'UPDATE planogram_projects SET folder_id = ?, updated_at = ? WHERE id = ?'
+	).bind(folderId ?? null, new Date().toISOString(), projectId).run();
+}
+
+// ── Planogram shares (user-to-user) ──────────────────────────────────────────
+
+export async function listSharedPlanograms(db, email) {
+	const rows = await db.prepare(`
+		SELECT p.*, ps.shared_by_email FROM planogram_projects p
+		JOIN planogram_shares ps ON ps.project_id = p.id
+		WHERE ps.shared_with_email = ?
+		ORDER BY ps.shared_at DESC
+	`).bind(email).all();
+	return rows.results;
+}
+
+export async function getSharesForPlanogram(db, projectId) {
+	const rows = await db.prepare(
+		'SELECT * FROM planogram_shares WHERE project_id = ? ORDER BY shared_at ASC'
+	).bind(projectId).all();
+	return rows.results;
+}
+
+export async function sharePlanogramWith(db, projectId, sharedWithEmail, sharedByEmail) {
+	await db.prepare(
+		'INSERT OR IGNORE INTO planogram_shares (id, project_id, shared_with_email, shared_by_email) VALUES (?, ?, ?, ?)'
+	).bind(crypto.randomUUID(), projectId, sharedWithEmail, sharedByEmail).run();
+}
+
+export async function unsharePlanogramWith(db, projectId, sharedWithEmail) {
+	await db.prepare(
+		'DELETE FROM planogram_shares WHERE project_id = ? AND shared_with_email = ?'
+	).bind(projectId, sharedWithEmail).run();
+}
+
 export async function getPlanogramProject(db, id) {
 	return db.prepare('SELECT * FROM planogram_projects WHERE id = ?').bind(id).first();
 }
@@ -346,11 +526,11 @@ export async function getPlanogramProjectByShareToken(db, token) {
 	return db.prepare('SELECT * FROM planogram_projects WHERE share_token = ?').bind(token).first();
 }
 
-export async function createPlanogramProject(db, id, name) {
+export async function createPlanogramProject(db, id, name, createdBy = null) {
 	const now = new Date().toISOString();
 	await db.prepare(
-		'INSERT INTO planogram_projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)'
-	).bind(id, name, now, now).run();
+		'INSERT INTO planogram_projects (id, name, created_at, updated_at, created_by) VALUES (?, ?, ?, ?, ?)'
+	).bind(id, name, now, now, createdBy).run();
 }
 
 export async function updatePlanogramProject(db, id, patch) {
@@ -419,4 +599,363 @@ export async function getPlanogramImportCandidates(db, excludeProjectId) {
 		ORDER BY li.created_at DESC
 	`).bind(excludeProjectId).all();
 	return rows.results;
+}
+
+// ── Global Item Library ────────────────────────────────────────────────────────
+
+/** Upsert a product into the global item library by SKU.
+ *  If the SKU already exists, name/dimensions are updated (but photo_key is kept). */
+export async function upsertLibraryItem(db, { id, sku, name, widthCm, heightCm }) {
+	await db.prepare(`
+		INSERT INTO item_library (id, sku, name, width_cm, height_cm)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(sku) DO UPDATE SET
+		  name      = COALESCE(excluded.name, item_library.name),
+		  width_cm  = excluded.width_cm,
+		  height_cm = excluded.height_cm,
+		  updated_at = unixepoch()
+	`).bind(id, sku, name ?? null, widthCm, heightCm).run();
+}
+
+/** After a photo is uploaded to a planogram item, mirror the key in the library. */
+export async function updateLibraryItemPhoto(db, sku, photoKey) {
+	await db.prepare(
+		'UPDATE item_library SET photo_key = ?, updated_at = unixepoch() WHERE sku = ?'
+	).bind(photoKey, sku).run();
+}
+
+export async function listLibraryItems(db) {
+	const rows = await db.prepare(
+		'SELECT * FROM item_library ORDER BY updated_at DESC, created_at DESC'
+	).all();
+	return rows.results;
+}
+
+export async function getLibraryItemBySku(db, sku) {
+	return db.prepare('SELECT * FROM item_library WHERE sku = ?').bind(sku).first();
+}
+
+/** Returns all planogram_library_items rows for a SKU that are still placeholders (no photo yet). */
+export async function getPlaceholdersBySku(db, sku) {
+	const rows = await db.prepare(
+		'SELECT * FROM planogram_library_items WHERE sku = ? AND is_placeholder = 1'
+	).bind(sku).all();
+	return rows.results;
+}
+
+// ── Allowed users ──────────────────────────────────────────────────────────────
+
+export async function listAllowedUsers(db) {
+	const rows = await db.prepare('SELECT email, role, name, first_name, added_at, permission_set_id, send_from FROM allowed_users ORDER BY added_at ASC').all();
+	return rows.results;
+}
+
+export async function getAllowedUser(db, email) {
+	return db.prepare('SELECT email, role, name, first_name, permission_set_id, send_from FROM allowed_users WHERE email = ?').bind(email).first();
+}
+
+export async function addAllowedUser(db, email, role = 'user', name = null, permissionSetId = null, firstName = null) {
+	await db.prepare('INSERT OR IGNORE INTO allowed_users (email, role, name, first_name, permission_set_id) VALUES (?, ?, ?, ?, ?)')
+		.bind(email.toLowerCase().trim(), role, name, firstName, permissionSetId).run();
+}
+
+export async function updateAllowedUserRole(db, email, role) {
+	await db.prepare('UPDATE allowed_users SET role = ? WHERE email = ?').bind(role, email).run();
+}
+
+export async function updateAllowedUser(db, email, patch) {
+	const fields = [], values = [];
+	for (const [k, v] of Object.entries(patch)) { fields.push(`${k} = ?`); values.push(v); }
+	values.push(email);
+	await db.prepare(`UPDATE allowed_users SET ${fields.join(', ')} WHERE email = ?`).bind(...values).run();
+}
+
+export async function removeAllowedUser(db, email) {
+	await db.prepare('DELETE FROM allowed_users WHERE email = ?').bind(email).run();
+}
+
+// ── Permission Sets ────────────────────────────────────────────────────────────
+
+export async function listPermissionSets(db) {
+	const rows = await db.prepare('SELECT * FROM permission_sets ORDER BY name ASC').all();
+	return rows.results;
+}
+
+export async function getPermissionSet(db, id) {
+	return db.prepare('SELECT * FROM permission_sets WHERE id = ?').bind(id).first();
+}
+
+export async function createPermissionSet(db, id, name, access) {
+	await db.prepare(`
+		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_orders)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`).bind(id, name,
+		access.sheets  ? 1 : 0,
+		access.catalogues ? 1 : 0,
+		access.planograms ? 1 : 0,
+		access.data    ? 1 : 0,
+		access.orders  ? 1 : 0
+	).run();
+}
+
+export async function updatePermissionSet(db, id, patch) {
+	const fields = [], values = [];
+	for (const [k, v] of Object.entries(patch)) { fields.push(`${k} = ?`); values.push(v); }
+	values.push(id);
+	await db.prepare(`UPDATE permission_sets SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+
+export async function deletePermissionSet(db, id) {
+	// Clear references before deleting
+	await db.prepare('UPDATE allowed_users SET permission_set_id = NULL WHERE permission_set_id = ?').bind(id).run();
+	await db.prepare('DELETE FROM permission_sets WHERE id = ?').bind(id).run();
+}
+
+/**
+ * Returns { sheets, catalogues, planograms, data } booleans for a user row.
+ * Admins and users with no permission set get full access.
+ */
+export async function getUserPermissions(db, user) {
+	if (user.role === 'admin' || !user.permission_set_id) {
+		return { sheets: true, catalogues: true, planograms: true, data: true, orders: true, mail: true };
+	}
+	const ps = await getPermissionSet(db, user.permission_set_id);
+	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, orders: true, mail: true };
+	return {
+		sheets:     !!ps.access_sheets,
+		catalogues: !!ps.access_catalogues,
+		planograms: !!ps.access_planograms,
+		data:       !!ps.access_data,
+		orders:     !!ps.access_orders,
+		mail:       !!ps.access_mail,
+	};
+}
+
+// ── Key Accounts ───────────────────────────────────────────────────────────
+export async function listKeyAccounts(db) {
+  const rows = await db.prepare('SELECT * FROM key_accounts ORDER BY name ASC').all();
+  return rows.results ?? [];
+}
+export async function createKeyAccount(db, id, name, language = 'en') {
+  await db.prepare('INSERT INTO key_accounts (id, name, language) VALUES (?, ?, ?)').bind(id, name, language).run();
+}
+export async function updateKeyAccount(db, id, patch) {
+  const fields = [], values = [];
+  if ('name' in patch)     { fields.push('name = ?');     values.push(patch.name); }
+  if ('language' in patch) { fields.push('language = ?'); values.push(patch.language); }
+  if (!fields.length) return;
+  values.push(id);
+  await db.prepare(`UPDATE key_accounts SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+export async function deleteKeyAccount(db, id) {
+  await db.prepare('DELETE FROM key_accounts WHERE id = ?').bind(id).run();
+}
+
+// ── Contacts ───────────────────────────────────────────────────────────────
+export async function listContacts(db) {
+  const rows = await db.prepare(`
+    SELECT c.*, k.name AS key_account_name, k.language AS key_account_language
+    FROM contacts c
+    LEFT JOIN key_accounts k ON k.id = c.key_account_id
+    ORDER BY c.first_name ASC
+  `).all();
+  return rows.results ?? [];
+}
+export async function createContact(db, id, keyAccountId, firstName, email) {
+  await db.prepare('INSERT INTO contacts (id, key_account_id, first_name, email) VALUES (?, ?, ?, ?)')
+    .bind(id, keyAccountId || null, firstName, email).run();
+}
+export async function updateContact(db, id, patch) {
+  const fields = [], values = [];
+  if ('first_name' in patch) { fields.push('first_name = ?'); values.push(patch.first_name); }
+  if ('email' in patch)      { fields.push('email = ?');      values.push(patch.email); }
+  if ('key_account_id' in patch) { fields.push('key_account_id = ?'); values.push(patch.key_account_id || null); }
+  if (!fields.length) return;
+  values.push(id);
+  await db.prepare(`UPDATE contacts SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+export async function deleteContact(db, id) {
+  await db.prepare('DELETE FROM contacts WHERE id = ?').bind(id).run();
+}
+
+// ── Campaigns ──────────────────────────────────────────────────────────────
+export async function listCampaigns(db) {
+  const rows = await db.prepare(`
+    SELECT c.*,
+      (SELECT COUNT(*) FROM campaign_sheets   WHERE campaign_id = c.id) AS sheet_count,
+      (SELECT COUNT(*) FROM campaign_contacts WHERE campaign_id = c.id) AS contact_count
+    FROM campaigns c
+    ORDER BY c.created_at DESC
+  `).all();
+  return rows.results ?? [];
+}
+
+export async function getCampaign(db, id) {
+  return db.prepare('SELECT * FROM campaigns WHERE id = ?').bind(id).first();
+}
+
+export async function createCampaign(db, id, name) {
+  await db.prepare('INSERT INTO campaigns (id, name) VALUES (?, ?)').bind(id, name).run();
+}
+
+export async function updateCampaign(db, id, patch) {
+  const fields = [], values = [];
+  if ('name' in patch) { fields.push('name = ?'); values.push(patch.name); }
+  if (!fields.length) return;
+  values.push(id);
+  await db.prepare(`UPDATE campaigns SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+
+export async function deleteCampaign(db, id) {
+  await db.prepare('DELETE FROM campaigns WHERE id = ?').bind(id).run();
+}
+
+export async function listSheetsSimple(db) {
+  const rows = await db.prepare(`
+    SELECT s.id, s.sku,
+      COALESCE(t.value, s.sku) AS product_name
+    FROM sales_sheets s
+    LEFT JOIN translations t ON t.sheet_id = s.id AND t.language = 'en' AND t.key = 'product_name'
+    ORDER BY s.sku ASC
+  `).all();
+  return rows.results ?? [];
+}
+
+export async function getCampaignSheets(db, campaignId) {
+  const rows = await db.prepare(`
+    SELECT cs.sheet_id, cs.added_at,
+      s.sku,
+      COALESCE(t.value, s.sku) AS product_name
+    FROM campaign_sheets cs
+    JOIN sales_sheets s ON s.id = cs.sheet_id
+    LEFT JOIN translations t ON t.sheet_id = s.id AND t.language = 'en' AND t.key = 'product_name'
+    WHERE cs.campaign_id = ?
+    ORDER BY cs.display_order ASC, cs.added_at ASC
+  `).bind(campaignId).all();
+  return rows.results ?? [];
+}
+
+export async function reorderCampaignSheets(db, campaignId, orderedSheetIds) {
+  const stmts = orderedSheetIds.map((sheetId, i) =>
+    db.prepare('UPDATE campaign_sheets SET display_order = ? WHERE campaign_id = ? AND sheet_id = ?')
+      .bind(i, campaignId, sheetId)
+  );
+  if (stmts.length > 0) await db.batch(stmts);
+}
+
+export async function addCampaignSheet(db, campaignId, sheetId) {
+  await db.prepare('INSERT OR IGNORE INTO campaign_sheets (campaign_id, sheet_id) VALUES (?, ?)')
+    .bind(campaignId, sheetId).run();
+}
+
+export async function removeCampaignSheet(db, campaignId, sheetId) {
+  await db.prepare('DELETE FROM campaign_sheets WHERE campaign_id = ? AND sheet_id = ?')
+    .bind(campaignId, sheetId).run();
+}
+
+export async function getCampaignContacts(db, campaignId) {
+  const rows = await db.prepare(`
+    SELECT cc.contact_id, cc.added_at,
+      c.first_name, c.email, c.key_account_id,
+      k.name AS key_account_name,
+      k.language AS key_account_language
+    FROM campaign_contacts cc
+    JOIN contacts c ON c.id = cc.contact_id
+    LEFT JOIN key_accounts k ON k.id = c.key_account_id
+    WHERE cc.campaign_id = ?
+    ORDER BY
+      CASE WHEN k.name IS NULL THEN 1 ELSE 0 END,
+      k.name ASC,
+      c.first_name ASC
+  `).bind(campaignId).all();
+  return rows.results ?? [];
+}
+
+export async function addCampaignContacts(db, campaignId, contactIds) {
+  for (const id of contactIds) {
+    await db.prepare('INSERT OR IGNORE INTO campaign_contacts (campaign_id, contact_id) VALUES (?, ?)')
+      .bind(campaignId, id).run();
+  }
+}
+
+export async function addCampaignContactsByAccount(db, campaignId, keyAccountId) {
+  await db.prepare(`
+    INSERT OR IGNORE INTO campaign_contacts (campaign_id, contact_id)
+    SELECT ?, id FROM contacts WHERE key_account_id = ?
+  `).bind(campaignId, keyAccountId).run();
+}
+
+export async function removeCampaignContact(db, campaignId, contactId) {
+  await db.prepare('DELETE FROM campaign_contacts WHERE campaign_id = ? AND contact_id = ?')
+    .bind(campaignId, contactId).run();
+}
+
+export async function getCampaignSheetsAllTranslations(db, campaignId) {
+  // Returns one entry per sheet with all 4 languages' translations nested under .tr
+  const rows = await db.prepare(`
+    SELECT
+      cs.sheet_id, cs.added_at,
+      s.sku, s.box_image_key, s.share_token, s.data_fields,
+      COALESCE(s.usp_count, 3) AS usp_count,
+      t.language, t.key, t.value
+    FROM campaign_sheets cs
+    JOIN sales_sheets s ON s.id = cs.sheet_id
+    LEFT JOIN translations t ON t.sheet_id = s.id
+      AND t.language IN ('en', 'da', 'sv', 'no')
+      AND t.key IN ('product_name','product_description','usp_1','usp_2','usp_3','usp_4','usp_5','usp_6')
+    WHERE cs.campaign_id = ?
+    ORDER BY cs.display_order ASC, cs.added_at ASC, t.language, t.key
+  `).bind(campaignId).all();
+
+  const sheetsMap = new Map();
+  const sheetOrder = [];
+  for (const row of (rows.results ?? [])) {
+    if (!sheetsMap.has(row.sheet_id)) {
+      sheetsMap.set(row.sheet_id, {
+        sheet_id: row.sheet_id,
+        sku: row.sku,
+        box_image_key: row.box_image_key,
+        share_token: row.share_token,
+        data_fields: row.data_fields,
+        usp_count: row.usp_count,
+        tr: { en: {}, da: {}, sv: {}, no: {} },
+      });
+      sheetOrder.push(row.sheet_id);
+    }
+    if (row.language && row.key && row.value != null) {
+      sheetsMap.get(row.sheet_id).tr[row.language][row.key] = row.value;
+    }
+  }
+  return sheetOrder.map(id => sheetsMap.get(id));
+}
+
+/**
+ * Log that a campaign was sent (or scheduled) to a list of contacts.
+ * Safe to call multiple times — duplicate rows are ignored.
+ */
+export async function logCampaignSend(db, campaignId, contactIds) {
+  if (!contactIds.length) return;
+  const stmts = contactIds.map(contactId =>
+    db.prepare(
+      'INSERT OR IGNORE INTO campaign_send_log (id, campaign_id, contact_id) VALUES (?, ?, ?)'
+    ).bind(crypto.randomUUID(), campaignId, contactId)
+  );
+  await db.batch(stmts);
+}
+
+/**
+ * For the sheets attached to a given campaign, return every (contact_id, sheet_id)
+ * pair where the contact has previously been sent a campaign that contained that sheet.
+ * Returns an array of "contactId:sheetId" strings for fast Set-based lookup.
+ */
+export async function getContactSheetHistory(db, campaignId) {
+  const rows = await db.prepare(`
+    SELECT DISTINCT csl.contact_id, cs.sheet_id
+    FROM campaign_send_log csl
+    JOIN campaign_sheets cs ON cs.campaign_id = csl.campaign_id
+    WHERE cs.sheet_id IN (
+      SELECT sheet_id FROM campaign_sheets WHERE campaign_id = ?
+    )
+  `).bind(campaignId).all();
+  return (rows.results ?? []).map(r => `${r.contact_id}:${r.sheet_id}`);
 }

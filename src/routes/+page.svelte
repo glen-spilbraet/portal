@@ -12,6 +12,23 @@
 		});
 	}
 
+	const LANGS = ['en', 'da', 'sv', 'no'];
+
+	// Returns 'complete' | 'partial' | 'empty' for a sheet+language
+	function langStatus(sheet, lang) {
+		const name = sheet[`name_${lang}`];
+		if (!name?.trim()) return 'empty';
+		const needed = sheet.usp_count ?? 3;
+		const filled = sheet[`usp_filled_${lang}`] ?? 0;
+		return (needed === 0 || filled >= needed) ? 'complete' : 'partial';
+	}
+
+	function creatorName(sheet) {
+		if (sheet.creator_first_name) return sheet.creator_first_name;
+		if (sheet.created_by) return sheet.created_by.split('@')[0];
+		return null;
+	}
+
 	let query = $state('');
 
 	let searchIndex = $derived(
@@ -40,7 +57,7 @@
 
 
 <div class="page">
-	<AppNav active="sheets" />
+	<AppNav active="sheets" user={data.user} />
 
 	<main>
 		<div class="page-header">
@@ -106,10 +123,22 @@
 						<div class="card-body">
 							<div class="card-meta">
 								<span class="sku">{sheet.sku}</span>
-								<span class="badge {sheet.status}">{sheet.status}</span>
+								<div class="lang-pills">
+									{#each LANGS as lang}
+										{@const status = langStatus(sheet, lang)}
+										{#if status !== 'empty'}
+											<span class="lang-pill lang-pill-{status}" title="{lang.toUpperCase()}: {status}">
+												{lang.toUpperCase()}
+											</span>
+										{/if}
+									{/each}
+								</div>
 							</div>
 							<h2>{sheet._display || '(untitled)'}</h2>
-							<p class="date">{formatDate(sheet.updated_at)}</p>
+							<p class="date">
+								{formatDate(sheet.updated_at)}
+								{#if creatorName(sheet)}<span class="created-by">· {creatorName(sheet)}</span>{/if}
+							</p>
 						</div>
 
 						<div class="card-footer">
@@ -297,7 +326,7 @@
 	.card-thumb {
 		display: block;
 		height: 176px;
-		background: #F9F7F3;
+		background: white;
 		overflow: hidden;
 		text-decoration: none;
 		border-bottom: 1px solid var(--border);
@@ -344,17 +373,22 @@
 		text-transform: uppercase;
 	}
 
-	.badge {
+	.lang-pills {
+		display: flex;
+		gap: 4px;
+		flex-wrap: wrap;
+	}
+
+	.lang-pill {
 		font-size: 10px;
 		font-weight: 700;
-		padding: 2px 7px;
+		padding: 2px 6px;
 		border-radius: 100px;
-		text-transform: uppercase;
 		letter-spacing: 0.3px;
 	}
 
-	.badge.draft { background: #F4F4F5; color: #71717A; }
-	.badge.published { background: #DCFCE7; color: #15803D; }
+	.lang-pill-complete  { background: #DCFCE7; color: #15803D; }
+	.lang-pill-partial   { background: #F4F4F5; color: #71717A; }
 
 	h2 {
 		font-size: 15px;
@@ -370,6 +404,7 @@
 		font-weight: 500;
 		margin-top: 1px;
 	}
+	.created-by { color: #C4B99A; }
 
 	.card-footer {
 		padding: 10px 14px 12px;

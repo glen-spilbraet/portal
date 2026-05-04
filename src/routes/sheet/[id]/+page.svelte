@@ -76,6 +76,82 @@
 
 	let ctaOpen = $state(false);
 	let visibilityOpen = $state(false);
+	let addFieldOpen = $state(false);
+
+	let refreshing = $state(false);
+	let refreshFeedback = $state('');
+	let refreshTimer = null;
+
+	async function refreshFromRackbeat() {
+		if (refreshing) return;
+		refreshing = true;
+		refreshFeedback = '';
+		try {
+			const res = await fetch(`/api/sheets/${data.sheet.id}/refresh`, { method: 'POST' });
+			if (res.ok) {
+				const body = await res.json();
+				// Push updated data_fields into the canvas
+				canvas?.applyRefreshedFields(body.data_fields);
+				refreshFeedback = 'Updated!';
+			} else {
+				refreshFeedback = 'Failed';
+			}
+		} catch {
+			refreshFeedback = 'Failed';
+		}
+		refreshing = false;
+		clearTimeout(refreshTimer);
+		refreshTimer = setTimeout(() => refreshFeedback = '', 3000);
+	}
+
+	// ── Share link ────────────────────────────────────────────────────────
+	let shareCopied = $state(false);
+	let shareTimer = null;
+
+	async function copyShareLink() {
+		const token = data.sheet.share_token;
+		if (!token) return;
+		const url = `${window.location.origin}/share/sheet/${token}`;
+		try {
+			await navigator.clipboard.writeText(url);
+			shareCopied = true;
+			clearTimeout(shareTimer);
+			shareTimer = setTimeout(() => shareCopied = false, 2500);
+		} catch {
+			prompt('Copy this link:', url);
+		}
+	}
+
+	let copyFeedback = $state('');
+	let pasteFeedback = $state('');
+	let copyTimer = null;
+	let pasteTimer = null;
+
+	async function copyTranslation() {
+		const text = canvas?.getTranslationCopyText();
+		if (!text) { copyFeedback = 'Nothing to copy'; copyTimer = setTimeout(() => copyFeedback = '', 2000); return; }
+		try {
+			await navigator.clipboard.writeText(text);
+			copyFeedback = 'Copied!';
+		} catch {
+			copyFeedback = 'Copy failed';
+		}
+		clearTimeout(copyTimer);
+		copyTimer = setTimeout(() => copyFeedback = '', 2000);
+	}
+
+	async function pasteTranslation() {
+		try {
+			const text = await navigator.clipboard.readText();
+			if (!text?.trim()) { pasteFeedback = 'Clipboard empty'; pasteTimer = setTimeout(() => pasteFeedback = '', 2000); return; }
+			await canvas?.applyTranslationPaste(text);
+			pasteFeedback = 'Pasted!';
+		} catch {
+			pasteFeedback = 'Paste failed';
+		}
+		clearTimeout(pasteTimer);
+		pasteTimer = setTimeout(() => pasteFeedback = '', 2000);
+	}
 </script>
 
 <div class="editor-page">
@@ -112,6 +188,22 @@
 				<span class="save-dot"></span>
 				{statusLabel}
 			</div>
+			{#if data.sheet.share_token}
+				<button class="btn-share" class:btn-share-copied={shareCopied} onclick={copyShareLink} title="Copy public share link">
+					{#if shareCopied}
+						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+							<polyline points="20 6 9 17 4 12"/>
+						</svg>
+						Copied!
+					{:else}
+						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+							<line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+						</svg>
+						Share
+					{/if}
+				</button>
+			{/if}
 			<a href="/sheet/{data.sheet.id}/preview?lang={language}" target="_blank" class="btn-preview">
 				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
@@ -142,11 +234,63 @@
 
 	<!-- Floating action panel -->
 	<div class="action-panel">
+		<button
+			class="panel-btn"
+			class:panel-btn-refreshing={refreshing}
+			onclick={refreshFromRackbeat}
+			disabled={refreshing}
+			title="Overwrite data fields with latest values from Rackbeat"
+		>
+			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class:spin={refreshing}>
+				<polyline points="23 4 23 10 17 10"/>
+				<path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+			</svg>
+			{refreshFeedback || (refreshing ? 'Refreshing…' : 'Refresh data')}
+		</button>
+		<div class="panel-divider"></div>
+		<button class="panel-btn visibility-toggle-btn" onclick={() => addFieldOpen = !addFieldOpen}>
+			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+				<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
+			</svg>
+			Add field
+			<svg class="chevron" class:open={addFieldOpen} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+				<polyline points="6 9 12 15 18 9"/>
+			</svg>
+		</button>
+		{#if addFieldOpen}
+			<button class="panel-btn toggle-btn" onclick={() => { canvas?.addDataFieldFromPanel('left'); addFieldOpen = false; }}>
+				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1" opacity="0.3"/>
+				</svg>
+				Left column
+			</button>
+			<button class="panel-btn toggle-btn" onclick={() => { canvas?.addDataFieldFromPanel('right'); addFieldOpen = false; }}>
+				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<rect x="3" y="3" width="8" height="18" rx="1" opacity="0.3"/><rect x="13" y="3" width="8" height="18" rx="1"/>
+				</svg>
+				Right column
+			</button>
+		{/if}
+		<div class="panel-divider"></div>
 		<button class="panel-btn" onclick={() => canvas?.addUspFromPanel()} title="Add bullet point">
 			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
 				<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
 			</svg>
 			Add bullet
+		</button>
+		<div class="panel-divider"></div>
+		<button class="panel-btn" onclick={copyTranslation} title="Copy description and bullets for translation">
+			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+			</svg>
+			{copyFeedback || 'Copy text'}
+		</button>
+		<button class="panel-btn" onclick={pasteTranslation} title="Paste translation text back">
+			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/>
+				<rect x="8" y="2" width="8" height="4" rx="1"/>
+			</svg>
+			{pasteFeedback || 'Paste text'}
 		</button>
 		<div class="panel-divider"></div>
 		<button class="panel-btn" onclick={() => canvas?.triggerPhotoUpload()} title="Add grid photo">
@@ -366,6 +510,31 @@
 	.btn-preview:hover { background: #E06820; }
 	.btn-preview:active { transform: scale(0.97); }
 
+	.btn-share {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 14px;
+		background: white;
+		color: #52525B;
+		border: 1px solid var(--border);
+		border-radius: 100px;
+		font-size: 12.5px;
+		font-weight: 600;
+		font-family: inherit;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
+		letter-spacing: -0.1px;
+	}
+	.btn-share:hover { background: #F4F4F5; color: #18181B; }
+	.btn-share:active { transform: scale(0.97); }
+	.btn-share-copied {
+		background: #F0FDF4;
+		color: #15803D;
+		border-color: #86EFAC;
+	}
+	.btn-share-copied:hover { background: #DCFCE7; color: #15803D; }
+
 	/* ── Canvas wrap ─────────────────────────────────────────────────────── */
 	.canvas-wrap {
 		flex: 1;
@@ -441,4 +610,10 @@
 	.cta-opt.cta-active { color: #148246; font-weight: 700; background: #F0FDF4; }
 	.cta-opt:hover { background: #F4F4F5; color: #18181B; }
 	.cta-opt.cta-active:hover { background: #DCFCE7; }
+
+	@keyframes spin { to { transform: rotate(360deg); } }
+	.spin { animation: spin 0.8s linear infinite; }
+	.panel-btn:disabled { opacity: 0.7; cursor: default; }
+	.panel-btn:disabled:hover { background: none; color: #52525B; }
+	.panel-btn:disabled:hover svg { color: #71717A; }
 </style>

@@ -59,8 +59,8 @@
 		if (!dataFields.find(f => f.key === bk)) dataFields.push({ key: bk, label: bk, value: '' });
 	}
 
-	let dataColLeft  = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => f.key !== 'stock_date' && f.key !== 'colli' && !RIGHT_KEYS.includes(f.key) && !BADGE_KEYS.includes(f.key)));
-	let dataColRight = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => RIGHT_KEYS.includes(f.key)));
+	let dataColLeft  = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => f.key !== 'stock_date' && f.key !== 'colli' && !RIGHT_KEYS.includes(f.key) && !BADGE_KEYS.includes(f.key) && f.column !== 'right'));
+	let dataColRight = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => RIGHT_KEYS.includes(f.key) || f.column === 'right'));
 
 	let ageIdx     = $derived(dataFields.findIndex(f => f.key === 'age'));
 	let timeIdx    = $derived(dataFields.findIndex(f => f.key === 'time'));
@@ -118,8 +118,10 @@
 	}
 
 	// ── Data fields ───────────────────────────────────────────────────────
-	function addDataField() {
-		dataFields = [...dataFields, { key: `field_${Date.now()}`, label: 'Label', value: '' }];
+	function addDataField(column = 'left') {
+		const field = { key: `field_${Date.now()}`, label: 'Label', value: '' };
+		if (column === 'right') field.column = 'right';
+		dataFields = [...dataFields, field];
 		saveChange({ type: 'sheet', field: 'data_fields', value: JSON.stringify(dataFields) });
 	}
 
@@ -250,6 +252,62 @@
 	// ── Exposed to parent via bind:this ───────────────────────────────────
 	export function addUspFromPanel() { addUsp(); }
 	export function triggerPhotoUpload() { panelFileInput?.click(); }
+	export function addDataFieldFromPanel(column) { addDataField(column); }
+
+	export function applyRefreshedFields(newFields) {
+		if (!Array.isArray(newFields)) return;
+		dataFields = newFields;
+	}
+
+	export function getTranslationCopyText() {
+		const parts = [];
+		if (productDescription?.trim()) {
+			parts.push(`## Description\n${productDescription.trim()}`);
+		}
+		for (let i = 0; i < uspCount; i++) {
+			const val = uspValues[i]?.trim();
+			if (val) parts.push(`## Bullet ${i + 1}\n${val}`);
+		}
+		return parts.join('\n\n');
+	}
+
+	export async function applyTranslationPaste(text) {
+		if (!text?.trim()) return;
+		// Parse sections: ## <heading>\n<content>
+		const sections = text.split(/\n(?=## )/);
+		let newDesc = null;
+		const newBullets = {};
+		for (const section of sections) {
+			const lines = section.trim().split('\n');
+			const heading = lines[0]?.replace(/^## /, '').trim().toLowerCase();
+			const content = lines.slice(1).join('\n').trim();
+			if (!heading || !content) continue;
+			if (heading === 'description') {
+				newDesc = content;
+			} else {
+				const m = heading.match(/^bullet\s+(\d+)$/);
+				if (m) newBullets[parseInt(m[1], 10)] = content;
+			}
+		}
+		if (newDesc !== null) {
+			productDescription = newDesc;
+			localOverrides.product_description = true;
+			await saveChange({ type: 'translation', language, key: 'product_description', value: newDesc });
+		}
+		for (const [num, val] of Object.entries(newBullets)) {
+			const idx = parseInt(num, 10) - 1;
+			if (idx < 0 || idx >= 6) continue;
+			// Extend uspCount if needed
+			if (idx >= uspCount) {
+				uspCount = idx + 1;
+				await saveChange({ type: 'sheet', field: 'usp_count', value: uspCount });
+			}
+			uspValues[idx] = val;
+			const key = `usp_${idx + 1}`;
+			localOverrides[key] = true;
+			await saveChange({ type: 'translation', language, key, value: val });
+		}
+	}
 </script>
 
 <div class="sheet" class:editing={editable}>
@@ -472,9 +530,6 @@
 				</tbody>
 			</table>
 		</div>
-		{#if editable}
-			<button class="add-field" onclick={addDataField}>+ Add field</button>
-		{/if}
 	</div>
 	{/if}
 </div>

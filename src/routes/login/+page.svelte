@@ -1,6 +1,16 @@
 <script>
-	import { enhance } from '$app/forms';
-	let { data, form } = $props();
+	let { data } = $props();
+
+	const errorMessages = {
+		not_allowed: data.blockedEmail
+			? `${data.blockedEmail} doesn't have access. Contact an admin.`
+			: 'Your Google account doesn\'t have access. Contact an admin.',
+		access_denied: 'Sign-in was cancelled.',
+		token_exchange_failed: 'Something went wrong. Please try again.',
+		invalid_token: 'Something went wrong. Please try again.',
+		no_email: 'Could not read your Google email address.',
+	};
+	const errorText = data.error ? (errorMessages[data.error] ?? 'Sign-in failed. Please try again.') : null;
 </script>
 
 <svelte:head>
@@ -19,30 +29,23 @@
 			</div>
 			<h1>Product Portal</h1>
 		</div>
-		<p class="subtitle">Enter your password to continue</p>
+		<p class="subtitle">Sign in with your Google account to continue</p>
 
-		<form method="POST" use:enhance>
-			<input type="hidden" name="next" value={data.next} />
+		{#if errorText}
+			<div class="error">{errorText}</div>
+		{/if}
 
-			{#if form?.error}
-				<p class="error">{form.error}</p>
-			{/if}
+		<a href="/auth/google?next={encodeURIComponent(data.next)}" class="google-btn">
+			<svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+				<path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+				<path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
+				<path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+				<path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+			</svg>
+			Sign in with Google
+		</a>
 
-			<div class="field">
-				<label for="password">Password</label>
-				<input
-					id="password"
-					name="password"
-					type="password"
-					placeholder="Enter password"
-					autocomplete="current-password"
-					required
-					autofocus
-				/>
-			</div>
-
-			<button type="submit" class="btn-primary">Sign in</button>
-		</form>
+		<p class="hint">Only pre-approved accounts can access this portal.</p>
 	</div>
 </div>
 
@@ -97,68 +100,48 @@
 		color: #A89060;
 		font-size: 14px;
 		font-weight: 500;
-		margin-bottom: 32px;
+		margin-bottom: 28px;
 		margin-top: 4px;
 	}
 
-	.field {
-		text-align: left;
-		margin-bottom: 20px;
-	}
-
-	label {
-		display: block;
-		font-size: 13px;
-		font-weight: 700;
-		margin-bottom: 6px;
-		color: #52525B;
-	}
-
-	input {
+	.google-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
 		width: 100%;
-		padding: 10px 14px;
-		border: 1px solid var(--border);
-		border-radius: 10px;
-		font-size: 15px;
-		font-family: inherit;
-		outline: none;
-		background: #FFFBF0;
-		transition: border-color 0.15s, box-shadow 0.15s;
-	}
-
-	input:focus {
-		border-color: #F57832;
-		box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.15);
+		padding: 11px 16px;
 		background: white;
-	}
-
-	.btn-primary {
-		width: 100%;
-		padding: 12px;
-		background: #F57832;
-		color: white;
-		border: none;
+		color: #3c4043;
+		border: 1px solid #dadce0;
 		border-radius: 10px;
 		font-size: 15px;
-		font-weight: 700;
+		font-weight: 600;
 		font-family: inherit;
+		text-decoration: none;
 		transition: background 0.15s, box-shadow 0.15s;
-		box-shadow: 0 4px 14px rgba(245, 120, 50, 0.35);
+		box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+	}
+	.google-btn:hover {
+		background: #f8f8f8;
+		box-shadow: 0 2px 8px rgba(0,0,0,0.12);
 	}
 
-	.btn-primary:hover {
-		background: #E06820;
-		box-shadow: 0 6px 20px rgba(245, 120, 50, 0.45);
+	.hint {
+		margin-top: 20px;
+		font-size: 12px;
+		color: #bbb;
 	}
 
 	.error {
 		background: #fef2f2;
 		border: 1px solid #fecaca;
-		color: var(--danger);
+		color: #dc2626;
 		border-radius: 8px;
 		padding: 10px 14px;
 		font-size: 13px;
 		font-weight: 600;
-		margin-bottom: 16px;
+		margin-bottom: 20px;
+		text-align: left;
 	}
 </style>

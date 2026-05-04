@@ -4,9 +4,8 @@ import { error } from '@sveltejs/kit';
 
 export async function GET({ params, cookies, platform, url }) {
 	const token = cookies.get('session');
-	if (!verifySession(token ?? '', platform?.env?.APP_SECRET ?? 'dev-secret')) {
-		error(401, 'Unauthorized');
-	}
+	const email = await verifySession(token ?? '', platform?.env?.APP_SECRET ?? 'dev-secret');
+	if (!email) error(401, 'Unauthorized');
 
 	const browser = platform?.env?.BROWSER;
 	if (!browser) error(500, 'Browser rendering unavailable');

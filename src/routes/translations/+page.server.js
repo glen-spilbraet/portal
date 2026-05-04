@@ -1,7 +1,9 @@
-import { fail } from '@sveltejs/kit';
+import { fail, error } from '@sveltejs/kit';
 import { getGlobalLabels, upsertGlobalLabel, listCtaVersions } from '$lib/db.js';
 
-export async function load({ platform }) {
+export async function load({ parent, platform }) {
+	const { user } = await parent();
+	if (user?.role !== 'admin') error(403, 'Admins only');
 	const db = platform?.env?.DB;
 	if (!db) return { globalLabels: {}, ctaVersions: [] };
 	const [globalLabels, ctaVersions] = await Promise.all([getGlobalLabels(db), listCtaVersions(db)]);

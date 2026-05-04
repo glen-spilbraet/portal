@@ -6,31 +6,62 @@ async function importKey(secret) {
 	return crypto.subtle.importKey('raw', raw, ALGO, false, ['sign', 'verify']);
 }
 
-/** Creates a signed session token */
-export async function createSession(secret) {
-	const key = await importKey(secret);
-	const ts = Date.now().toString();
-	const sig = await crypto.subtle.sign(ALGO, key, new TextEncoder().encode(ts));
-	const hex = Array.from(new Uint8Array(sig))
-		.map((b) => b.toString(16).padStart(2, '0'))
+function hexEncode(buf) {
+	return Array.from(new Uint8Array(buf))
+		.map(b => b.toString(16).padStart(2, '0'))
 		.join('');
-	return `${ts}.${hex}`;
+}
+function hexDecode(hex) {
+	return new Uint8Array((hex.match(/.{2}/g) ?? []).map(b => parseInt(b, 16)));
 }
 
-/** Returns true if the token is valid and not expired */
+/**
+ * Creates a signed session token that embeds the user's email.
+ * Format: base64url(email|timestamp) . hex(hmac)
+ */
+export async function createSession(email, secret) {
+	const key = await importKey(secret);
+	const ts = Date.now().toString();
+	const payload = `${email}|${ts}`;
+	const encoded = btoa(payload).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+	const sig = await crypto.subtle.sign(ALGO, key, new TextEncoder().encode(payload));
+	return `${encoded}.${hexEncode(sig)}`;
+}
+
+/**
+ * Verifies a session token and returns the embedded email, or null if invalid/expired.
+ */
 export async function verifySession(token, secret) {
-	if (!token) return false;
-	const dot = token.indexOf('.');
-	if (dot === -1) return false;
-	const ts = token.slice(0, dot);
-	const hex = token.slice(dot + 1);
-	if (Date.now() - parseInt(ts) > SESSION_TTL_MS) return false;
+	if (!token) return null;
+	const dot = token.lastIndexOf('.');
+	if (dot === -1) return null;
+
+	const encoded = token.slice(0, dot);
+	const hexSig = token.slice(dot + 1);
+
+	let payload;
+	try {
+		// Restore base64 padding
+		const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+		payload = atob(b64);
+	} catch {
+		return null;
+	}
+
+	const pipeIdx = payload.lastIndexOf('|');
+	if (pipeIdx === -1) return null;
+	const email = payload.slice(0, pipeIdx);
+	const ts = payload.slice(pipeIdx + 1);
+
+	if (Date.now() - parseInt(ts) > SESSION_TTL_MS) return null;
+
 	try {
 		const key = await importKey(secret);
-		const sig = new Uint8Array((hex.match(/.{2}/g) ?? []).map((b) => parseInt(b, 16)));
-		return await crypto.subtle.verify(ALGO, key, sig, new TextEncoder().encode(ts));
+		const sig = hexDecode(hexSig);
+		const valid = await crypto.subtle.verify(ALGO, key, sig, new TextEncoder().encode(payload));
+		return valid ? email : null;
 	} catch {
-		return false;
+		return null;
 	}
 }
 

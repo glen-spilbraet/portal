@@ -59,10 +59,10 @@
 
 		<button class="btn-print" onclick={downloadPdf} disabled={downloading}>
 			{#if downloading}
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.8s linear infinite">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="spin">
 					<path d="M21 12a9 9 0 11-6.219-8.56"/>
 				</svg>
-				Generating…
+				Exporting PDF…
 			{:else}
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
@@ -174,6 +174,7 @@
 	.btn-print:hover:not(:disabled) { background: #E06820; }
 	.btn-print:active:not(:disabled) { transform: scale(0.97); }
 	.btn-print:disabled { opacity: 0.7; cursor: not-allowed; }
+	.spin { animation: spin 0.8s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }
 
 	.sheet-wrap { display: flex; justify-content: center; padding: 40px 24px 80px; }

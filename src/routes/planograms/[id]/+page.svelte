@@ -97,6 +97,7 @@
 	let showSwatchModal = $state(false);
 	let showClearConfirm = $state(false);
 
+
 	// Photo modal state
 	let photoModalStep = $state('upload'); // upload | sku | confirm | error
 	let photoModalFile = $state(null);
@@ -122,6 +123,24 @@
 	let importSelected = $state(new Set());
 	let importLoading = $state(false);
 	let importBusy = $state(false);
+	let importSearch = $state('');
+	let importMaxW = $state('');
+	let importMaxH = $state('');
+
+	const importFiltered = $derived.by(() => {
+		const text = importSearch.trim().toLowerCase();
+		const maxW = parseFloat(importMaxW);
+		const maxH = parseFloat(importMaxH);
+		const hasFilter = text.length > 0 || (maxW > 0 && !isNaN(maxW)) || (maxH > 0 && !isNaN(maxH));
+		let list = importItems;
+		if (text) list = list.filter(i =>
+			i.sku.toLowerCase().includes(text) ||
+			(i.name ?? '').toLowerCase().includes(text)
+		);
+		if (!isNaN(maxW) && maxW > 0) list = list.filter(i => i.widthCm <= maxW);
+		if (!isNaN(maxH) && maxH > 0) list = list.filter(i => i.heightCm <= maxH);
+		return hasFilter ? list : list.slice(0, 10);
+	});
 
 	// Swap modal
 	let swapTargetId = $state(null);
@@ -701,13 +720,22 @@
 		if (!sku) return;
 		photoModalBusy = true; photoModalError = '';
 		try {
-			const data = await fetchProduct(sku);
-			photoModalProduct = data; // { name, width, height, sizeUnit }
-			const unit = data.sizeUnit || 'cm';
-			const wC = toCm(data.width || 0, unit);
-			const hC = toCm(data.height || 0, unit);
-			photoModalW = wC > 0 ? String(wC) : '';
-			photoModalH = hC > 0 ? String(hC) : '';
+			// Check the global item library first
+			const libRes = await fetch(`/api/item-library/${encodeURIComponent(sku)}`);
+			if (libRes.ok) {
+				const lib = await libRes.json();
+				photoModalProduct = { name: lib.name || sku, width: lib.widthCm, height: lib.heightCm, sizeUnit: 'cm' };
+				photoModalW = String(lib.widthCm);
+				photoModalH = String(lib.heightCm);
+			} else {
+				const data = await fetchProduct(sku);
+				photoModalProduct = data;
+				const unit = data.sizeUnit || 'cm';
+				const wC = toCm(data.width || 0, unit);
+				const hC = toCm(data.height || 0, unit);
+				photoModalW = wC > 0 ? String(wC) : '';
+				photoModalH = hC > 0 ? String(hC) : '';
+			}
 			photoModalStep = 'confirm';
 		} catch (err) {
 			photoModalError = err.message || 'Failed to look up product.';
@@ -748,13 +776,22 @@
 		if (!sku) return;
 		phBusy = true; phError = '';
 		try {
-			const data = await fetchProduct(sku);
-			phProduct = data; // { name, width, height, sizeUnit }
-			const unit = data.sizeUnit || 'cm';
-			const wC = toCm(data.width || 0, unit);
-			const hC = toCm(data.height || 0, unit);
-			phW = wC > 0 ? String(wC) : '';
-			phH = hC > 0 ? String(hC) : '';
+			// Check the global item library first
+			const libRes = await fetch(`/api/item-library/${encodeURIComponent(sku)}`);
+			if (libRes.ok) {
+				const lib = await libRes.json();
+				phProduct = { name: lib.name || sku, width: lib.widthCm, height: lib.heightCm, sizeUnit: 'cm' };
+				phW = String(lib.widthCm);
+				phH = String(lib.heightCm);
+			} else {
+				const data = await fetchProduct(sku);
+				phProduct = data;
+				const unit = data.sizeUnit || 'cm';
+				const wC = toCm(data.width || 0, unit);
+				const hC = toCm(data.height || 0, unit);
+				phW = wC > 0 ? String(wC) : '';
+				phH = hC > 0 ? String(hC) : '';
+			}
 		} catch (err) {
 			phError = err.message;
 		}
@@ -778,6 +815,7 @@
 	// ── Import modal ───────────────────────────────────────────────────────────
 	async function openImportModal() {
 		importItems = []; importSelected = new Set(); importLoading = true;
+		importSearch = ''; importMaxW = ''; importMaxH = '';
 		showImportModal = true;
 		try {
 			const res = await fetch(`/api/planograms/${projectId}/import-candidates`);
@@ -798,20 +836,21 @@
 		const toImport = importItems.filter(i => importSelected.has(i.id));
 		for (const item of toImport) {
 			try {
-				const newId = await apiAddItem(item.sku, item.name, item.widthCm, item.heightCm, item.isPlaceholder);
-				if (!item.isPlaceholder) {
+				const isPlaceholder = !item.hasPhoto;
+				const newId = await apiAddItem(item.sku, item.name, item.widthCm, item.heightCm, isPlaceholder);
+				if (item.hasPhoto) {
 					try {
-						const photoRes = await fetch(`/api/planograms/${item.projectId}/items/${item.id}/photo`);
+						const photoRes = await fetch(`/api/item-library/${encodeURIComponent(item.sku)}/photo`);
 						if (photoRes.ok) {
 							const blob = await photoRes.blob();
 							await fetch(`/api/planograms/${projectId}/items/${newId}/photo`, {
 								method: 'POST', headers: { 'Content-Type': blob.type || 'image/jpeg' }, body: blob,
 							});
 						}
-					} catch { /* photo copy failed */ }
+					} catch { /* photo copy failed — item added as placeholder */ }
 				}
-				const entry = { id: newId, sku: item.sku, name: item.name, widthCm: item.widthCm, heightCm: item.heightCm, isPlaceholder: item.isPlaceholder };
-				if (!item.isPlaceholder) entry.photoUrl = photoUrl(newId);
+				const entry = { id: newId, sku: item.sku, name: item.name, widthCm: item.widthCm, heightCm: item.heightCm, isPlaceholder };
+				if (!isPlaceholder) entry.photoUrl = photoUrl(newId);
 				productLibrary = [...productLibrary, entry];
 			} catch { /* skip */ }
 		}
@@ -1453,55 +1492,86 @@
 	<div class="overlay" onclick={(e) => { if (e.target === e.currentTarget) showImportModal = false; }}>
 		<div class="product-dialog" style="max-width:680px;width:90vw;padding:28px 28px 20px">
 			<button class="modal-close" onclick={() => showImportModal = false}>✕</button>
-			<h2>Import from other projects</h2>
-			<p class="modal-sub">Select products to copy into this project.</p>
+			<h2>Import from library</h2>
+			<p class="modal-sub">Select products from the global item library to add to this project.</p>
+
 			{#if importLoading}
 				<div style="text-align:center;padding:32px;color:#aaa">Loading…</div>
 			{:else if importItems.length === 0}
-				<div style="text-align:center;padding:32px;color:#aaa">No products found in other projects.</div>
+				<div style="text-align:center;padding:32px;color:#aaa">The item library is empty. Add products to a planogram first.</div>
 			{:else}
-				<div style="overflow-x:auto;margin-top:16px">
+				<div style="overflow-x:auto;margin-top:14px">
 					<table style="width:100%;border-collapse:collapse;font-size:0.82rem">
 						<thead>
+							<!-- Search row — aligns with table columns -->
+							<tr class="import-search-row">
+								<td colspan="4" style="padding:0 8px 8px 4px;">
+									<div class="import-search-wrap">
+										<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="flex-shrink:0;opacity:0.35">
+											<circle cx="6.5" cy="6.5" r="4.5"/><line x1="10.5" y1="10.5" x2="14" y2="14"/>
+										</svg>
+										<input type="search" placeholder="Search SKU or name…" bind:value={importSearch} class="import-search-input" />
+									</div>
+								</td>
+								<td style="padding:0 10px 8px;">
+									<input type="number" min="0" step="0.1" placeholder="Max W" bind:value={importMaxW} class="import-num-input" />
+								</td>
+								<td style="padding:0 10px 8px;">
+									<input type="number" min="0" step="0.1" placeholder="Max H" bind:value={importMaxH} class="import-num-input" />
+								</td>
+							</tr>
+							<!-- Column headers -->
 							<tr style="border-bottom:1.5px solid #e8e6e1;text-align:left">
 								<th style="padding:6px 10px 8px 4px;font-weight:600;color:#888;width:32px">
 									<input type="checkbox"
-										checked={importSelected.size === importItems.length && importItems.length > 0}
-										onchange={(e) => { const s = new Set(); if (e.target.checked) importItems.forEach(i => s.add(i.id)); importSelected = s; }} />
+										checked={importFiltered.length > 0 && importFiltered.every(i => importSelected.has(i.id))}
+										onchange={(e) => {
+											const next = new Set(importSelected);
+											if (e.target.checked) importFiltered.forEach(i => next.add(i.id));
+											else importFiltered.forEach(i => next.delete(i.id));
+											importSelected = next;
+										}} />
 								</th>
 								<th style="padding:6px 10px 8px;color:#888;width:60px">Preview</th>
 								<th style="padding:6px 10px 8px;color:#888">SKU</th>
 								<th style="padding:6px 10px 8px;color:#888">Name</th>
-								<th style="padding:6px 10px 8px;color:#888">Project</th>
+								<th style="padding:6px 10px 8px;color:#888;text-align:right">W (cm)</th>
+								<th style="padding:6px 10px 8px;color:#888;text-align:right">H (cm)</th>
 							</tr>
 						</thead>
 						<tbody>
-							{#each importItems as item (item.id)}
-								<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-								<tr style="border-bottom:1px solid #f0ede8;cursor:pointer" class:import-selected={importSelected.has(item.id)}
-									onclick={() => toggleImportItem(item.id, !importSelected.has(item.id))}>
-									<td style="padding:6px 4px">
-										<input type="checkbox" checked={importSelected.has(item.id)}
-											onclick={(e) => e.stopPropagation()}
-											onchange={(e) => toggleImportItem(item.id, e.target.checked)} />
-									</td>
-									<td style="padding:6px 10px">
-										{#if item.isPlaceholder}
-											<div style="width:40px;height:40px;background:#e8e4f0;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:0.6rem;font-weight:700;color:#5a4a7a;text-align:center;word-break:break-all;padding:3px">{item.sku}</div>
-										{:else}
-											<img src="/api/planograms/{item.projectId}/items/{item.id}/photo" alt={item.sku}
-												style="width:40px;height:40px;object-fit:contain;border-radius:5px;background:#f5f4f0;display:block" />
-										{/if}
-									</td>
-									<td style="padding:6px 10px;font-weight:600">{item.sku}</td>
-									<td style="padding:6px 10px;color:#555">{item.name || ''}</td>
-									<td style="padding:6px 10px;color:#999;font-size:0.78rem">{item.projectName || ''}</td>
-								</tr>
-							{/each}
+							{#if importFiltered.length === 0}
+								<tr><td colspan="6" style="text-align:center;padding:24px;color:#aaa;font-size:0.8rem">No products match your filters.</td></tr>
+							{:else}
+								{#each importFiltered as item (item.id)}
+									<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+									<tr style="border-bottom:1px solid #f0ede8;cursor:pointer" class:import-selected={importSelected.has(item.id)}
+										onclick={() => toggleImportItem(item.id, !importSelected.has(item.id))}>
+										<td style="padding:6px 4px">
+											<input type="checkbox" checked={importSelected.has(item.id)}
+												onclick={(e) => e.stopPropagation()}
+												onchange={(e) => toggleImportItem(item.id, e.target.checked)} />
+										</td>
+										<td style="padding:6px 10px">
+											{#if item.hasPhoto}
+												<img src="/api/item-library/{encodeURIComponent(item.sku)}/photo" alt={item.sku}
+													style="width:40px;height:40px;object-fit:contain;border-radius:5px;background:#f5f4f0;display:block" />
+											{:else}
+												<div style="width:40px;height:40px;background:#f0ede8;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:0.6rem;font-weight:700;color:#a0896a;text-align:center;word-break:break-all;padding:3px">{item.sku}</div>
+											{/if}
+										</td>
+										<td style="padding:6px 10px;font-weight:600">{item.sku}</td>
+										<td style="padding:6px 10px;color:#555">{item.name || ''}</td>
+										<td style="padding:6px 10px;color:#888;text-align:right">{item.widthCm}</td>
+										<td style="padding:6px 10px;color:#888;text-align:right">{item.heightCm}</td>
+									</tr>
+								{/each}
+							{/if}
 						</tbody>
 					</table>
 				</div>
 			{/if}
+
 			<div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:12px;border-top:1px solid #e8e6e1">
 				<span style="font-size:0.8rem;color:#888">{importSelected.size} selected</span>
 				<div style="display:flex;gap:8px">
@@ -1908,6 +1978,53 @@
 
 	/* Import table row highlight */
 	:global(.import-selected) { background: #f0f7f4 !important; }
+
+	/* Shared token for all three import search fields */
+	.import-search-wrap,
+	.import-num-input {
+		border: 1px solid #e0ddd7;
+		border-radius: 6px;
+		background: white;
+		font-size: 0.82rem;
+		color: #18181B;
+		font-family: inherit;
+		box-sizing: border-box;
+	}
+	.import-search-wrap:focus-within,
+	.import-num-input:focus {
+		border-color: #F57832;
+		box-shadow: 0 0 0 2px rgba(245,120,50,0.1);
+		outline: none;
+	}
+
+	.import-search-wrap {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 9px;
+	}
+
+	.import-search-input {
+		border: none;
+		outline: none;
+		font-size: 0.82rem;
+		width: 100%;
+		background: transparent;
+		color: #18181B;
+	}
+
+	.import-num-input {
+		width: 100%;
+		padding: 5px 9px;
+		text-align: center;
+		outline: none;
+		/* Remove browser default number-input styling */
+		-webkit-appearance: textfield;
+		-moz-appearance: textfield;
+		appearance: textfield;
+	}
+	.import-num-input::-webkit-outer-spin-button,
+	.import-num-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
 	/* :global for product-group hover */
 	:global(.product-group .product-controls) { opacity: 0; pointer-events: none; transition: opacity 0.12s; }

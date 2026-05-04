@@ -15,3 +15,6 @@ bucket_name = "portal-images"
 [[r2_buckets]]
 binding = "PHOTOS"
 bucket_name = "portal-photos"
+
+[browser]
+binding = "BROWSER"

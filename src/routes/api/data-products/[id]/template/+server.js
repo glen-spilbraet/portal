@@ -18,19 +18,25 @@ export async function POST({ params, request, cookies, platform }) {
 	const { headers, fileBase64 } = body;
 
 	if (!Array.isArray(headers) || headers.length === 0) error(400, 'No headers provided');
-	if (!fileBase64) error(400, 'No file provided');
 
-	// Store template file in R2
-	const key = `data-templates/${params.id}/template.xlsx`;
-	const fileBuffer = Uint8Array.from(atob(fileBase64), c => c.charCodeAt(0));
-	await r2.put(key, fileBuffer, { httpMetadata: { contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } });
+	if (fileBase64) {
+		// Upload mode: store template file in R2 and reset mappings
+		const key = `data-templates/${params.id}/template.xlsx`;
+		const fileBuffer = Uint8Array.from(atob(fileBase64), c => c.charCodeAt(0));
+		await r2.put(key, fileBuffer, { httpMetadata: { contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } });
 
-	// Reset mappings when template changes
-	await updateDataProduct(db, params.id, {
-		template_key: key,
-		template_headers: JSON.stringify(headers),
-		mappings: '{}'
-	});
+		await updateDataProduct(db, params.id, {
+			template_key: key,
+			template_headers: JSON.stringify(headers),
+			mappings: '{}'
+		});
+	} else {
+		// Custom mode: save headers only, clear any uploaded template reference
+		await updateDataProduct(db, params.id, {
+			template_key: null,
+			template_headers: JSON.stringify(headers)
+		});
+	}
 
 	return json({ ok: true, headers });
 }

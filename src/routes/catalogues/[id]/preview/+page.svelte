@@ -208,7 +208,7 @@
 			</div>
 			<button class="dl-btn" onclick={downloadPhotos} disabled={zippingPhotos}>
 				{#if zippingPhotos}
-					<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.8s linear infinite; flex-shrink:0">
+					<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin">
 						<path d="M21 12a9 9 0 11-6.219-8.56"/>
 					</svg>
 					{zipProgress < 100 ? `${zipProgress}%` : '…'}
@@ -219,7 +219,7 @@
 			<div class="dl-divider"></div>
 			<button class="dl-btn" onclick={downloadExcel} disabled={exportingExcel}>
 				{#if exportingExcel}
-					<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.8s linear infinite; flex-shrink:0">
+					<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin">
 						<path d="M21 12a9 9 0 11-6.219-8.56"/>
 					</svg>
 					…
@@ -230,10 +230,10 @@
 			<div class="dl-divider"></div>
 			<button class="dl-btn dl-btn-primary" onclick={downloadPdf} disabled={downloading}>
 				{#if downloading}
-					<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.8s linear infinite; flex-shrink:0">
+					<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="spin">
 						<path d="M21 12a9 9 0 11-6.219-8.56"/>
 					</svg>
-					…
+					Exporting PDF…
 				{:else}
 					PDF
 				{/if}
@@ -474,6 +474,7 @@
 	.dl-btn-primary { color: #52525B; }
 	.dl-btn-primary:hover:not(:disabled) { background: #FFF5D2; color: #7B3803; }
 	.dl-divider { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+	.spin { animation: spin 0.8s linear infinite; flex-shrink: 0; }
 	@keyframes spin { to { transform: rotate(360deg); } }
 
 	/* ── Wrapper ─────────────────────────────────────────────────────────── */
@@ -699,7 +700,8 @@
 		.box-area,
 		.logo-card,
 		.data-bottom,
-		.stock-tag {
+		.stock-tag,
+		.section-text-pill {
 			box-shadow: none !important;
 		}
 	}

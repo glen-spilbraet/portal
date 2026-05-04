@@ -5,6 +5,7 @@
 	let sku = $state('');
 	let loading = $state(false);
 	let preview = $state(null);
+	let existingSheet = $state(null); // { id, sku } if a sheet for this SKU already exists
 
 	const LANGUAGES = [
 		{ code: 'en', label: 'English' },
@@ -14,10 +15,16 @@
 	];
 
 	async function lookupSku() {
-		if (!sku.trim()) { preview = null; return; }
-		const res = await fetch(`/api/rackbeat/${encodeURIComponent(sku.trim())}`);
-		if (res.ok) preview = await res.json();
-		else preview = null;
+		const trimmed = sku.trim();
+		if (!trimmed) { preview = null; existingSheet = null; return; }
+
+		const [rbRes, sheetRes] = await Promise.all([
+			fetch(`/api/rackbeat/${encodeURIComponent(trimmed)}`),
+			fetch(`/api/sheets?sku=${encodeURIComponent(trimmed)}`),
+		]);
+
+		preview       = rbRes.ok   ? await rbRes.json()   : null;
+		existingSheet = sheetRes.ok ? (await sheetRes.json()).sheet : null;
 	}
 
 	let debounceTimer;
@@ -60,7 +67,20 @@
 					/>
 				</div>
 
-				{#if preview}
+				{#if existingSheet}
+					<div class="duplicate-card">
+						<div class="duplicate-icon">
+							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+							</svg>
+						</div>
+						<div class="duplicate-text">
+							<strong>A sheet for this SKU already exists</strong>
+							<span>You can edit the existing sheet instead of creating a duplicate.</span>
+						</div>
+						<a href="/sheet/{existingSheet.id}" class="btn-edit-existing">Edit existing →</a>
+					</div>
+				{:else if preview}
 					<div class="preview-card">
 						<span class="found-badge">✓ Found in Rackbeat</span>
 						<strong>{preview.name}</strong>
@@ -80,7 +100,7 @@
 
 				<div class="actions">
 					<a href="/" class="btn-outline">Cancel</a>
-					<button type="submit" class="btn-primary" disabled={loading}>
+					<button type="submit" class="btn-primary" disabled={loading || !!existingSheet}>
 						{loading ? 'Creating…' : 'Create Sheet →'}
 					</button>
 				</div>
@@ -139,6 +159,49 @@
 		border-color: var(--accent);
 		box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 	}
+
+	.duplicate-card {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		background: #fffbeb;
+		border: 1px solid #fcd34d;
+		border-radius: 10px;
+		padding: 14px 16px;
+		margin-bottom: 24px;
+	}
+
+	.duplicate-icon {
+		flex-shrink: 0;
+		width: 32px; height: 32px;
+		background: #fef3c7;
+		border-radius: 8px;
+		display: flex; align-items: center; justify-content: center;
+		color: #d97706;
+	}
+
+	.duplicate-text {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.duplicate-text strong { font-size: 13px; font-weight: 700; color: #92400e; }
+	.duplicate-text span   { font-size: 12px; color: #b45309; }
+
+	.btn-edit-existing {
+		flex-shrink: 0;
+		padding: 7px 14px;
+		background: #f57832;
+		color: white;
+		border-radius: 8px;
+		font-size: 13px;
+		font-weight: 700;
+		text-decoration: none;
+		white-space: nowrap;
+		transition: background 0.15s;
+	}
+	.btn-edit-existing:hover { background: #e06820; }
 
 	.preview-card {
 		background: #f0fdf4;

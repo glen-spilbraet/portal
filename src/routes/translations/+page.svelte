@@ -13,6 +13,13 @@
 		{ key: 'stock_date', display: 'Est. Stock Date' },
 	];
 
+	const MAIL_KEYS = [
+		{ key: 'mail_subject',    display: 'Email subject',   textarea: false, placeholder: 'New products in our selection' },
+		{ key: 'mail_header',     display: 'Email header',    textarea: false, placeholder: 'New products coming soon' },
+		{ key: 'mail_intro',      display: 'Intro text',      textarea: true,  placeholder: 'We are adding products to our selection…' },
+		{ key: 'mail_sheet_link', display: 'Sheet link text', textarea: false, placeholder: 'View sales sheet →' },
+	];
+
 	const LANGS = [
 		{ code: 'en', label: 'English' },
 		{ code: 'da', label: 'Dansk' },
@@ -75,7 +82,7 @@
 
 
 <div class="page">
-	<AppNav active="translations" />
+	<AppNav active="translations" user={data.user} />
 	<main>
 		<div class="page-header">
 			<div>
@@ -105,6 +112,53 @@
 										oninput={(e) => { if (!labels[key]) labels[key] = {}; labels[key][lang.code] = e.target.value; }}
 										onblur={(e) => saveLabel(key, lang.code, e.target.value)}
 									/>
+								</td>
+							{/each}
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+
+		<!-- Mail Campaign Texts -->
+		<div class="section-header">
+			<div>
+				<h2 class="section-title">Mail Campaign Texts</h2>
+				<p class="section-sub">Text used in outgoing mail campaigns. Supports all 4 languages.</p>
+			</div>
+		</div>
+
+		<div class="table-wrap">
+			<table class="labels-table">
+				<thead>
+					<tr>
+						<th class="col-field">Field</th>
+						{#each LANGS as lang}
+							<th>{lang.label}</th>
+						{/each}
+					</tr>
+				</thead>
+				<tbody>
+					{#each MAIL_KEYS as { key, display, textarea, placeholder }}
+						<tr>
+							<td class="col-field-val">{display}</td>
+							{#each LANGS as lang}
+								<td>
+									{#if textarea}
+										<textarea class="label-input label-textarea"
+											rows="2"
+											placeholder={placeholder}
+											oninput={(e) => { if (!labels[key]) labels[key] = {}; labels[key][lang.code] = e.target.value; }}
+											onblur={(e) => saveLabel(key, lang.code, e.target.value)}
+										>{labels[key]?.[lang.code] ?? ''}</textarea>
+									{:else}
+										<input type="text" class="label-input"
+											value={labels[key]?.[lang.code] ?? ''}
+											placeholder={placeholder}
+											oninput={(e) => { if (!labels[key]) labels[key] = {}; labels[key][lang.code] = e.target.value; }}
+											onblur={(e) => saveLabel(key, lang.code, e.target.value)}
+										/>
+									{/if}
 								</td>
 							{/each}
 						</tr>
@@ -174,6 +228,8 @@
 	.label-input { width: 100%; border: 1px solid transparent; border-radius: 6px; padding: 6px 8px; font-size: 13px; font-family: inherit; color: #18181B; background: transparent; transition: border-color 0.15s, background 0.15s; outline: none; }
 	.label-input:hover { background: #F4F4F5; border-color: var(--border); }
 	.label-input:focus { background: white; border-color: #A1A1AA; box-shadow: 0 0 0 3px rgba(0,0,0,0.04); }
+	.label-input::placeholder { color: #C4C4C4; }
+	.label-textarea { resize: vertical; min-height: 52px; line-height: 1.5; vertical-align: top; box-sizing: border-box; }
 
 	.section-header { display: flex; align-items: flex-start; justify-content: space-between; margin: 36px 0 16px; }
 	.section-title { font-size: 16px; font-weight: 700; color: #18181B; letter-spacing: -0.2px; margin-bottom: 4px; }

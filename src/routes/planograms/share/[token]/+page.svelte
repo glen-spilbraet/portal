@@ -1,8 +1,7 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
-	import { page } from '$app/state';
 
-	const token = page.params.token;
+	let { data } = $props();
 
 	// Constants (same as editor)
 	const MAX_DISPLAY = 600;
@@ -26,9 +25,7 @@
 		'brand-green-pastel': '#E1EAD6', 'brand-orange': '#F57832', 'brand-orange-pastel': '#FFF5D2',
 	};
 
-	let projectName = $state('Planogram');
-	let loading = $state(true);
-	let notFound = $state(false);
+	let projectName = $state(data.name || 'Planogram');
 
 	let svgMarkup = $state('');
 	let svgWidth = $state(400);
@@ -42,6 +39,27 @@
 	let isPanning = $state(false);
 	let panStart = { clientX: 0, clientY: 0, panX: 0, panY: 0 };
 	let exportMenuOpen = $state(false);
+
+	// Product detail modal
+	let showProductDetail = $state(false);
+	let detailProduct = $state(null);
+	let detailSheetId = $state(null);
+	let detailSheetLoading = $state(false);
+
+	async function openProductDetail(item) {
+		detailProduct = { sku: item.sku, name: item.name, photoUrl: item.photoUrl ?? null, isPlaceholder: item.isPlaceholder ?? false };
+		detailSheetId = null;
+		detailSheetLoading = true;
+		showProductDetail = true;
+		try {
+			const res = await fetch(`/api/share/sheet?sku=${encodeURIComponent(item.sku)}`);
+			if (res.ok) {
+				const body = await res.json();
+				detailSheetId = body.shareToken ?? null;
+			}
+		} catch { /* best-effort */ }
+		detailSheetLoading = false;
+	}
 
 	let svgEl, viewportEl;
 
@@ -165,16 +183,17 @@
 			const pw = f(p.widthCm * scale), ph = f(p.heightCm * scale);
 			if (p.isPlaceholder) {
 				const fs = Math.max(8, Math.min(14, parseFloat(pw) / 5));
-				html += `<g filter="url(#prod-shadow)">
+				html += `<g filter="url(#prod-shadow)" class="product-hit" data-placed-id="${p.id}" style="cursor:pointer">
 					<rect x="${f(p.svgX)}" y="${f(p.svgY)}" width="${pw}" height="${ph}" fill="#e8e4f0" stroke="#c0b4d8" stroke-width="1" rx="3" />
 					<text x="${f(p.svgX + p.widthCm * scale / 2)}" y="${f(p.svgY + p.heightCm * scale / 2)}"
 						text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif"
-						font-size="${fs}" font-weight="700" fill="#5a4a7a">${p.sku}</text>
+						font-size="${fs}" font-weight="700" fill="#5a4a7a" pointer-events="none">${p.sku}</text>
 				</g>`;
 			} else {
-				html += `<g filter="url(#prod-shadow)">
+				html += `<g filter="url(#prod-shadow)" class="product-hit" data-placed-id="${p.id}" style="cursor:pointer">
 					<image href="${p.photoUrl}" x="${f(p.svgX)}" y="${f(p.svgY)}" width="${pw}" height="${ph}"
-						preserveAspectRatio="xMidYMid meet" clip-path="url(#clip-p${p.id})" />
+						preserveAspectRatio="xMidYMid meet" clip-path="url(#clip-p${p.id})" pointer-events="none" />
+					<rect x="${f(p.svgX)}" y="${f(p.svgY)}" width="${pw}" height="${ph}" fill="transparent" rx="3"/>
 				</g>`;
 			}
 		});
@@ -210,6 +229,7 @@
 
 	function onViewportMouseDown(e) {
 		if (e.target.closest('#top-bar, #toolbar')) return;
+		if (e.target.closest('.product-hit')) return; // let clicks on products through
 		isPanning = true;
 		panStart = { clientX: e.clientX, clientY: e.clientY, panX: canvasPanX, panY: canvasPanY };
 		e.currentTarget.classList.add('panning');
@@ -282,7 +302,7 @@
 		const a = document.createElement('a'); a.href = canvas.toDataURL('image/jpeg', 0.95); a.download = exportFilename('jpg'); a.click();
 	}
 
-	onMount(async () => {
+	onMount(() => {
 		window.addEventListener('mousemove', onMouseMove);
 		window.addEventListener('mouseup', onMouseUp);
 		if (viewportEl) viewportEl.addEventListener('wheel', onViewportWheel, { passive: false });
@@ -290,59 +310,47 @@
 			if (exportMenuOpen && !e.target.closest('#export-wrap')) exportMenuOpen = false;
 		});
 
-		try {
-			const res = await fetch(`/api/planograms/share/${token}`);
-			if (!res.ok) throw new Error();
-			const project = await res.json();
-			projectName = project.name || 'Planogram';
-			document.title = `${projectName} — Planogram`;
-			settings = project.settings || {};
+		// Initialise from server-loaded data
+		settings = data.settings || {};
+		const s = settings;
 
-			// Restore custom colours
-			const s = settings;
-			(s.customColors || []).forEach(({ key, hex, label }) => {
-				const dimHex = (h, f) => { const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16),d=v=>Math.round(v*f).toString(16).padStart(2,'0'); return `#${d(r)}${d(g)}${d(b)}`; };
-				CUSTOM_MATERIALS[key] = { label, fill: hex, edge: dimHex(hex, 0.82), stroke: dimHex(hex, 0.65) };
-				CUSTOM_PALETTE[key] = hex;
-			});
+		// Restore custom colours
+		(s.customColors || []).forEach(({ key, hex, label }) => {
+			const dimHex = (h, f) => { const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16),d=v=>Math.round(v*f).toString(16).padStart(2,'0'); return `#${d(r)}${d(g)}${d(b)}`; };
+			CUSTOM_MATERIALS[key] = { label, fill: hex, edge: dimHex(hex, 0.82), stroke: dimHex(hex, 0.65) };
+			CUSTOM_PALETTE[key] = hex;
+		});
 
-			// Compute shelf
-			const wCm = parseFloat(s.width || 120), hCm = parseFloat(s.height || 200);
-			const thC = parseFloat(s.thickness || 1), ftC = parseFloat(s.frameThickness || 2);
-			const nS = parseInt(s.shelves || 4);
-			scale = Math.min(MAX_DISPLAY / wCm, MAX_DISPLAY / hCm);
-			frameCm = ftC; framePx = Math.max(2, ftC * scale);
-			boardCm = thC; boardPx = Math.max(2, thC * scale);
-			interiorHCm = hCm - 2 * ftC;
-			showDimensions = s.showDimensions !== false;
+		// Compute shelf
+		const wCm = parseFloat(s.width || 120), hCm = parseFloat(s.height || 200);
+		const thC = parseFloat(s.thickness || 1), ftC = parseFloat(s.frameThickness || 2);
+		const nS = parseInt(s.shelves || 4);
+		scale = Math.min(MAX_DISPLAY / wCm, MAX_DISPLAY / hCm);
+		frameCm = ftC; framePx = Math.max(2, ftC * scale);
+		boardCm = thC; boardPx = Math.max(2, thC * scale);
+		interiorHCm = hCm - 2 * ftC;
+		showDimensions = s.showDimensions !== false;
 
-			// Shelf positions
-			const compH = interiorHCm / nS;
-			shelfPositions = [];
-			for (let i = 1; i < nS; i++) shelfPositions.push(compH * i - thC / 2);
-			if (s.shelfPositions && s.shelfPositions.length === nS - 1) shelfPositions = s.shelfPositions;
+		// Shelf positions
+		const compH = interiorHCm / nS;
+		shelfPositions = [];
+		for (let i = 1; i < nS; i++) shelfPositions.push(compH * i - thC / 2);
+		if (s.shelfPositions && s.shelfPositions.length === nS - 1) shelfPositions = s.shelfPositions;
 
-			// Library
-			(project.libraryItems || []).forEach(item => {
-				const entry = { id: item.id, sku: item.sku, name: item.name, widthCm: item.widthCm, heightCm: item.heightCm, isPlaceholder: item.isPlaceholder };
-				if (!item.isPlaceholder) entry.photoUrl = `/api/planograms/share/${token}/photos/${item.id}`;
-				productLibrary.push(entry);
-			});
+		// Library — photoUrl already set by server (uses share token)
+		(data.libraryItems || []).forEach(item => {
+			productLibrary.push({ id: item.id, sku: item.sku, name: item.name, widthCm: item.widthCm, heightCm: item.heightCm, isPlaceholder: item.isPlaceholder, photoUrl: item.photoUrl });
+		});
 
-			// Placements
-			(project.placements || []).forEach(p => {
-				const lib = productLibrary.find(l => l.id === p.libId);
-				if (!lib) return;
-				placedProducts.push({ ...p, photoUrl: lib.photoUrl });
-			});
+		// Placements
+		(data.placements || []).forEach(p => {
+			const lib = productLibrary.find(l => l.id === p.libId);
+			if (!lib) return;
+			placedProducts.push({ ...p, photoUrl: lib.photoUrl });
+		});
 
-			loading = false;
-			renderSvg();
-			requestAnimationFrame(zoomToFit);
-		} catch {
-			loading = false;
-			notFound = true;
-		}
+		renderSvg();
+		requestAnimationFrame(zoomToFit);
 	});
 
 	onDestroy(() => {
@@ -352,11 +360,20 @@
 	});
 
 	$effect(() => {
-		if (svgEl && !loading && !notFound) {
+		if (svgEl) {
 			svgEl.setAttribute('width', svgWidth);
 			svgEl.setAttribute('height', svgHeight);
 			svgEl.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
 			svgEl.innerHTML = svgMarkup;
+
+			// Wire product click handlers
+			svgEl.querySelectorAll('.product-hit').forEach(el => {
+				el.addEventListener('click', () => {
+					const id = parseInt(el.dataset.placedId);
+					const p = placedProducts.find(p => p.id === id);
+					if (p) openProductDetail(p);
+				});
+			});
 		}
 	});
 </script>
@@ -365,77 +382,114 @@
 	<title>{projectName} — Planogram</title>
 </svelte:head>
 
-{#if loading}
-	<div class="loading-screen">
-		<div class="loading-spinner"></div>
-		<p>Loading planogram…</p>
+<!-- Canvas viewport -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div id="viewport" bind:this={viewportEl}
+	class:panning={isPanning}
+	onmousedown={onViewportMouseDown}
+	style="background:{canvasBgColor}">
+	<div id="canvas-content">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<svg bind:this={svgEl} id="shelf-svg" width={svgWidth} height={svgHeight} viewBox="0 0 {svgWidth} {svgHeight}">
+		</svg>
 	</div>
-{:else if notFound}
-	<div class="loading-screen">
-		<p style="color:#888">This share link is no longer valid or has been revoked.</p>
-	</div>
-{:else}
-	<!-- Canvas viewport -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div id="viewport" bind:this={viewportEl}
-		class:panning={isPanning}
-		onmousedown={onViewportMouseDown}
-		style="background:{canvasBgColor}">
-		<div id="canvas-content">
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<svg bind:this={svgEl} id="shelf-svg" width={svgWidth} height={svgHeight} viewBox="0 0 {svgWidth} {svgHeight}">
-			</svg>
-		</div>
-	</div>
+</div>
 
-	<!-- Top bar -->
-	<div id="top-bar">
-		<span id="top-bar-logo">PLANOGRAM</span>
-		<div id="top-bar-divider"></div>
-		<span id="top-bar-name">{projectName}</span>
-		<span id="top-bar-badge">View only</span>
-	</div>
+<!-- Top bar -->
+<div id="top-bar">
+	<span id="top-bar-logo">PLANOGRAM</span>
+	<div id="top-bar-divider"></div>
+	<span id="top-bar-name">{projectName}</span>
+	<span id="top-bar-badge">View only</span>
+</div>
 
-	<!-- Bottom toolbar -->
-	<div id="toolbar">
-		<button class="zoom-btn" class:active={showDimensions} title="Toggle dimensions"
-			onclick={() => { showDimensions = !showDimensions; renderSvg(); }}>
-			<svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-				<line x1="1.5" y1="3" x2="1.5" y2="12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-				<line x1="13.5" y1="3" x2="13.5" y2="12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-				<line x1="1.5" y1="7.5" x2="13.5" y2="7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-				<path d="M4.5 5.5L1.5 7.5L4.5 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-				<path d="M10.5 5.5L13.5 7.5L10.5 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+<!-- Bottom toolbar -->
+<div id="toolbar">
+	<button class="zoom-btn" class:active={showDimensions} title="Toggle dimensions"
+		onclick={() => { showDimensions = !showDimensions; renderSvg(); }}>
+		<svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+			<line x1="1.5" y1="3" x2="1.5" y2="12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+			<line x1="13.5" y1="3" x2="13.5" y2="12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+			<line x1="1.5" y1="7.5" x2="13.5" y2="7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+			<path d="M4.5 5.5L1.5 7.5L4.5 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+			<path d="M10.5 5.5L13.5 7.5L10.5 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+		</svg>
+	</button>
+	<div class="tb-sep"></div>
+	<button class="zoom-btn" title="Zoom in" onclick={() => zoomBy(1.25)}>+</button>
+	<button class="zoom-btn" title="Zoom out" onclick={() => zoomBy(1/1.25)}>−</button>
+	<button class="zoom-btn" style="font-size:0.75rem;font-weight:600" title="Fit to screen" onclick={zoomToFit}>Fit</button>
+	<div class="tb-sep"></div>
+	<div id="export-wrap" style="position:relative">
+		{#if exportMenuOpen}
+			<div class="export-menu">
+				<button class="export-option" onclick={exportSVG}>
+					<svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+						<path d="M7 1v8M4 6l3 3 3-3M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+					Export as SVG
+				</button>
+				<button class="export-option" onclick={exportJPG}>
+					<svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+						<rect x="1" y="2" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+						<path d="M1 9l3-3 2.5 2.5L9 6l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+					Export as JPG
+				</button>
+			</div>
+		{/if}
+		<button class="zoom-btn" title="Export" onclick={() => exportMenuOpen = !exportMenuOpen}>
+			<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+				<path d="M7 1v8M4 6l3 3 3-3M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 			</svg>
 		</button>
-		<div class="tb-sep"></div>
-		<button class="zoom-btn" title="Zoom in" onclick={() => zoomBy(1.25)}>+</button>
-		<button class="zoom-btn" title="Zoom out" onclick={() => zoomBy(1/1.25)}>−</button>
-		<button class="zoom-btn" style="font-size:0.75rem;font-weight:600" title="Fit to screen" onclick={zoomToFit}>Fit</button>
-		<div class="tb-sep"></div>
-		<div id="export-wrap" style="position:relative">
-			{#if exportMenuOpen}
-				<div class="export-menu">
-					<button class="export-option" onclick={exportSVG}>
-						<svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-							<path d="M7 1v8M4 6l3 3 3-3M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+	</div>
+</div>
+
+<!-- Product detail modal -->
+{#if showProductDetail && detailProduct}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="pd-overlay" onclick={(e) => { if (e.target === e.currentTarget) showProductDetail = false; }}>
+		<div class="pd-dialog">
+			<button class="pd-close" onclick={() => showProductDetail = false}>✕</button>
+
+			<div class="pd-photo-wrap">
+				{#if detailProduct.photoUrl && !detailProduct.isPlaceholder}
+					<img class="pd-photo" src={detailProduct.photoUrl} alt={detailProduct.sku} />
+				{:else}
+					<div class="pd-placeholder-icon">
+						<svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+							<polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
 						</svg>
-						Export as SVG
-					</button>
-					<button class="export-option" onclick={exportJPG}>
-						<svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-							<rect x="1" y="2" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
-							<path d="M1 9l3-3 2.5 2.5L9 6l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-						</svg>
-						Export as JPG
-					</button>
+					</div>
+				{/if}
+			</div>
+
+			<div class="pd-body">
+				<div class="pd-sku">{detailProduct.sku}</div>
+				<div class="pd-name">{detailProduct.name || '—'}</div>
+				<div class="pd-sheet-row">
+					{#if detailSheetLoading}
+						<span class="pd-loading">
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pd-spin">
+								<path d="M21 12a9 9 0 11-6.219-8.56"/>
+							</svg>
+							Looking for sheet…
+						</span>
+					{:else if detailSheetId}
+						<a href="/share/sheet/{detailSheetId}" target="_blank" class="pd-sheet-link">
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+								<polyline points="14 2 14 8 20 8"/>
+							</svg>
+							View sales sheet →
+						</a>
+					{:else}
+						<span class="pd-no-sheet">No sales sheet for this SKU</span>
+					{/if}
 				</div>
-			{/if}
-			<button class="zoom-btn" title="Export" onclick={() => exportMenuOpen = !exportMenuOpen}>
-				<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-					<path d="M7 1v8M4 6l3 3 3-3M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-				</svg>
-			</button>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -444,17 +498,6 @@
 	:global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
 	:global(body) { font-family: system-ui, sans-serif; width: 100vw; height: 100vh; overflow: hidden; user-select: none; }
 	:global(svg) { display: block; }
-
-	.loading-screen {
-		position: fixed; inset: 0; display: flex; flex-direction: column;
-		align-items: center; justify-content: center; gap: 16px;
-		background: #e8e6e1; font-size: 0.9rem; color: #888;
-	}
-	.loading-spinner {
-		width: 32px; height: 32px; border: 3px solid #e0ddd8; border-top-color: #888;
-		border-radius: 50%; animation: spin 0.8s linear infinite;
-	}
-	@keyframes spin { to { transform: rotate(360deg); } }
 
 	#viewport {
 		position: fixed; inset: 0; overflow: hidden; cursor: grab;
@@ -503,4 +546,47 @@
 	}
 	.export-option:hover { background: #f5f4f0; }
 	.export-option + .export-option { border-top: 1px solid #f0ede8; }
+
+	/* Product detail modal */
+	.pd-overlay {
+		position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+		display: flex; align-items: center; justify-content: center;
+		z-index: 100; padding: 20px;
+	}
+	.pd-dialog {
+		background: #fff; border-radius: 20px; width: 100%; max-width: 400px;
+		display: flex; flex-direction: column; align-items: center;
+		box-shadow: 0 8px 40px rgba(0,0,0,0.22); position: relative; overflow: hidden;
+	}
+	.pd-close {
+		position: absolute; top: 12px; right: 12px; width: 28px; height: 28px;
+		border: none; background: rgba(0,0,0,0.06); cursor: pointer; font-size: 13px; color: #666;
+		display: flex; align-items: center; justify-content: center; border-radius: 7px;
+		transition: background 0.12s; z-index: 1;
+	}
+	.pd-close:hover { background: rgba(0,0,0,0.12); color: #1a1a1a; }
+	.pd-photo-wrap {
+		width: 100%; aspect-ratio: 4/3; background: #f5f4f0;
+		display: flex; align-items: center; justify-content: center; overflow: hidden;
+	}
+	.pd-photo { width: 100%; height: 100%; object-fit: contain; padding: 32px; }
+	.pd-placeholder-icon { color: #c8c4bc; }
+	.pd-body {
+		width: 100%; padding: 20px 24px 26px; display: flex; flex-direction: column; gap: 5px;
+		border-top: 1px solid #f0ede8;
+	}
+	.pd-sku { font-size: 0.7rem; font-weight: 700; color: #999; letter-spacing: 0.5px; text-transform: uppercase; }
+	.pd-name { font-size: 1.05rem; font-weight: 700; color: #1a1a1a; line-height: 1.3; margin-bottom: 10px; }
+	.pd-sheet-row { }
+	.pd-loading { display: inline-flex; align-items: center; gap: 7px; font-size: 0.82rem; color: #aaa; }
+	.pd-sheet-link {
+		display: inline-flex; align-items: center; gap: 7px;
+		padding: 8px 16px; background: #F57832; color: white;
+		border-radius: 100px; font-size: 0.82rem; font-weight: 700;
+		text-decoration: none; transition: background 0.15s;
+	}
+	.pd-sheet-link:hover { background: #E06820; }
+	.pd-no-sheet { font-size: 0.82rem; color: #aaa; }
+	@keyframes pd-spin { to { transform: rotate(360deg); } }
+	.pd-spin { animation: pd-spin 0.8s linear infinite; }
 </style>

@@ -33,6 +33,7 @@ export async function GET({ params, platform, url }) {
 				.no-print { display: none !important; }
 				.pages-wrap { padding: 0 !important; gap: 0 !important; }
 				.a4-page { box-shadow: none !important; }
+				.section-text-pill, .box-area, .logo-card, .data-bottom, .stock-tag { box-shadow: none !important; }
 			`
 		});
 

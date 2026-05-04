@@ -4,9 +4,8 @@ import { error } from '@sveltejs/kit';
 
 export async function GET({ params, cookies, platform, url }) {
 	const token = cookies.get('session');
-	if (!verifySession(token ?? '', platform?.env?.APP_SECRET ?? 'dev-secret')) {
-		error(401, 'Unauthorized');
-	}
+	const email = await verifySession(token ?? '', platform?.env?.APP_SECRET ?? 'dev-secret');
+	if (!email) error(401, 'Unauthorized');
 
 	const browser = platform?.env?.BROWSER;
 	if (!browser) {
@@ -50,6 +49,7 @@ export async function GET({ params, cookies, platform, url }) {
 				.no-print { display: none !important; }
 				.pages-wrap { padding: 0 !important; gap: 0 !important; }
 				.a4-page { box-shadow: none !important; }
+				.section-text-pill, .box-area, .logo-card, .data-bottom, .stock-tag { box-shadow: none !important; }
 			`
 		});
 

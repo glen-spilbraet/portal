@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
-import { getPlanogramItem, updatePlanogramItem } from '$lib/db.js';
+import { getPlanogramItem, updatePlanogramItem, updateLibraryItemPhoto } from '$lib/db.js';
 
 async function checkAuth(cookies, platform) {
 	return verifySession(cookies.get('session') ?? '', platform?.env?.APP_SECRET ?? 'dev-secret');
@@ -48,6 +48,8 @@ export async function POST({ params, request, cookies, platform }) {
 	const buffer = await request.arrayBuffer();
 	await bucket.put(key, buffer, { httpMetadata: { contentType } });
 	await updatePlanogramItem(db, Number(params.itemId), { photo_key: key, is_placeholder: 0 });
+	// Mirror photo key to the global item library
+	await updateLibraryItemPhoto(db, item.sku, key);
 
 	return new Response(JSON.stringify({ ok: true, key }), {
 		headers: { 'Content-Type': 'application/json' }
