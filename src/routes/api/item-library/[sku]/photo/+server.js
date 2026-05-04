@@ -18,7 +18,11 @@ export async function GET({ params, cookies, platform }) {
 	if (!row.photo_key) error(404, 'No photo');
 
 	const obj = await bucket.get(row.photo_key);
-	if (!obj) error(404);
+	if (!obj) {
+		// Stale key — clear it so the item shows as "no photo" rather than staying broken
+		await updateLibraryItemPhoto(db, params.sku.toUpperCase(), null);
+		error(404, 'No photo');
+	}
 
 	const headers = new Headers();
 	obj.writeHttpMetadata(headers);

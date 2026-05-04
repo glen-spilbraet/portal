@@ -617,11 +617,12 @@ export async function upsertLibraryItem(db, { id, sku, name, widthCm, heightCm }
 	`).bind(id, sku, name ?? null, widthCm, heightCm).run();
 }
 
-/** After a photo is uploaded to a planogram item, mirror the key in the library. */
+/** After a photo is uploaded to a planogram item, mirror the key in the library.
+ *  Pass null to clear a stale key. */
 export async function updateLibraryItemPhoto(db, sku, photoKey) {
 	await db.prepare(
 		'UPDATE item_library SET photo_key = ?, updated_at = unixepoch() WHERE sku = ?'
-	).bind(photoKey, sku).run();
+	).bind(photoKey ?? null, sku).run();
 }
 
 export async function listLibraryItems(db) {
