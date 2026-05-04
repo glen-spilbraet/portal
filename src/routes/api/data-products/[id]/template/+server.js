@@ -8,8 +8,6 @@ export async function POST({ params, request, cookies, platform }) {
 
 	const db = platform?.env?.DB;
 	if (!db) error(500, 'DB unavailable');
-	const r2 = platform?.env?.IMAGES;
-	if (!r2) error(500, 'Storage unavailable');
 
 	const product = await getDataProduct(db, params.id);
 	if (!product) error(404, 'Not found');
@@ -21,6 +19,8 @@ export async function POST({ params, request, cookies, platform }) {
 
 	if (fileBase64) {
 		// Upload mode: store template file in R2 and reset mappings
+		const r2 = platform?.env?.IMAGES;
+		if (!r2) error(500, 'Storage unavailable');
 		const key = `data-templates/${params.id}/template.xlsx`;
 		const fileBuffer = Uint8Array.from(atob(fileBase64), c => c.charCodeAt(0));
 		await r2.put(key, fileBuffer, { httpMetadata: { contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } });
