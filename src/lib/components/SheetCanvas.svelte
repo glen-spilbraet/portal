@@ -769,7 +769,6 @@
 		font-weight: 800;
 	}
 	.editing .product-name:focus {
-		background: #eff6ff;
 		border-radius: 3px;
 		padding: 2px 4px;
 		margin: -2px -4px;
@@ -791,7 +790,6 @@
 		color: #d1d5db;
 	}
 	.editing .product-description:focus {
-		background: #eff6ff;
 		border-radius: 3px;
 		padding: 2px 4px;
 		margin-left: -4px;
@@ -822,7 +820,7 @@
 		content: attr(data-placeholder);
 		color: #d1d5db;
 	}
-	.editing .usp-text:focus { background: #eff6ff; border-radius: 3px; }
+	.editing .usp-text:focus { border-radius: 3px; }
 
 	.remove-usp {
 		background: none;
@@ -884,7 +882,7 @@
 		font-family: inherit;
 	}
 	.editing .data-label span:focus,
-	.editing .data-value span:focus { background: #eff6ff; border-radius: 3px; }
+	.editing .data-value span:focus { border-radius: 3px; }
 
 	.data-del { width: 24px; }
 	.data-del button {
@@ -961,7 +959,6 @@
 	}
 
 	.editing .badge-val:focus {
-		background: rgba(0,126,58,0.08);
 		border-radius: 3px;
 		padding: 1px 4px;
 	}
