@@ -19,9 +19,9 @@ export async function POST({ request, cookies, platform }) {
 	if (!email) error(401);
 	const db = platform?.env?.DB;
 	if (!db) error(500);
-	const { name } = await request.json();
+	const { name, language } = await request.json();
 	if (!name?.trim()) error(400, 'Name required');
 	const id = crypto.randomUUID();
-	await createPlanogramProject(db, id, name.trim(), email);
+	await createPlanogramProject(db, id, name.trim(), email, language || null);
 	return json({ id });
 }

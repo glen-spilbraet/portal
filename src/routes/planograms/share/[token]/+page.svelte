@@ -488,7 +488,7 @@
 							View sales sheet →
 						</a>
 					{:else}
-						<span class="pd-no-sheet">No sales sheet for this SKU</span>
+						<!-- No sheet found — show nothing -->
 					{/if}
 				</div>
 			</div>

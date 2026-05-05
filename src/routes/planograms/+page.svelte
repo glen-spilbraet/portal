@@ -45,6 +45,7 @@
 	// New / rename / delete project modals
 	let showNewModal  = $state(false);
 	let newName       = $state('');
+	let newLanguage   = $state('');
 	let renameModal   = $state(null); // { id, name }
 	let deleteModal   = $state(null); // { id, name }
 	let busy          = $state(false);
@@ -177,7 +178,7 @@
 			const res = await fetch('/api/planograms', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name: newName.trim() }),
+				body: JSON.stringify({ name: newName.trim(), language: newLanguage || null }),
 			});
 			const body = await res.json();
 			if (!res.ok) throw new Error(body.message || 'Failed');
@@ -404,7 +405,7 @@
 								Folder
 							</button>
 						{/if}
-						<button class="btn-primary" onclick={() => { newName = ''; modalError = ''; showNewModal = true; }}>
+						<button class="btn-primary" onclick={() => { newName = ''; newLanguage = ''; modalError = ''; showNewModal = true; }}>
 							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 							Planogram
 						</button>
@@ -472,7 +473,7 @@
 					</p>
 					{#if !isSharedView}
 						<p class="empty-sub">Create your first shelf layout to get started</p>
-						<button class="btn-primary" onclick={() => { newName = ''; modalError = ''; showNewModal = true; }}>Create project</button>
+						<button class="btn-primary" onclick={() => { newName = ''; newLanguage = ''; modalError = ''; showNewModal = true; }}>Create project</button>
 					{/if}
 				</div>
 			{:else}
@@ -553,7 +554,7 @@
 
 					<!-- New project dashed card (only if not shared view) -->
 					{#if !isSharedView}
-						<button class="card card-new" onclick={() => { newName = ''; modalError = ''; showNewModal = true; }}>
+						<button class="card card-new" onclick={() => { newName = ''; newLanguage = ''; modalError = ''; showNewModal = true; }}>
 							<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
 								<path d="M12 5v14M5 12h14" stroke="#ccc" stroke-width="2" stroke-linecap="round"/>
 							</svg>
@@ -577,6 +578,15 @@
 				<!-- svelte-ignore a11y_autofocus -->
 				<input id="new-name" type="text" bind:value={newName} placeholder="e.g. Spring 2025 shelf" autofocus
 					onkeydown={(e) => { if (e.key === 'Enter') createProject(); }} />
+			</div>
+			<div class="field">
+				<label for="new-lang">Language</label>
+				<select id="new-lang" bind:value={newLanguage}>
+					<option value="">— None —</option>
+					{#each LANGUAGES as lang}
+						<option value={lang.code}>{lang.label}</option>
+					{/each}
+				</select>
 			</div>
 			{#if modalError}<p class="error-text">{modalError}</p>{/if}
 			<div class="dialog-buttons">

@@ -526,11 +526,11 @@ export async function getPlanogramProjectByShareToken(db, token) {
 	return db.prepare('SELECT * FROM planogram_projects WHERE share_token = ?').bind(token).first();
 }
 
-export async function createPlanogramProject(db, id, name, createdBy = null) {
+export async function createPlanogramProject(db, id, name, createdBy = null, language = null) {
 	const now = new Date().toISOString();
 	await db.prepare(
-		'INSERT INTO planogram_projects (id, name, created_at, updated_at, created_by) VALUES (?, ?, ?, ?, ?)'
-	).bind(id, name, now, now, createdBy).run();
+		'INSERT INTO planogram_projects (id, name, created_at, updated_at, created_by, language) VALUES (?, ?, ?, ?, ?, ?)'
+	).bind(id, name, now, now, createdBy, language).run();
 }
 
 export async function updatePlanogramProject(db, id, patch) {
