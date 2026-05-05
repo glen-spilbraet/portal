@@ -5,6 +5,7 @@
 	let products = $state(data.products);
 	let creating = $state(false);
 	let newName = $state('');
+	let showModal = $state(false);
 	let search = $state('');
 
 	const filtered = $derived(
@@ -20,6 +21,11 @@
 
 	function formatDate(ts) {
 		return new Date(ts * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+	}
+
+	function openModal() {
+		newName = '';
+		showModal = true;
 	}
 
 	async function create() {
@@ -65,21 +71,12 @@
 					placeholder="Search projects…"
 					bind:value={search}
 				/>
-				<div class="create-wrap">
-					<input
-						class="name-input"
-						type="text"
-						placeholder="New project name…"
-						bind:value={newName}
-						onkeydown={(e) => e.key === 'Enter' && create()}
-					/>
-					<button class="btn-new" onclick={create} disabled={creating || !newName.trim()}>
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-							<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-						</svg>
-						{creating ? 'Creating…' : 'New Project'}
-					</button>
-				</div>
+				<button class="btn-new" onclick={openModal}>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+						<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+					</svg>
+					Project
+				</button>
 			</div>
 		</div>
 
@@ -141,6 +138,34 @@
 	</main>
 </div>
 
+<!-- ── New project modal ──────────────────────────────────────────────────── -->
+{#if showModal}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="overlay" onclick={(e) => { if (e.target === e.currentTarget) showModal = false; }}>
+		<div class="dialog">
+			<h2>New project</h2>
+			<div class="field">
+				<label for="new-project-name">Project name</label>
+				<!-- svelte-ignore a11y_autofocus -->
+				<input
+					id="new-project-name"
+					type="text"
+					placeholder="e.g. Price list Q3…"
+					bind:value={newName}
+					autofocus
+					onkeydown={(e) => { if (e.key === 'Enter') create(); }}
+				/>
+			</div>
+			<div class="dialog-buttons">
+				<button class="btn-cancel" onclick={() => showModal = false}>Cancel</button>
+				<button class="btn-primary" onclick={create} disabled={!newName.trim() || creating}>
+					{creating ? 'Creating…' : 'Create project →'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
 
@@ -179,23 +204,6 @@
 	}
 	.search-input:focus { border-color: #A1A1AA; }
 	.search-input::placeholder { color: #A1A1AA; }
-
-	.create-wrap { display: flex; gap: 8px; align-items: center; }
-
-	.name-input {
-		padding: 7px 14px;
-		border: 1px solid var(--border);
-		border-radius: 100px;
-		font-size: 13px;
-		font-family: inherit;
-		color: #18181B;
-		background: white;
-		outline: none;
-		width: 220px;
-		transition: border-color 0.15s;
-	}
-	.name-input:focus { border-color: #A1A1AA; }
-	.name-input::placeholder { color: #A1A1AA; }
 
 	.btn-new {
 		display: inline-flex;
@@ -312,4 +320,53 @@
 	}
 	.action-btn:hover { background: #F4F4F5; color: #18181B; }
 	.action-btn.danger:hover { background: #FEF2F2; color: var(--danger); }
+
+	/* ── Modal ── */
+	.overlay {
+		position: fixed; inset: 0; z-index: 200;
+		background: rgba(0,0,0,0.35);
+		backdrop-filter: blur(2px);
+		display: flex; align-items: center; justify-content: center;
+		padding: 24px;
+	}
+	.dialog {
+		background: white;
+		border-radius: 16px;
+		box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+		padding: 28px;
+		width: 100%; max-width: 400px;
+		display: flex; flex-direction: column; gap: 20px;
+	}
+	.dialog h2 { font-size: 18px; font-weight: 800; color: #18181B; margin: 0; }
+	.field { display: flex; flex-direction: column; gap: 6px; }
+	.field label { font-size: 12px; font-weight: 600; color: #52525B; }
+	.field input {
+		padding: 10px 14px;
+		border: 1.5px solid #E0DBD2;
+		border-radius: 10px;
+		font-size: 14px; font-family: inherit;
+		outline: none; transition: border-color 0.15s;
+	}
+	.field input:focus { border-color: #F57832; }
+	.dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+	.btn-cancel {
+		padding: 8px 18px;
+		border-radius: 100px;
+		font-size: 13px; font-weight: 600; font-family: inherit;
+		background: #F4F4F5; color: #52525B;
+		border: none; cursor: pointer;
+		transition: background 0.15s;
+	}
+	.btn-cancel:hover { background: #E4E4E7; }
+	.btn-primary {
+		padding: 8px 18px;
+		border-radius: 100px;
+		font-size: 13px; font-weight: 600; font-family: inherit;
+		background: #F57832; color: white;
+		border: none; cursor: pointer;
+		transition: background 0.15s;
+		white-space: nowrap;
+	}
+	.btn-primary:hover:not(:disabled) { background: #E06820; }
+	.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
