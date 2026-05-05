@@ -13,6 +13,7 @@ export async function load({ params, platform }) {
 	return {
 		token: params.token,
 		name: project.name,
+		language: project.language ?? null,
 		settings: JSON.parse(project.settings || '{}'),
 		placements: JSON.parse(project.placements || '[]'),
 		libraryItems: items.map(i => ({

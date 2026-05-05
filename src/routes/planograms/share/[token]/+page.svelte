@@ -26,6 +26,7 @@
 	};
 
 	let projectName = $state(data.name || 'Planogram');
+	const planogramLanguage = data.language ?? null;
 
 	let svgMarkup = $state('');
 	let svgWidth = $state(400);
@@ -52,7 +53,8 @@
 		detailSheetLoading = true;
 		showProductDetail = true;
 		try {
-			const res = await fetch(`/api/share/sheet?sku=${encodeURIComponent(item.sku)}`);
+			const langParam = planogramLanguage ? `&lang=${planogramLanguage}` : '';
+			const res = await fetch(`/api/share/sheet?sku=${encodeURIComponent(item.sku)}${langParam}`);
 			if (res.ok) {
 				const body = await res.json();
 				detailSheetId = body.shareToken ?? null;
@@ -478,7 +480,7 @@
 							Looking for sheet…
 						</span>
 					{:else if detailSheetId}
-						<a href="/share/sheet/{detailSheetId}" target="_blank" class="pd-sheet-link">
+						<a href="/share/sheet/{detailSheetId}{planogramLanguage ? `?lang=${planogramLanguage}` : ''}" target="_blank" class="pd-sheet-link">
 							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 								<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
 								<polyline points="14 2 14 8 20 8"/>

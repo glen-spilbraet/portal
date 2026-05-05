@@ -11,6 +11,14 @@
 	const userNames  = data.userNames ?? {};
 	function displayName(email) { return userNames[email] ?? email?.split('@')[0] ?? email; }
 
+	const LANGUAGES = [
+		{ code: 'en', label: 'English' },
+		{ code: 'da', label: 'Dansk' },
+		{ code: 'sv', label: 'Svenska' },
+		{ code: 'no', label: 'Norsk' },
+	];
+	function langLabel(code) { return LANGUAGES.find(l => l.code === code)?.label ?? code; }
+
 	// Navigation: null = root, 'shared' = Shared with me, uuid = folder id
 	let currentFolder = $state(null);
 
@@ -192,13 +200,14 @@
 		if (!renameModal || !renameModal.name.trim() || busy) return;
 		busy = true; modalError = '';
 		try {
+			const language = renameModal.language || null;
 			const res = await fetch(`/api/planograms/${renameModal.id}`, {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name: renameModal.name.trim() }),
+				body: JSON.stringify({ name: renameModal.name.trim(), language }),
 			});
-			if (!res.ok) throw new Error('Failed to rename');
-			projects = projects.map(p => p.id === renameModal.id ? { ...p, name: renameModal.name.trim() } : p);
+			if (!res.ok) throw new Error('Failed to save');
+			projects = projects.map(p => p.id === renameModal.id ? { ...p, name: renameModal.name.trim(), language } : p);
 			renameModal = null;
 		} catch (e) {
 			modalError = e.message;
@@ -484,7 +493,12 @@
 									</svg>
 								</div>
 								<div class="card-info">
-									<div class="card-name">{project.name}</div>
+									<div class="card-name">
+										{project.name}
+										{#if project.language}
+											<span class="lang-pill">{project.language.toUpperCase()}</span>
+										{/if}
+									</div>
 									<div class="card-meta">
 										Updated {formatDate(project.updated_at)}
 										{#if isAdmin && project.created_by}
@@ -519,7 +533,7 @@
 										</svg>
 									</button>
 
-									<button class="icon-action" onclick={() => { renameModal = { id: project.id, name: project.name }; modalError = ''; }} aria-label="Rename" data-tip="Rename">
+									<button class="icon-action" onclick={() => { renameModal = { id: project.id, name: project.name, language: project.language ?? '' }; modalError = ''; }} aria-label="Rename" data-tip="Rename">
 										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
 											<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4z"/>
 										</svg>
@@ -580,12 +594,21 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div class="overlay" onclick={(e) => { if (e.target === e.currentTarget) renameModal = null; }}>
 		<div class="dialog">
-			<h2>Rename project</h2>
+			<h2>Edit project</h2>
 			<div class="field">
 				<label for="rename-input">Project name</label>
 				<!-- svelte-ignore a11y_autofocus -->
 				<input id="rename-input" type="text" bind:value={renameModal.name} autofocus
 					onkeydown={(e) => { if (e.key === 'Enter') renameProject(); }} />
+			</div>
+			<div class="field">
+				<label for="lang-select">Language</label>
+				<select id="lang-select" bind:value={renameModal.language}>
+					<option value="">— None —</option>
+					{#each LANGUAGES as lang}
+						<option value={lang.code}>{lang.label}</option>
+					{/each}
+				</select>
 			</div>
 			{#if modalError}<p class="error-text">{modalError}</p>{/if}
 			<div class="dialog-buttons">
@@ -1055,6 +1078,20 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.lang-pill {
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		padding: 2px 6px;
+		border-radius: 100px;
+		background: #FFF5D2;
+		color: #7B3803;
+		flex-shrink: 0;
 	}
 
 	.card-meta { font-size: 12px; color: #A89060; margin-top: 3px; }
@@ -1218,6 +1255,19 @@
 		font-family: inherit;
 	}
 	.field input:focus { border-color: #F57832; }
+	.field select {
+		padding: 10px 12px;
+		border: 1.5px solid #E0DBD2;
+		border-radius: 10px;
+		font-size: 14px;
+		outline: none;
+		font-family: inherit;
+		background: white;
+		color: #18181B;
+		cursor: pointer;
+		transition: border-color 0.15s;
+	}
+	.field select:focus { border-color: #F57832; }
 
 	.dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
 

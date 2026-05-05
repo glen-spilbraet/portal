@@ -50,8 +50,11 @@ export async function PATCH({ params, request, cookies, platform }) {
 	const db = platform?.env?.DB;
 	if (!db) error(500);
 	const body = await request.json();
-	if (!body.name?.trim()) error(400, 'Name required');
-	await updatePlanogramProject(db, params.id, { name: body.name.trim() });
+	const patch = {};
+	if (body.name?.trim()) patch.name = body.name.trim();
+	if ('language' in body) patch.language = body.language || null;
+	if (!Object.keys(patch).length) error(400, 'Nothing to update');
+	await updatePlanogramProject(db, params.id, patch);
 	return json({ ok: true });
 }
 
