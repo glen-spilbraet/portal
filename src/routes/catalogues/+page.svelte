@@ -170,6 +170,26 @@
 		}
 	}
 
+	// ── Duplicate catalogue ─────────────────────────────────────────────────────
+	let duplicating = $state(null); // catalogue id currently being duplicated
+
+	async function duplicateCatalogue(cat) {
+		if (duplicating) return;
+		duplicating = cat.id;
+		try {
+			const res = await fetch(`/api/catalogues/${cat.id}/duplicate`, { method: 'POST' });
+			if (!res.ok) throw new Error('Failed to duplicate');
+			const { id } = await res.json();
+			const idx  = catalogues.findIndex(c => c.id === cat.id);
+			const copy = { ...cat, id, name: `COPY: ${cat.name}`, share_token: null };
+			catalogues = [...catalogues.slice(0, idx + 1), copy, ...catalogues.slice(idx + 1)];
+		} catch (e) {
+			alert(e.message);
+		} finally {
+			duplicating = null;
+		}
+	}
+
 	// ── Sharing ────────────────────────────────────────────────────────────────
 	async function openShareModal(cat) {
 		shareTarget = cat;
@@ -468,6 +488,16 @@
 										</svg>
 									</button>
 
+									<button class="icon-action" onclick={(e) => { e.stopPropagation(); duplicateCatalogue(cat); }} aria-label="Duplicate" data-tip="Duplicate" disabled={duplicating === cat.id}>
+										{#if duplicating === cat.id}
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.7s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+										{:else}
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+												<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+											</svg>
+										{/if}
+									</button>
+
 									<button class="icon-action danger" style="margin-left:auto" onclick={() => deleteCatalogue(cat.id, cat.name)} aria-label="Delete" data-tip="Delete">
 										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
 											<polyline points="3 6 5 6 21 6"/>
@@ -582,6 +612,8 @@
 {/if}
 
 <style>
+	@keyframes spin { to { transform: rotate(360deg); } }
+
 	/* ── Layout ── */
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
 

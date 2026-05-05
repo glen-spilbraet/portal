@@ -42,7 +42,7 @@
 	let shareError  = $state('');
 	let sharing     = $state(false);
 
-	// New / rename / delete project modals
+	// New / rename / delete / duplicate project modals
 	let showNewModal  = $state(false);
 	let newName       = $state('');
 	let newLanguage   = $state('');
@@ -50,6 +50,30 @@
 	let deleteModal   = $state(null); // { id, name }
 	let busy          = $state(false);
 	let modalError    = $state('');
+	let duplicating   = $state(null); // project id currently being duplicated
+
+	async function duplicateProject(project) {
+		if (duplicating) return;
+		duplicating = project.id;
+		try {
+			const res = await fetch(`/api/planograms/${project.id}/duplicate`, { method: 'POST' });
+			if (!res.ok) throw new Error('Failed to duplicate');
+			const { id } = await res.json();
+			// Insert copy just after the original in the list
+			const idx = projects.findIndex(p => p.id === project.id);
+			const copy = {
+				...project,
+				id,
+				name: `COPY: ${project.name}`,
+				share_token: null,
+			};
+			projects = [...projects.slice(0, idx + 1), copy, ...projects.slice(idx + 1)];
+		} catch (e) {
+			alert(e.message);
+		} finally {
+			duplicating = null;
+		}
+	}
 
 	// ── Folder tree helpers ────────────────────────────────────────────────────
 	function buildFlatTree(allFolders, parentId = null, depth = 0) {
@@ -540,6 +564,16 @@
 										</svg>
 									</button>
 
+									<button class="icon-action" onclick={(e) => { e.stopPropagation(); duplicateProject(project); }} aria-label="Duplicate" data-tip="Duplicate" disabled={duplicating === project.id}>
+										{#if duplicating === project.id}
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.7s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+										{:else}
+											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+												<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+											</svg>
+										{/if}
+									</button>
+
 									<button class="icon-action danger" style="margin-left:auto" onclick={() => { deleteModal = { id: project.id, name: project.name }; modalError = ''; }} aria-label="Delete" data-tip="Delete">
 										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
 											<polyline points="3 6 5 6 21 6"/>
@@ -746,6 +780,8 @@
 {/if}
 
 <style>
+	@keyframes spin { to { transform: rotate(360deg); } }
+
 	/* ── Layout ── */
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
 
