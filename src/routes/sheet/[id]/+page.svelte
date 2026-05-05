@@ -24,8 +24,13 @@
 		saveStatus = 'saving';
 		clearTimeout(saveTimer);
 		saveTimer = setTimeout(() => { saveStatus = 'saved'; }, 1500);
-		if (language === data.primaryLanguage && event?.type === 'translation') {
-			baseTranslations = { ...baseTranslations, [event.key]: event.value };
+		if (event?.type === 'translation') {
+			// Update translations immediately so SheetCanvas $effect sees the new value
+			// and doesn't flicker back to the old text when the effect re-runs
+			translations = { ...translations, [event.key]: event.value };
+			if (language === data.primaryLanguage) {
+				baseTranslations = { ...baseTranslations, [event.key]: event.value };
+			}
 		}
 	}
 

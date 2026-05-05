@@ -32,17 +32,20 @@
 	let productDescription = $state(effective('product_description'));
 	let uspValues          = $state(Array.from({ length: 6 }, (_, i) => effective(`usp_${i + 1}`)));
 
-	// Sync whenever language or translations change
+	// Sync text values whenever translations or baseTranslations change
 	$effect(() => {
-		// reading these props registers them as dependencies
 		const _t  = translations;
 		const _bt = baseTranslations;
-		const _l  = language;
 
 		productName        = effective('product_name');
 		productDescription = effective('product_description');
 		for (let i = 0; i < 6; i++) uspValues[i] = effective(`usp_${i + 1}`);
-		localOverrides = {};   // reset on every language switch
+	});
+
+	// Reset local overrides only when the language actually switches
+	$effect(() => {
+		const _l = language;
+		localOverrides = {};
 	});
 
 	// ── Other sheet state ─────────────────────────────────────────────────
