@@ -8,6 +8,9 @@ binding = "DB"
 database_name = "portal-db"
 database_id = "2dca2f5d-21fd-4515-ba49-d5970c249571"
 
+[env.preview.vars]
+ENVIRONMENT = "dev"
+
 [[env.preview.d1_databases]]
 binding = "DB"
 database_name = "portal-db-dev"

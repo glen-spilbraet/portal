@@ -1,11 +1,33 @@
 <script>
 	import '../app.css';
 	let { children, data } = $props();
+
+	// On dev: prefix every page title with [DEV] whenever it changes
+	$effect(() => {
+		if (!data?.isDev) return;
+		const titleEl = document.querySelector('title');
+		if (!titleEl) return;
+		const prefix = '[DEV] ';
+		const apply = () => {
+			if (!document.title.startsWith(prefix)) {
+				document.title = prefix + document.title;
+			}
+		};
+		apply();
+		const observer = new MutationObserver(apply);
+		observer.observe(titleEl, { childList: true, characterData: true, subtree: true });
+		return () => observer.disconnect();
+	});
 </script>
 
 <svelte:head>
 	<title>Product Portal</title>
 	<meta name="robots" content="noindex, nofollow" />
+	{#if data?.isDev}
+		<link rel="icon" type="image/png" href="/portal-dev-fav.png" />
+	{:else}
+		<link rel="icon" type="image/png" href="/portal-fav.png" />
+	{/if}
 	<link rel="preconnect" href="https://fonts.googleapis.com" />
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
 	<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />

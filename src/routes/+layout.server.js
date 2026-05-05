@@ -13,11 +13,13 @@ function sectionForPath(pathname) {
 }
 
 export async function load({ cookies, url, platform }) {
+	const isDev = platform?.env?.ENVIRONMENT === 'dev';
+
 	// Public / auth routes — skip all checks
-	if (url.pathname === '/login') return {};
-	if (url.pathname.startsWith('/share/')) return {};
-	if (url.pathname.startsWith('/planograms/share/')) return {};
-	if (url.pathname.startsWith('/auth/')) return {};
+	if (url.pathname === '/login') return { isDev };
+	if (url.pathname.startsWith('/share/')) return { isDev };
+	if (url.pathname.startsWith('/planograms/share/')) return { isDev };
+	if (url.pathname.startsWith('/auth/')) return { isDev };
 
 	const token  = cookies.get('session');
 	const secret = platform?.env?.APP_SECRET ?? 'dev-secret';
@@ -68,6 +70,7 @@ export async function load({ cookies, url, platform }) {
 	}
 
 	return {
+		isDev,
 		user: {
 			email:       user.email,
 			role:        effectiveRole,
