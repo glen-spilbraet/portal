@@ -1697,7 +1697,7 @@
 
 <style>
 	:global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
-	:global(body) { font-family: system-ui, sans-serif; width: 100vw; height: 100vh; overflow: hidden; user-select: none; }
+	:global(body) { width: 100vw; height: 100vh; overflow: hidden; user-select: none; }
 
 	#viewport {
 		position: fixed; inset: 0;
