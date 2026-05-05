@@ -23,6 +23,10 @@
 	let customHeadersDirty = $state(false);
 	let savingCustomHeaders = $state(false);
 
+	// Row picker state (shown after file is chosen, before upload is sent)
+	let rowPickerData    = $state(null); // { previewRows: string[][], base64: string } | null
+	let selectedRowIndex = $state(0);
+
 	// UI state
 	let templateUploading = $state(false);
 	let savingMappings = $state(false);
@@ -226,31 +230,79 @@
 	// ── Template upload ────────────────────────────────────────────────────────
 	let templateInput;
 
+	function arrayBufferToBase64(buffer) {
+		let binary = '';
+		const bytes = new Uint8Array(buffer);
+		const chunk = 8192;
+		for (let i = 0; i < bytes.length; i += chunk) {
+			binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+		}
+		return btoa(binary);
+	}
+
 	async function handleTemplateUpload(e) {
 		const file = e.target.files?.[0];
 		if (!file) return;
-		templateUploading = true;
 		try {
-			// Read file in browser
 			const arrayBuffer = await file.arrayBuffer();
 			const wb = XLSX.read(arrayBuffer, { type: 'array' });
 			const firstSheet = wb.Sheets[wb.SheetNames[0]];
-			const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-			const extractedHeaders = (rows[0] || []).map(String).filter(Boolean);
+			const allRows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
 
-			if (extractedHeaders.length === 0) {
-				alert('No headers found in the first row of the spreadsheet.');
+			if (allRows.length === 0) {
+				alert('No data found in the spreadsheet.');
+				e.target.value = '';
 				return;
 			}
 
-			// Convert file to base64
-			const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+			// Collect up to 3 rows for the row picker
+			const previewRows = allRows.slice(0, 3).map(row =>
+				(row || []).map(cell => (cell === undefined || cell === null) ? '' : String(cell))
+			);
 
-			// Send to server
+			rowPickerData = { previewRows, arrayBuffer };
+			selectedRowIndex = 0;
+		} catch (err) {
+			alert(`Error reading file: ${err.message}`);
+		} finally {
+			e.target.value = '';
+		}
+	}
+
+	async function confirmRowSelection() {
+		if (!rowPickerData) return;
+		templateUploading = true;
+		try {
+			const { arrayBuffer } = rowPickerData;
+			const wb = XLSX.read(arrayBuffer, { type: 'array' });
+			const firstSheet = wb.Sheets[wb.SheetNames[0]];
+			const allRows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+
+			let fileBase64;
+			let extractedHeaders;
+
+			if (selectedRowIndex === 0) {
+				extractedHeaders = (allRows[0] || []).map(String).filter(Boolean);
+				fileBase64 = arrayBufferToBase64(arrayBuffer);
+			} else {
+				// Trim the workbook so the selected row becomes row 0
+				const trimmedRows = allRows.slice(selectedRowIndex);
+				extractedHeaders = (trimmedRows[0] || []).map(String).filter(Boolean);
+				const newWb = XLSX.utils.book_new();
+				const newWs = XLSX.utils.aoa_to_sheet(trimmedRows);
+				XLSX.utils.book_append_sheet(newWb, newWs, wb.SheetNames[0] || 'Sheet1');
+				fileBase64 = XLSX.write(newWb, { bookType: 'xlsx', type: 'base64' });
+			}
+
+			if (extractedHeaders.length === 0) {
+				alert('No column headers found in the selected row.');
+				return;
+			}
+
 			const res = await fetch(`/api/data-products/${p.id}/template`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ headers: extractedHeaders, fileBase64: base64 })
+				body: JSON.stringify({ headers: extractedHeaders, fileBase64 })
 			});
 
 			if (res.ok) {
@@ -259,14 +311,14 @@
 				savedMappingsJson = '{}';
 				templateMode = 'upload';
 				hasTemplateFile = true;
+				rowPickerData = null;
 			} else {
 				alert('Failed to upload template.');
 			}
 		} catch (err) {
-			alert(`Error reading file: ${err.message}`);
+			alert(`Error processing file: ${err.message}`);
 		} finally {
 			templateUploading = false;
-			e.target.value = '';
 		}
 	}
 
@@ -544,30 +596,74 @@
 				{#if templateMode === 'upload'}
 					<!-- ── Upload mode ── -->
 					<input bind:this={templateInput} type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange={handleTemplateUpload} />
-					<p class="section-hint">Upload an Excel file to use as the output structure. The first row should contain your column headers.</p>
-					<button class="btn-upload" onclick={() => templateInput.click()} disabled={templateUploading}>
-						{#if templateUploading}
-							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.7s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
-							Uploading…
-						{:else if hasTemplateFile}
-							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-							</svg>
-							Replace template
-						{:else}
-							<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-							</svg>
-							Upload template
+
+					{#if rowPickerData}
+						<!-- Row picker: shown after a file is scanned, before confirming -->
+						<p class="section-hint">Select which row contains the column headers:</p>
+						<div class="row-picker">
+							{#each rowPickerData.previewRows as row, i}
+								{@const nonEmpty = row.filter(Boolean)}
+								<button
+									class="row-option"
+									class:row-option-selected={selectedRowIndex === i}
+									onclick={() => selectedRowIndex = i}
+									type="button"
+								>
+									<div class="row-option-label">
+										<span class="row-num">Row {i + 1}</span>
+										{#if nonEmpty.length === 0}<span class="row-empty-tag">Empty</span>{/if}
+									</div>
+									<div class="row-option-cols">
+										{#each nonEmpty.slice(0, 6) as cell}
+											<span class="row-col-pill">{cell}</span>
+										{/each}
+										{#if nonEmpty.length > 6}
+											<span class="row-col-more">+{nonEmpty.length - 6} more</span>
+										{/if}
+										{#if nonEmpty.length === 0}
+											<span class="row-col-more">No values</span>
+										{/if}
+									</div>
+								</button>
+							{/each}
+							<div class="row-picker-actions">
+								<button class="btn-cancel-picker" onclick={() => rowPickerData = null} type="button">Cancel</button>
+								<button class="btn-confirm-picker" onclick={confirmRowSelection} disabled={templateUploading} type="button">
+									{#if templateUploading}
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.7s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+										Uploading…
+									{:else}
+										Use selected row →
+									{/if}
+								</button>
+							</div>
+						</div>
+					{:else}
+						<p class="section-hint">Upload an Excel file to use as the output structure. You'll be able to choose which row contains the column headers.</p>
+						<button class="btn-upload" onclick={() => templateInput.click()} disabled={templateUploading}>
+							{#if templateUploading}
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.7s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+								Uploading…
+							{:else if hasTemplateFile}
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+								</svg>
+								Replace template
+							{:else}
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+								</svg>
+								Upload template
+							{/if}
+						</button>
+						{#if hasTemplateFile}
+							<p class="template-ok" style="margin-top: 12px">
+								<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+									<polyline points="20 6 9 17 4 12"/>
+								</svg>
+								Template loaded · {headers.length} columns detected
+							</p>
 						{/if}
-					</button>
-					{#if hasTemplateFile}
-						<p class="template-ok" style="margin-top: 12px">
-							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-								<polyline points="20 6 9 17 4 12"/>
-							</svg>
-							Template loaded · {headers.length} columns detected
-						</p>
 					{/if}
 				{:else}
 					<!-- ── Custom / manual mode ── -->
@@ -1463,4 +1559,122 @@
 	.custom-header-count {
 		font-size: 12px; color: #A1A1AA; font-weight: 500;
 	}
+
+	/* ── Row picker ──────────────────────────────────────────────────────────── */
+	.row-picker {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.row-option {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		width: 100%;
+		text-align: left;
+		padding: 10px 12px;
+		border: 1.5px solid var(--border);
+		border-radius: 10px;
+		background: white;
+		cursor: pointer;
+		font-family: inherit;
+		transition: border-color 0.15s, background 0.15s;
+	}
+	.row-option:hover { border-color: #A1A1AA; background: #F8F8F6; }
+	.row-option-selected { border-color: #F57832 !important; background: #FFF7F3 !important; }
+
+	.row-option-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.row-num {
+		font-size: 10px;
+		font-weight: 700;
+		color: #A1A1AA;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+	.row-option-selected .row-num { color: #F57832; }
+
+	.row-empty-tag {
+		font-size: 10px;
+		font-weight: 600;
+		color: #A1A1AA;
+		background: #F4F4F5;
+		border-radius: 100px;
+		padding: 1px 7px;
+	}
+
+	.row-option-cols {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		align-items: center;
+	}
+
+	.row-col-pill {
+		font-size: 11px;
+		font-weight: 600;
+		color: #18181B;
+		background: #F4F4F5;
+		border-radius: 4px;
+		padding: 2px 7px;
+		max-width: 120px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.row-option-selected .row-col-pill {
+		background: #FFE8D6;
+		color: #C05020;
+	}
+
+	.row-col-more {
+		font-size: 11px;
+		color: #A1A1AA;
+		font-weight: 500;
+	}
+
+	.row-picker-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 4px;
+	}
+
+	.btn-cancel-picker {
+		padding: 7px 14px;
+		border-radius: 100px;
+		font-size: 13px;
+		font-weight: 600;
+		font-family: inherit;
+		background: #F4F4F5;
+		color: #52525B;
+		border: none;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+	.btn-cancel-picker:hover { background: #E4E4E7; }
+
+	.btn-confirm-picker {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 16px;
+		border-radius: 100px;
+		font-size: 13px;
+		font-weight: 600;
+		font-family: inherit;
+		background: #F57832;
+		color: white;
+		border: none;
+		cursor: pointer;
+		transition: background 0.15s;
+		white-space: nowrap;
+	}
+	.btn-confirm-picker:hover:not(:disabled) { background: #E06820; }
+	.btn-confirm-picker:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
