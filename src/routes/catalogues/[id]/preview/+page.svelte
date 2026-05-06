@@ -380,9 +380,8 @@
 									<div class="product-info-col">
 										<h2 class="product-name">{item.product_name || ''}</h2>
 
-										{@const itemSku = fieldVal(getDataFields(item.data_fields), 'sku')}
-										{@const listPrice = itemPrices?.[itemSku]}
-										{#if listPrice}
+										{#if itemPrices?.[fieldVal(getDataFields(item.data_fields), 'sku')]}
+											{@const listPrice = itemPrices[fieldVal(getDataFields(item.data_fields), 'sku')]}
 											{@const currency = ({ da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' })[lang] ?? 'EUR'}
 											{@const listLabel = globalLabel('listpris') ?? 'List price'}
 											<p class="list-price"><strong>{listLabel}:</strong> {currency} {listPrice.toFixed(2)}</p>

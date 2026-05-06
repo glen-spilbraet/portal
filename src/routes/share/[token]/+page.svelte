@@ -335,9 +335,8 @@
 									<div class="product-info-col">
 										<h2 class="product-name">{item.product_name || ''}</h2>
 
-										{@const itemSku = fieldVal(fields, 'sku')}
-										{@const listPrice = itemPrices?.[itemSku]}
-										{#if listPrice}
+										{#if itemPrices?.[fieldVal(fields, 'sku')]}
+											{@const listPrice = itemPrices[fieldVal(fields, 'sku')]}
 											{@const currency = ({ da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' })[catalogue.language ?? 'en'] ?? 'EUR'}
 											{@const listLabel = globalLabels['listpris']?.[catalogue.language ?? 'en'] ?? globalLabels['listpris']?.['en'] ?? 'List price'}
 											<p class="list-price"><strong>{listLabel}:</strong> {currency} {listPrice.toFixed(2)}</p>
