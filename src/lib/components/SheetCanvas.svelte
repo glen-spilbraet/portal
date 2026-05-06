@@ -438,7 +438,7 @@
 			></h1>
 
 			<!-- List price -->
-			{#if salesPrice()}
+			{#if salesPrice() && !hiddenElements.list_price}
 				<p class="list-price"><strong>{salesPrice().label}:</strong> {salesPrice().currency} {salesPrice().formatted}</p>
 			{/if}
 

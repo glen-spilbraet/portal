@@ -71,12 +71,13 @@
 	}
 
 	const TOGGLES = [
-		{ key: 'cta',         label: 'CTA' },
-		{ key: 'stock_date',  label: 'Stock Date' },
+		{ key: 'cta',        label: 'CTA' },
+		{ key: 'stock_date', label: 'Stock Date' },
+		{ key: 'list_price', label: 'List Price' },
 		{ key: 'description', label: 'Description' },
-		{ key: 'bullets',     label: 'Bullets' },
-		{ key: 'badges',      label: 'ATA Icons' },
-		{ key: 'data',        label: 'Data table' },
+		{ key: 'bullets',    label: 'Bullets' },
+		{ key: 'badges',     label: 'ATA Icons' },
+		{ key: 'data',       label: 'Data table' },
 	];
 
 	let ctaOpen = $state(false);
