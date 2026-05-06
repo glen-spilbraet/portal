@@ -5,7 +5,7 @@
 
 	let { data } = $props();
 
-	const { catalogue, items, globalLabels } = data;
+	const { catalogue, items, globalLabels, itemPrices } = data;
 
 	let downloading = $state(false);
 	let exportingExcel = $state(false);
@@ -380,6 +380,14 @@
 									<div class="product-info-col">
 										<h2 class="product-name">{item.product_name || ''}</h2>
 
+										{@const itemSku = fieldVal(getDataFields(item.data_fields), 'sku')}
+										{@const listPrice = itemPrices?.[itemSku]}
+										{#if listPrice}
+											{@const currency = ({ da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' })[lang] ?? 'EUR'}
+											{@const listLabel = globalLabel('listpris') ?? 'List price'}
+											<p class="list-price"><strong>{listLabel}:</strong> {currency} {listPrice.toFixed(2)}</p>
+										{/if}
+
 										{#if !hidden.description && item.product_description}
 											<p class="product-desc">{item.product_description}</p>
 										{/if}
@@ -603,6 +611,8 @@
 	/* ── Product info col ────────────────────────────────────────────────── */
 	.product-info-col { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 4px; gap: 8px; }
 	.product-name { font-size: 26px; font-weight: 800; color: #111827; letter-spacing: -0.5px; line-height: 1.2; margin-bottom: 0; }
+	.list-price { font-size: 13px; font-weight: 500; color: #7B3803; margin-top: -12px; margin-bottom: 2px; }
+	.list-price strong { font-weight: 800; }
 
 	.product-desc { font-size: 15px; font-weight: 500; color: #374151; line-height: 1.5; margin: 0 0 4px; }
 

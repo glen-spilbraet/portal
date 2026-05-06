@@ -7,7 +7,7 @@ async function checkAuth(cookies, platform) {
 	return verifySession(token ?? '', platform?.env?.APP_SECRET ?? 'dev-secret');
 }
 
-const ALLOWED = ['name', 'language', 'title', 'logo_key', 'logo_bg_color'];
+const ALLOWED = ['name', 'language', 'title', 'logo_key', 'logo_bg_color', 'show_list_price'];
 
 export async function PUT({ params, request, cookies, platform }) {
 	if (!(await checkAuth(cookies, platform))) error(401);

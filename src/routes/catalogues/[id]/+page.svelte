@@ -239,6 +239,23 @@
 		}
 	}
 
+	// Settings modal
+	let settingsOpen      = $state(false);
+	let settingsName      = $state(data.catalogue.name);
+	let settingsLanguage  = $state(data.catalogue.language ?? 'da');
+	let settingsListPrice = $state(!!(data.catalogue.show_list_price));
+	let settingsSaving    = $state(false);
+
+	async function saveSettings() {
+		if (settingsSaving) return;
+		settingsSaving = true;
+		await savePatch({ name: settingsName, language: settingsLanguage, show_list_price: settingsListPrice ? 1 : 0 });
+		name = settingsName;
+		language = settingsLanguage;
+		settingsSaving = false;
+		settingsOpen = false;
+	}
+
 	// Share link
 	let sharePopoverOpen = $state(false);
 	let shareToken = $state(data.catalogue.share_token ?? null);
@@ -498,6 +515,13 @@
 					</div>
 				{/if}
 			</div>
+
+			<button class="btn-settings" onclick={() => { settingsName = name; settingsLanguage = language; settingsOpen = true; }} title="Settings">
+				<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="12" cy="12" r="3"/>
+					<path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+				</svg>
+			</button>
 
 			<a href="/catalogues/{data.catalogue.id}/preview" target="_blank" class="btn-preview">
 				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
@@ -876,6 +900,61 @@
 	</div>
 {/if}
 
+<!-- ── Settings modal ──────────────────────────────────────────────────────── -->
+{#if settingsOpen}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="settings-overlay" onclick={(e) => { if (e.target === e.currentTarget) settingsOpen = false; }}>
+		<div class="settings-dialog">
+			<div class="settings-dialog-header">
+				<h2>Catalogue Settings</h2>
+				<button class="settings-close" onclick={() => settingsOpen = false} aria-label="Close">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+				</button>
+			</div>
+
+			<div class="settings-field">
+				<label for="settings-name">Catalogue Name</label>
+				<input id="settings-name" type="text" bind:value={settingsName} placeholder="Catalogue name…" />
+			</div>
+
+			<div class="settings-field">
+				<label for="settings-lang">Language</label>
+				<select id="settings-lang" bind:value={settingsLanguage}>
+					{#each LANGUAGES as l}
+						<option value={l.code}>{l.label}</option>
+					{/each}
+				</select>
+			</div>
+
+			<div class="settings-field">
+				<label class="settings-toggle-label">
+					<span class="settings-toggle-text">
+						<span class="settings-toggle-title">Price List Visibility</span>
+						<span class="settings-toggle-sub">Show Listepris on each product, overriding sheet-level visibility</span>
+					</span>
+					<button
+						class="toggle-switch"
+						class:toggle-on={settingsListPrice}
+						onclick={() => settingsListPrice = !settingsListPrice}
+						role="switch"
+						aria-checked={settingsListPrice}
+						type="button"
+					>
+						<span class="toggle-knob"></span>
+					</button>
+				</label>
+			</div>
+
+			<div class="settings-dialog-footer">
+				<button class="settings-btn-cancel" onclick={() => settingsOpen = false}>Cancel</button>
+				<button class="settings-btn-save" onclick={saveSettings} disabled={settingsSaving}>
+					{settingsSaving ? 'Saving…' : 'Save settings'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.page {
 		min-height: 100vh;
@@ -979,6 +1058,185 @@
 		letter-spacing: -0.1px;
 	}
 	.btn-preview:hover { background: #E06820; }
+
+	/* ── Settings button ─────────────────────────────────────────────────── */
+	.btn-settings {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 34px;
+		height: 34px;
+		padding: 0;
+		background: #f1f1f0;
+		border: 1px solid #e0e0de;
+		border-radius: 8px;
+		color: #555;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s;
+		flex-shrink: 0;
+	}
+	.btn-settings:hover { background: #e4e4e2; color: #222; }
+
+	/* ── Settings modal ──────────────────────────────────────────────────── */
+	.settings-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0,0,0,0.45);
+		z-index: 300;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.settings-dialog {
+		background: #fff;
+		border-radius: 14px;
+		width: 420px;
+		max-width: calc(100vw - 32px);
+		box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+		overflow: hidden;
+	}
+	.settings-dialog-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 20px 24px 16px;
+		border-bottom: 1px solid #efefed;
+	}
+	.settings-dialog-header h2 {
+		margin: 0;
+		font-size: 16px;
+		font-weight: 700;
+		color: #1a1a18;
+	}
+	.settings-close {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		background: none;
+		border: none;
+		border-radius: 6px;
+		color: #888;
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s;
+	}
+	.settings-close:hover { background: #f1f1f0; color: #222; }
+
+	.settings-field {
+		padding: 16px 24px;
+		border-bottom: 1px solid #f3f3f1;
+	}
+	.settings-field:last-of-type { border-bottom: none; }
+	.settings-field > label {
+		display: block;
+		font-size: 12px;
+		font-weight: 600;
+		color: #666;
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+		margin-bottom: 8px;
+	}
+	.settings-field input,
+	.settings-field select {
+		width: 100%;
+		box-sizing: border-box;
+		padding: 8px 11px;
+		border: 1px solid #ddd;
+		border-radius: 8px;
+		font-size: 14px;
+		font-family: inherit;
+		color: #1a1a18;
+		background: #fafaf9;
+		outline: none;
+		transition: border-color 0.15s;
+	}
+	.settings-field input:focus,
+	.settings-field select:focus { border-color: #F97316; background: #fff; }
+
+	.settings-toggle-label {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		cursor: pointer;
+	}
+	.settings-toggle-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.settings-toggle-title {
+		font-size: 14px;
+		font-weight: 600;
+		color: #1a1a18;
+	}
+	.settings-toggle-sub {
+		font-size: 12px;
+		color: #888;
+		line-height: 1.4;
+	}
+	.toggle-switch {
+		position: relative;
+		flex-shrink: 0;
+		width: 44px;
+		height: 24px;
+		background: #d1d5db;
+		border: none;
+		border-radius: 12px;
+		cursor: pointer;
+		transition: background 0.2s;
+		padding: 0;
+	}
+	.toggle-switch.toggle-on { background: #F97316; }
+	.toggle-knob {
+		position: absolute;
+		top: 3px;
+		left: 3px;
+		width: 18px;
+		height: 18px;
+		background: #fff;
+		border-radius: 50%;
+		box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+		transition: transform 0.2s;
+	}
+	.toggle-switch.toggle-on .toggle-knob { transform: translateX(20px); }
+
+	.settings-dialog-footer {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 10px;
+		padding: 16px 24px;
+		border-top: 1px solid #efefed;
+		background: #fafaf9;
+	}
+	.settings-btn-cancel {
+		padding: 8px 16px;
+		background: none;
+		border: 1px solid #ddd;
+		border-radius: 8px;
+		font-size: 13px;
+		font-weight: 600;
+		color: #555;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+	.settings-btn-cancel:hover { background: #f1f1f0; }
+	.settings-btn-save {
+		padding: 8px 18px;
+		background: #F97316;
+		border: none;
+		border-radius: 8px;
+		font-size: 13px;
+		font-weight: 700;
+		color: #fff;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+	.settings-btn-save:hover:not(:disabled) { background: #E06820; }
+	.settings-btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
 
 	/* ── Layout ──────────────────────────────────────────────────────────── */
 	.layout {

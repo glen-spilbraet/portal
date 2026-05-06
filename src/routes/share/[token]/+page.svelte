@@ -4,7 +4,7 @@
 	import { zipSync } from 'fflate';
 
 	let { data } = $props();
-	const { catalogue, items, globalLabels, token } = data;
+	const { catalogue, items, globalLabels, itemPrices, token } = data;
 
 	let downloading = $state(false);
 	let exportingExcel = $state(false);
@@ -334,6 +334,15 @@
 									</div>
 									<div class="product-info-col">
 										<h2 class="product-name">{item.product_name || ''}</h2>
+
+										{@const itemSku = fieldVal(fields, 'sku')}
+										{@const listPrice = itemPrices?.[itemSku]}
+										{#if listPrice}
+											{@const currency = ({ da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' })[catalogue.language ?? 'en'] ?? 'EUR'}
+											{@const listLabel = globalLabels['listpris']?.[catalogue.language ?? 'en'] ?? globalLabels['listpris']?.['en'] ?? 'List price'}
+											<p class="list-price"><strong>{listLabel}:</strong> {currency} {listPrice.toFixed(2)}</p>
+										{/if}
+
 										{#if !hidden.description && item.product_description}
 											<p class="product-desc">{item.product_description}</p>
 										{/if}
@@ -461,6 +470,8 @@
 
 	.product-info-col { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 4px; gap: 8px; }
 	.product-name { font-size: 26px; font-weight: 800; color: #111827; letter-spacing: -0.5px; line-height: 1.2; margin-bottom: 0; }
+	.list-price { font-size: 13px; font-weight: 500; color: #7B3803; margin-top: -12px; margin-bottom: 2px; }
+	.list-price strong { font-weight: 800; }
 	.product-desc { font-size: 15px; font-weight: 500; color: #374151; line-height: 1.5; margin: 0 0 4px; }
 	.usp-list { list-style: none; display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; }
 	.usp-item { display: flex; align-items: center; gap: 8px; line-height: 1.4; }
