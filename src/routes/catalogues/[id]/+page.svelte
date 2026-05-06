@@ -1062,21 +1062,20 @@
 
 	/* ── Settings button ─────────────────────────────────────────────────── */
 	.btn-settings {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
-		gap: 7px;
-		padding: 9px 18px;
+		gap: 6px;
+		padding: 6px 14px;
 		background: #F97316;
 		border: none;
-		border-radius: 999px;
+		border-radius: 100px;
 		color: #fff;
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 600;
 		font-family: inherit;
 		cursor: pointer;
 		transition: background 0.15s;
 		white-space: nowrap;
-		letter-spacing: -0.1px;
 	}
 	.btn-settings:hover { background: #E06820; }
 
