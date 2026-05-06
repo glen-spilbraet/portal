@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { getSheetByShareToken, getTranslations, getImages, getGlobalLabels, getCtaVersionTranslations } from '$lib/db.js';
+import { fetchSalesPrices } from '$lib/server/rackbeat.js';
 
 const LANGUAGES = [
 	{ code: 'en', label: 'English' },
@@ -15,10 +16,12 @@ export async function load({ params, url, platform }) {
 	const sheet = await getSheetByShareToken(db, params.token);
 	if (!sheet) error(404, 'This link is invalid or has been removed');
 
-	const [allTranslations, images, globalLabels] = await Promise.all([
+	const apiKey = platform?.env?.RACKBEAT_API_KEY;
+	const [allTranslations, images, globalLabels, salesPrices] = await Promise.all([
 		getTranslations(db, sheet.id),
 		getImages(db, sheet.id),
-		getGlobalLabels(db)
+		getGlobalLabels(db),
+		fetchSalesPrices(sheet.sku, apiKey),
 	]);
 
 	if (sheet.cta_version_id) {
@@ -49,6 +52,7 @@ export async function load({ params, url, platform }) {
 		primaryLanguage,
 		languages: availableLanguages,
 		globalLabels,
+		salesPrices,
 		token: params.token,
 	};
 }

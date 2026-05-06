@@ -85,7 +85,8 @@
 			{language}
 			editable={false}
 			globalLabels={data.globalLabels}
-		hiddenElements={JSON.parse(data.sheet.hidden_elements || '{}')}
+			hiddenElements={JSON.parse(data.sheet.hidden_elements || '{}')}
+			salesPrices={data.salesPrices}
 		/>
 	</div>
 </div>

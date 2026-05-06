@@ -233,7 +233,8 @@
 			editable={true}
 			onchange={handleChange}
 			{globalLabels}
-		{hiddenElements}
+			{hiddenElements}
+			salesPrices={data.salesPrices}
 		/>
 	</div>
 

@@ -12,8 +12,19 @@
 		editable = false,
 		onchange,
 		globalLabels = {},       // { sku: { en: 'SKU', da: 'SKU', ... }, height: { en: 'Height', da: 'Højde', ... }, ... }
-		hiddenElements = {}      // { cta: true, stock_date: true, description: true, bullets: true, data: true }
+		hiddenElements = {},     // { cta: true, stock_date: true, description: true, bullets: true, data: true }
+		salesPrices = null,      // { DKK: number, SEK: number, NOK: number, EUR: number, ... } | null
 	} = $props();
+
+	// Language → currency for list price display
+	const LANG_CURRENCY = { da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' };
+	const salesPrice = $derived(() => {
+		const currency = LANG_CURRENCY[language] ?? 'EUR';
+		const price    = salesPrices?.[currency];
+		if (!price || price <= 0) return null;
+		const label = globalLabels['listpris']?.[language] ?? globalLabels['listpris']?.['en'] ?? 'List price';
+		return { label, currency, formatted: price.toFixed(2) };
+	});
 
 	// Keys edited in this session — shown as black immediately even before server confirms
 	let localOverrides = $state(/** @type {Record<string, boolean>} */ ({}));
@@ -426,6 +437,11 @@
 				data-placeholder="Product Name"
 			></h1>
 
+			<!-- List price -->
+			{#if salesPrice()}
+				<p class="list-price">{salesPrice().label}: {salesPrice().currency} {salesPrice().formatted}</p>
+			{/if}
+
 			<!-- Short description -->
 			{#if !hiddenElements.description}
 			<p
@@ -772,6 +788,16 @@
 		border-radius: 3px;
 		padding: 2px 4px;
 		margin: -2px -4px;
+	}
+
+	/* List price */
+	.list-price {
+		font-size: 13px;
+		font-weight: 600;
+		color: #71717A;
+		margin-top: 2px;
+		margin-bottom: 2px;
+		letter-spacing: 0;
 	}
 
 	/* Product description */

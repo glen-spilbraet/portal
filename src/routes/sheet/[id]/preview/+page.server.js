@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { getSheet, getTranslations, getImages, getGlobalLabels, getCtaVersionTranslations } from '$lib/db.js';
+import { fetchSalesPrices } from '$lib/server/rackbeat.js';
 
 const LANGUAGES = [
 	{ code: 'en', label: 'English' },
@@ -15,10 +16,12 @@ export async function load({ params, url, platform }) {
 	const sheet = await getSheet(db, params.id);
 	if (!sheet) error(404, 'Sheet not found');
 
-	const [allTranslations, images, globalLabels] = await Promise.all([
+	const apiKey = platform?.env?.RACKBEAT_API_KEY;
+	const [allTranslations, images, globalLabels, salesPrices] = await Promise.all([
 		getTranslations(db, params.id),
 		getImages(db, params.id),
-		getGlobalLabels(db)
+		getGlobalLabels(db),
+		fetchSalesPrices(sheet.sku, apiKey),
 	]);
 
 	// Inject selected CTA version's translations into globalLabels
@@ -40,6 +43,7 @@ export async function load({ params, url, platform }) {
 		language: lang,
 		primaryLanguage,
 		languages: LANGUAGES,
-		globalLabels
+		globalLabels,
+		salesPrices,
 	};
 }
