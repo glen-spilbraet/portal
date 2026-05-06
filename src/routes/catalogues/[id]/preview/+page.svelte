@@ -610,7 +610,7 @@
 	/* ── Product info col ────────────────────────────────────────────────── */
 	.product-info-col { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 4px; gap: 8px; }
 	.product-name { font-size: 26px; font-weight: 800; color: #111827; letter-spacing: -0.5px; line-height: 1.2; margin-bottom: 0; }
-	.list-price { font-size: 13px; font-weight: 500; color: #7B3803; margin-top: -12px; margin-bottom: 2px; }
+	.list-price { font-size: 13px; font-weight: 500; color: #7B3803; margin-top: -5px; margin-bottom: 2px; }
 	.list-price strong { font-weight: 800; }
 
 	.product-desc { font-size: 15px; font-weight: 500; color: #374151; line-height: 1.5; margin: 0 0 4px; }
