@@ -439,7 +439,7 @@
 
 			<!-- List price -->
 			{#if salesPrice()}
-				<p class="list-price">{salesPrice().label}: {salesPrice().currency} {salesPrice().formatted}</p>
+				<p class="list-price"><strong>{salesPrice().label}:</strong> {salesPrice().currency} {salesPrice().formatted}</p>
 			{/if}
 
 			<!-- Short description -->
@@ -793,11 +793,14 @@
 	/* List price */
 	.list-price {
 		font-size: 13px;
-		font-weight: 600;
-		color: #71717A;
-		margin-top: 2px;
+		font-weight: 500;
+		color: #7B3803;
+		margin-top: -15px;
 		margin-bottom: 2px;
 		letter-spacing: 0;
+	}
+	.list-price strong {
+		font-weight: 800;
 	}
 
 	/* Product description */
