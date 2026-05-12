@@ -21,5 +21,33 @@ export async function load({ parent, platform }) {
 		allUsers.map(u => [u.email, u.first_name?.trim() || u.email.split('@')[0]])
 	);
 
-	return { catalogues, folders, sharedWithMe, isAdmin, userNames };
+	// Attach session counts so every catalogue card can show a quick stat
+	const allIds = [...catalogues.map(c => c.id), ...sharedWithMe.map(c => c.id)];
+	/** @type {Record<string, number>} */
+	let sessionCounts = {};
+	if (allIds.length > 0) {
+		const placeholders = allIds.map(() => '?').join(',');
+		const countRows = await db
+			.prepare(
+				`SELECT catalogue_id, COUNT(*) AS cnt
+         FROM catalogue_analytics_sessions
+         WHERE catalogue_id IN (${placeholders})
+         GROUP BY catalogue_id`
+			)
+			.bind(...allIds)
+			.all();
+		sessionCounts = Object.fromEntries(
+			/** @type {any[]} */ (countRows.results ?? []).map(r => [r.catalogue_id, r.cnt])
+		);
+	}
+
+	const withCounts = (list) => list.map(c => ({ ...c, session_count: sessionCounts[c.id] ?? 0 }));
+
+	return {
+		catalogues:   withCounts(catalogues),
+		folders,
+		sharedWithMe: withCounts(sharedWithMe),
+		isAdmin,
+		userNames,
+	};
 }
