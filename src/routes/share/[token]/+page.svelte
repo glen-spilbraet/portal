@@ -11,6 +11,36 @@
 	let zippingPhotos = $state(false);
 	let zipProgress = $state(0);
 
+	// ── Box image padding detection ────────────────────────────────────────────
+	// If an image already has white/transparent margins it fills the box flush.
+	// If not, we keep the default CSS padding so the product has breathing room.
+	/** @type {Record<string, boolean>} */
+	let boxHasPadding = $state({});
+
+	/** Sample 8 edge/corner pixels via canvas; true = image has its own white margins */
+	async function detectBoxPadding(src, key) {
+		try {
+			const img = new Image();
+			img.crossOrigin = 'anonymous';
+			await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src; });
+			const SIZE = 120;
+			const c = document.createElement('canvas');
+			c.width = SIZE; c.height = SIZE;
+			const ctx = c.getContext('2d');
+			ctx.drawImage(img, 0, 0, SIZE, SIZE);
+			const w = SIZE - 1, h = SIZE - 1, m = SIZE >> 1;
+			const pts = [[0,0],[w,0],[0,h],[w,h],[m,0],[m,h],[0,m],[w,m]];
+			let light = 0;
+			for (const [x, y] of pts) {
+				const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data;
+				if (a < 30 || (r > 220 && g > 220 && b > 220)) light++;
+			}
+			boxHasPadding = { ...boxHasPadding, [key]: light >= 6 };
+		} catch {
+			// Keep default (padding applied) on failure
+		}
+	}
+
 	// ── Analytics ──────────────────────────────────────────────────────────────
 	// Fire-and-forget — never blocks the UI, never throws to the user.
 	let _sessionId = /** @type {string|null} */ (null);
@@ -385,9 +415,14 @@
 								<div class="product-section">
 									<div class="product-image-col">
 										<div class="box-frame">
-											<div class="box-area">
+											<div class="box-area" class:no-padding={boxHasPadding[item.box_image_key]}>
 												{#if item.box_image_key}
-													<img src="/api/img/{item.box_image_key}" alt={item.product_name} class="box-img" />
+													<img
+														src="/api/img/{item.box_image_key}"
+														alt={item.product_name}
+														class="box-img"
+														onload={(e) => detectBoxPadding(e.currentTarget.src, item.box_image_key)}
+													/>
 												{:else}
 													<div class="box-placeholder">
 														<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.2">
@@ -535,6 +570,7 @@
 	.product-image-col { flex: 0 0 45%; display: flex; flex-direction: column; align-items: stretch; }
 	.box-frame { position: relative; width: 100%; }
 	.box-area { background: white; border-radius: 24px; box-shadow: 0 16px 56px rgba(0,0,0,0.10); padding: 20px; aspect-ratio: 1/1; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+	.box-area.no-padding { padding: 0; }
 	.box-img { width: 100%; height: 100%; object-fit: contain; }
 	.box-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 
