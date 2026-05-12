@@ -4,8 +4,8 @@ import { getCatalogue } from '$lib/db.js';
 
 export async function GET({ params, cookies, platform }) {
 	const token = cookies.get('session');
-	const user = await verifySession(token ?? '', platform?.env?.APP_SECRET ?? 'dev-secret');
-	if (!user) error(401, 'Unauthorized');
+	const email = await verifySession(token ?? '', platform?.env?.APP_SECRET ?? 'dev-secret');
+	if (!email) error(401, 'Unauthorized');
 
 	const db = platform?.env?.DB;
 	if (!db) error(500, 'DB unavailable');
@@ -14,12 +14,17 @@ export async function GET({ params, cookies, platform }) {
 	if (!catalogue) error(404, 'Not found');
 
 	// Allow admin, owner, or anyone it's been shared with
-	if (user.role !== 'admin' && catalogue.created_by !== user.email) {
+	const isAdmin = await db
+		.prepare('SELECT 1 FROM allowed_users WHERE email = ? AND role = ?')
+		.bind(email, 'admin')
+		.first();
+
+	if (!isAdmin && catalogue.created_by !== email) {
 		const share = await db
 			.prepare(
 				'SELECT 1 FROM catalogue_shares WHERE catalogue_id = ? AND shared_with_email = ?'
 			)
-			.bind(params.id, user.email)
+			.bind(params.id, email)
 			.first();
 		if (!share) error(403, 'No access');
 	}
