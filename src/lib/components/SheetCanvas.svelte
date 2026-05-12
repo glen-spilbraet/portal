@@ -151,6 +151,7 @@
 	// ── Box photo ─────────────────────────────────────────────────────────
 	let boxFileInput;
 	let boxImageHasPadding = $state(false);
+	let boxImageDetected = $state(false);
 
 	async function detectBoxPadding(src) {
 		try {
@@ -173,6 +174,8 @@
 			boxImageHasPadding = light >= 6; // 6 of 8 points are white/transparent
 		} catch {
 			boxImageHasPadding = false;
+		} finally {
+			boxImageDetected = true;
 		}
 	}
 
@@ -187,6 +190,7 @@
 		if (res.ok) {
 			const { key } = await res.json();
 			boxImageKey = key;
+			boxImageDetected = false; // reset so new image fades in after re-detection
 			onchange?.({ type: 'sheet', field: 'box_image_key', value: key });
 		}
 		e.target.value = '';
@@ -340,7 +344,7 @@
 		<!-- Box photo + stock date tag -->
 		<div class="box-col">
 			<div class="box-frame">
-			<div class="box-area" class:no-padding={boxImageHasPadding}>
+			<div class="box-area" class:no-padding={boxImageHasPadding} class:box-detected={!boxImageKey || boxImageDetected}>
 				{#if boxImageKey}
 					<img
 						src="/api/img/{boxImageKey}"
@@ -643,7 +647,10 @@
 		aspect-ratio: 1 / 1;
 		overflow: hidden;
 		width: 100%;
+		opacity: 0;
+		transition: opacity 0.15s;
 	}
+	.box-area.box-detected { opacity: 1; }
 
 	/* Stock date tag — overlaps the bottom of the box frame */
 	.stock-tag-wrap {

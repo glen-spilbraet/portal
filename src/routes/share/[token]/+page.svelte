@@ -14,8 +14,11 @@
 	// ── Box image padding detection ────────────────────────────────────────────
 	// If an image already has white/transparent margins it fills the box flush.
 	// If not, we keep the default CSS padding so the product has breathing room.
+	// The box is kept invisible until detection resolves to avoid a flicker.
 	/** @type {Record<string, boolean>} */
 	let boxHasPadding = $state({});
+	/** @type {Record<string, boolean>} */
+	let boxDetected = $state({});
 
 	/** Sample 8 edge/corner pixels via canvas; true = image has its own white margins */
 	async function detectBoxPadding(src, key) {
@@ -38,6 +41,8 @@
 			boxHasPadding = { ...boxHasPadding, [key]: light >= 6 };
 		} catch {
 			// Keep default (padding applied) on failure
+		} finally {
+			boxDetected = { ...boxDetected, [key]: true };
 		}
 	}
 
@@ -415,7 +420,10 @@
 								<div class="product-section">
 									<div class="product-image-col">
 										<div class="box-frame">
-											<div class="box-area" class:no-padding={boxHasPadding[item.box_image_key]}>
+											<div class="box-area"
+											class:no-padding={boxHasPadding[item.box_image_key]}
+											class:box-detected={!item.box_image_key || boxDetected[item.box_image_key]}
+										>
 												{#if item.box_image_key}
 													<img
 														src="/api/img/{item.box_image_key}"
@@ -569,7 +577,8 @@
 
 	.product-image-col { flex: 0 0 45%; display: flex; flex-direction: column; align-items: stretch; }
 	.box-frame { position: relative; width: 100%; }
-	.box-area { background: white; border-radius: 24px; box-shadow: 0 16px 56px rgba(0,0,0,0.10); padding: 20px; aspect-ratio: 1/1; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+	.box-area { background: white; border-radius: 24px; box-shadow: 0 16px 56px rgba(0,0,0,0.10); padding: 20px; aspect-ratio: 1/1; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; opacity: 0; transition: opacity 0.15s; }
+	.box-area.box-detected { opacity: 1; }
 	.box-area.no-padding { padding: 0; }
 	.box-img { width: 100%; height: 100%; object-fit: contain; }
 	.box-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
