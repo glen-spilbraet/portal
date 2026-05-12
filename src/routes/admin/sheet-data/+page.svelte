@@ -3,13 +3,47 @@
 
 	let { data } = $props();
 
+	// Local mutable copy so refresh results update in-place
+	let sheets = $state(data.sheets);
+	const fieldKeys = data.fieldKeys;
+
 	let search = $state('');
 
 	const filtered = $derived(
 		search.trim()
-			? data.sheets.filter((s) => s.sku.toLowerCase().includes(search.trim().toLowerCase()))
-			: data.sheets
+			? sheets.filter((s) => s.sku.toLowerCase().includes(search.trim().toLowerCase()))
+			: sheets
 	);
+
+	// Per-row refresh state: null | 'loading' | 'ok' | 'error'
+	/** @type {Record<string, string | null>} */
+	let refreshState = $state({});
+	/** @type {Record<string, ReturnType<typeof setTimeout>>} */
+	const refreshTimers = {};
+
+	/** @param {string} id */
+	async function refreshSheet(id) {
+		if (refreshState[id] === 'loading') return;
+		refreshState[id] = 'loading';
+		clearTimeout(refreshTimers[id]);
+		try {
+			const res = await fetch(`/api/sheets/${id}/refresh`, { method: 'POST' });
+			if (!res.ok) throw new Error();
+			const { data_fields } = await res.json();
+			/** @type {Record<string, string>} */
+			const fieldMap = {};
+			for (const f of data_fields) {
+				if (f.key !== 'sku') fieldMap[f.key] = f.value;
+			}
+			sheets = sheets.map((s) => (s.id === id ? { ...s, fieldMap } : s));
+			refreshState[id] = 'ok';
+		} catch {
+			refreshState[id] = 'error';
+		}
+		refreshTimers[id] = setTimeout(() => {
+			refreshState[id] = null;
+		}, 2500);
+	}
 
 	const FIELD_LABELS = {
 		ean: 'EAN',
@@ -53,7 +87,7 @@
 	<div class="page-header">
 		<div>
 			<h1 class="page-title">Sheet Data</h1>
-			<p class="page-sub">{data.sheets.length} sheets · All non-translatable field data</p>
+			<p class="page-sub">{sheets.length} sheets · All non-translatable field data</p>
 		</div>
 		<input type="search" bind:value={search} placeholder="Filter by SKU…" class="search-input" />
 	</div>
@@ -68,7 +102,7 @@
 					<th class="th-center">USPs</th>
 					<th class="th-center">Box img</th>
 					<th>CTA</th>
-					{#each data.fieldKeys as key}
+					{#each fieldKeys as key}
 						<th>{fieldLabel(key)}</th>
 					{/each}
 					<th>Hidden</th>
@@ -79,6 +113,7 @@
 			</thead>
 			<tbody>
 				{#each filtered as sheet (sheet.id)}
+					{@const rs = refreshState[sheet.id]}
 					<tr>
 						<td class="td-sku sticky-col">
 							<span class="sku-text">{sheet.sku}</span>
@@ -100,7 +135,7 @@
 							{/if}
 						</td>
 						<td class="td-muted">{sheet.ctaName ?? '—'}</td>
-						{#each data.fieldKeys as key}
+						{#each fieldKeys as key}
 							<td class="td-data">{sheet.fieldMap[key] ?? ''}</td>
 						{/each}
 						<td>
@@ -117,6 +152,35 @@
 						<td class="td-muted">{sheet.creatorName ?? '—'}</td>
 						<td class="td-muted">{formatDate(sheet.updatedAt)}</td>
 						<td class="td-action">
+							<button
+								class="refresh-btn"
+								class:rs-ok={rs === 'ok'}
+								class:rs-error={rs === 'error'}
+								onclick={() => refreshSheet(sheet.id)}
+								disabled={rs === 'loading'}
+								title="Refresh data from Rackbeat"
+							>
+								<svg
+									width="13"
+									height="13"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									class:spin={rs === 'loading'}
+								>
+									{#if rs === 'ok'}
+										<polyline points="20 6 9 17 4 12" />
+									{:else if rs === 'error'}
+										<line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+									{:else}
+										<polyline points="1 4 1 10 7 10" />
+										<path d="M3.51 15a9 9 0 1 0 .49-4.95" />
+									{/if}
+								</svg>
+							</button>
 							<a href="/sheet/{sheet.id}" class="edit-link" title="Open sheet">
 								<svg
 									width="14"
@@ -138,7 +202,7 @@
 				{/each}
 				{#if filtered.length === 0}
 					<tr>
-						<td colspan={7 + data.fieldKeys.length + 3} class="td-empty">
+						<td colspan={7 + fieldKeys.length + 4} class="td-empty">
 							{search.trim() ? `No sheets matching "${search.trim()}"` : 'No sheets yet.'}
 						</td>
 					</tr>
@@ -291,11 +355,6 @@
 		font-variant-numeric: tabular-nums;
 	}
 
-	.td-action {
-		text-align: right;
-		padding-right: 12px;
-	}
-
 	.td-empty {
 		text-align: center;
 		color: #aaa;
@@ -369,7 +428,54 @@
 		color: #92400e;
 	}
 
-	/* ── Edit link ─────────────────────────────────────────────────────────────── */
+	/* ── Action buttons ────────────────────────────────────────────────────────── */
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+	.spin { animation: spin 0.7s linear infinite; }
+
+	.td-action {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 4px;
+		padding-right: 12px;
+	}
+
+	.refresh-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border-radius: 7px;
+		border: none;
+		background: none;
+		color: #a0998a;
+		cursor: pointer;
+		transition: background 0.12s, color 0.12s;
+	}
+
+	.refresh-btn:hover:not(:disabled) {
+		background: #f0f9ff;
+		color: #0369a1;
+	}
+
+	.refresh-btn:disabled {
+		cursor: default;
+		color: #c0bdb8;
+	}
+
+	.refresh-btn.rs-ok {
+		background: #f0fdf4;
+		color: #16a34a;
+	}
+
+	.refresh-btn.rs-error {
+		background: #fef2f2;
+		color: #dc2626;
+	}
 
 	.edit-link {
 		display: inline-flex;

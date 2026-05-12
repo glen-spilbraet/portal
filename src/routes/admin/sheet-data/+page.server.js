@@ -26,10 +26,11 @@ export async function load({ parent, platform }) {
 	const KNOWN_ORDER = ['ean', 'weight', 'height', 'width', 'depth', 'age', 'time', 'players'];
 	const fieldKeySet = new Set();
 
-	const sheets = (sheetsRaw.results ?? []).map((s) => {
+	const sheets = /** @type {any[]} */ (sheetsRaw.results ?? []).map((s) => {
 		const dataFields = JSON.parse(s.data_fields ?? '[]');
 		const hiddenElements = JSON.parse(s.hidden_elements ?? '{}');
 
+		/** @type {Record<string, string>} */
 		const fieldMap = {};
 		for (const f of dataFields) {
 			if (f.key !== 'sku') {
