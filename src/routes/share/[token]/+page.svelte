@@ -20,25 +20,40 @@
 	/** @type {Record<string, boolean>} */
 	let boxDetected = $state({});
 
-	/** Sample 8 edge/corner pixels via canvas; true = image has its own white margins */
+	/**
+	 * Sample all 4 edges with multiple points each.
+	 * True = image has its own uniform white/transparent margins on ALL sides.
+	 * A studio-background photo (white only at corners) fails because its
+	 * bottom/side edges will show product content, not white.
+	 */
 	async function detectBoxPadding(src, key) {
 		try {
 			const img = new Image();
 			img.crossOrigin = 'anonymous';
 			await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src; });
-			const SIZE = 120;
+			const SIZE = 200;
 			const c = document.createElement('canvas');
 			c.width = SIZE; c.height = SIZE;
 			const ctx = c.getContext('2d');
 			ctx.drawImage(img, 0, 0, SIZE, SIZE);
-			const w = SIZE - 1, h = SIZE - 1, m = SIZE >> 1;
-			const pts = [[0,0],[w,0],[0,h],[w,h],[m,0],[m,h],[0,m],[w,m]];
-			let light = 0;
-			for (const [x, y] of pts) {
+			const N = 10; // samples per edge
+			const isLight = (x, y) => {
 				const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data;
-				if (a < 30 || (r > 220 && g > 220 && b > 220)) light++;
+				return a < 30 || (r > 220 && g > 220 && b > 220);
+			};
+			// Count light pixels along each of the 4 edges
+			let top = 0, bottom = 0, left = 0, right = 0;
+			for (let i = 0; i < N; i++) {
+				const t = Math.round((i + 0.5) * SIZE / N);
+				if (isLight(t, 0))        top++;
+				if (isLight(t, SIZE - 1)) bottom++;
+				if (isLight(0, t))        left++;
+				if (isLight(SIZE - 1, t)) right++;
 			}
-			boxHasPadding = { ...boxHasPadding, [key]: light >= 6 };
+			// All 4 edges must be ≥ 80 % white — rules out incidental white backgrounds
+			const threshold = N * 0.8;
+			const hasMargins = top >= threshold && bottom >= threshold && left >= threshold && right >= threshold;
+			boxHasPadding = { ...boxHasPadding, [key]: hasMargins };
 		} catch {
 			// Keep default (padding applied) on failure
 		} finally {

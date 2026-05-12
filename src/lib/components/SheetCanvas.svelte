@@ -158,20 +158,26 @@
 			const img = new Image();
 			img.crossOrigin = 'anonymous';
 			await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src; });
-			const SIZE = 120;
+			const SIZE = 200;
 			const c = document.createElement('canvas');
 			c.width = SIZE; c.height = SIZE;
 			const ctx = c.getContext('2d');
 			ctx.drawImage(img, 0, 0, SIZE, SIZE);
-			const w = SIZE - 1, h = SIZE - 1, m = SIZE >> 1;
-			// Sample corners + edge midpoints (8 points)
-			const pts = [[0,0],[w,0],[0,h],[w,h],[m,0],[m,h],[0,m],[w,m]];
-			let light = 0;
-			for (const [x, y] of pts) {
+			const N = 10;
+			const isLight = (x, y) => {
 				const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data;
-				if (a < 30 || (r > 220 && g > 220 && b > 220)) light++;
+				return a < 30 || (r > 220 && g > 220 && b > 220);
+			};
+			let top = 0, bottom = 0, left = 0, right = 0;
+			for (let i = 0; i < N; i++) {
+				const t = Math.round((i + 0.5) * SIZE / N);
+				if (isLight(t, 0))        top++;
+				if (isLight(t, SIZE - 1)) bottom++;
+				if (isLight(0, t))        left++;
+				if (isLight(SIZE - 1, t)) right++;
 			}
-			boxImageHasPadding = light >= 6; // 6 of 8 points are white/transparent
+			const threshold = N * 0.8;
+			boxImageHasPadding = top >= threshold && bottom >= threshold && left >= threshold && right >= threshold;
 		} catch {
 			boxImageHasPadding = false;
 		} finally {
