@@ -21,10 +21,10 @@
 	let boxDetected = $state({});
 
 	/**
-	 * Sample all 4 edges with multiple points each.
-	 * True = image has its own uniform white/transparent margins on ALL sides.
-	 * A studio-background photo (white only at corners) fails because its
-	 * bottom/side edges will show product content, not white.
+	 * Scan full rows/columns inward from each edge.
+	 * True = image has a solid white/transparent band of ≥ MIN_DEPTH px on ALL 4 sides.
+	 * A studio-background photo has white at the outermost pixels but product
+	 * content starts within a few rows, so it fails the depth check.
 	 */
 	async function detectBoxPadding(src, key) {
 		try {
@@ -36,23 +36,22 @@
 			c.width = SIZE; c.height = SIZE;
 			const ctx = c.getContext('2d');
 			ctx.drawImage(img, 0, 0, SIZE, SIZE);
-			const N = 10; // samples per edge
+
+			// Fetch all pixels at once — cheaper than 200+ individual getImageData calls
+			const px = ctx.getImageData(0, 0, SIZE, SIZE).data;
 			const isLight = (x, y) => {
-				const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data;
-				return a < 30 || (r > 220 && g > 220 && b > 220);
+				const i = (y * SIZE + x) * 4;
+				return px[i + 3] < 30 || (px[i] > 210 && px[i + 1] > 210 && px[i + 2] > 210);
 			};
-			// Count light pixels along each of the 4 edges
-			let top = 0, bottom = 0, left = 0, right = 0;
-			for (let i = 0; i < N; i++) {
-				const t = Math.round((i + 0.5) * SIZE / N);
-				if (isLight(t, 0))        top++;
-				if (isLight(t, SIZE - 1)) bottom++;
-				if (isLight(0, t))        left++;
-				if (isLight(SIZE - 1, t)) right++;
-			}
-			// All 4 edges must be ≥ 80 % white — rules out incidental white backgrounds
-			const threshold = N * 0.8;
-			const hasMargins = top >= threshold && bottom >= threshold && left >= threshold && right >= threshold;
+			// Returns how many consecutive all-light rows/cols there are from an edge
+			const depthTop    = () => { for (let y = 0; y < SIZE; y++) { for (let x = 0; x < SIZE; x++) { if (!isLight(x, y)) return y; } } return SIZE; };
+			const depthBottom = () => { for (let y = SIZE-1; y >= 0; y--) { for (let x = 0; x < SIZE; x++) { if (!isLight(x, y)) return SIZE-1-y; } } return SIZE; };
+			const depthLeft   = () => { for (let x = 0; x < SIZE; x++) { for (let y = 0; y < SIZE; y++) { if (!isLight(x, y)) return x; } } return SIZE; };
+			const depthRight  = () => { for (let x = SIZE-1; x >= 0; x--) { for (let y = 0; y < SIZE; y++) { if (!isLight(x, y)) return SIZE-1-x; } } return SIZE; };
+
+			// Require at least 5 % white band on every side (10 px of 200)
+			const MIN = Math.round(SIZE * 0.05);
+			const hasMargins = depthTop() >= MIN && depthBottom() >= MIN && depthLeft() >= MIN && depthRight() >= MIN;
 			boxHasPadding = { ...boxHasPadding, [key]: hasMargins };
 		} catch {
 			// Keep default (padding applied) on failure
