@@ -231,8 +231,11 @@
 
 	// ── Analytics modal ────────────────────────────────────────────────────────
 	let analyticsModal = $state(/** @type {{cat:any, loading:boolean, sessions:any[], error:string|null}|null} */ (null));
+	/** @type {Record<string, boolean>} */
+	let expandedSessions = $state({});
 
 	async function openAnalytics(cat) {
+		expandedSessions = {};
 		analyticsModal = { cat, loading: true, sessions: [], error: null };
 		try {
 			const res = await fetch(`/api/catalogues/${cat.id}/analytics`);
@@ -242,6 +245,10 @@
 		} catch {
 			analyticsModal = { ...analyticsModal, loading: false, error: 'Could not load analytics.' };
 		}
+	}
+
+	function toggleSession(id) {
+		expandedSessions = { ...expandedSessions, [id]: !expandedSessions[id] };
 	}
 
 	/** @param {number} ts */
@@ -591,8 +598,9 @@
 			{:else}
 				<div class="an-sessions">
 					{#each analyticsModal.sessions as s (s.id)}
-						<div class="an-session">
-							<div class="an-session-head">
+						{@const open = !!expandedSessions[s.id]}
+						<div class="an-session" class:an-session-open={open}>
+							<button class="an-session-head" onclick={() => toggleSession(s.id)}>
 								<span class="an-device">
 									{#if s.deviceType === 'Mobile'}
 										<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
@@ -604,8 +612,11 @@
 									{s.deviceType}{s.city ? ` · ${s.city}` : ''}
 								</span>
 								<span class="an-ts">{fmtTs(s.sessionAt)}</span>
-							</div>
-							{#if s.events.length > 0}
+								<svg class="an-chevron" class:an-chevron-open={open} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+									<polyline points="6 9 12 15 18 9"/>
+								</svg>
+							</button>
+							{#if open && s.events.length > 0}
 								<ul class="an-events">
 									{#each s.events as ev (ev.id)}
 										<li class="an-event">
@@ -1350,12 +1361,20 @@
 	.an-session-head {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
+		gap: 10px;
 		padding: 9px 12px;
 		background: #FAFAFA;
-		border-bottom: 1px solid #F4F4F5;
+		border: none;
+		border-bottom: 1px solid transparent;
+		border-radius: 10px;
+		width: 100%;
+		cursor: pointer;
+		text-align: left;
+		font-family: inherit;
+		transition: background 0.12s;
 	}
+	.an-session-head:hover { background: #F4F4F5; }
+	.an-session-open .an-session-head { border-radius: 10px 10px 0 0; border-bottom-color: #F4F4F5; }
 
 	.an-device {
 		display: flex;
@@ -1364,6 +1383,8 @@
 		font-size: 12.5px;
 		font-weight: 600;
 		color: #52525B;
+		flex: 1;
+		min-width: 0;
 	}
 
 	.an-ts {
@@ -1373,6 +1394,13 @@
 		white-space: nowrap;
 		flex-shrink: 0;
 	}
+
+	.an-chevron {
+		color: #A1A1AA;
+		flex-shrink: 0;
+		transition: transform 0.18s;
+	}
+	.an-chevron-open { transform: rotate(180deg); }
 
 	.an-events {
 		list-style: none;
