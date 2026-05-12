@@ -228,6 +228,48 @@
 	function formatDate(ts) {
 		return new Date(ts * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 	}
+
+	// ── Analytics modal ────────────────────────────────────────────────────────
+	let analyticsModal = $state(/** @type {{cat:any, loading:boolean, sessions:any[], error:string|null}|null} */ (null));
+
+	async function openAnalytics(cat) {
+		analyticsModal = { cat, loading: true, sessions: [], error: null };
+		try {
+			const res = await fetch(`/api/catalogues/${cat.id}/analytics`);
+			if (!res.ok) throw new Error('Failed to load');
+			const { sessions } = await res.json();
+			analyticsModal = { ...analyticsModal, loading: false, sessions };
+		} catch {
+			analyticsModal = { ...analyticsModal, loading: false, error: 'Could not load analytics.' };
+		}
+	}
+
+	/** @param {number} ts */
+	function fmtTs(ts) {
+		if (!ts) return '—';
+		const d = new Date(ts * 1000);
+		return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+	}
+
+	/** @param {string} t @param {number|null} page */
+	function evLabel(t, page) {
+		if (t === 'view_page')       return `View catalogue (Page ${page})`;
+		if (t === 'download_photos') return 'Download photos';
+		if (t === 'download_excel')  return 'Download data';
+		if (t === 'download_pdf')    return 'Download as PDF';
+		if (t === 'view_end')        return 'View end of catalogue';
+		return t;
+	}
+
+	/** @param {string} t */
+	function evColor(t) {
+		if (t === 'view_page')       return '#2563eb';
+		if (t === 'download_photos') return '#16a34a';
+		if (t === 'download_excel')  return '#16a34a';
+		if (t === 'download_pdf')    return '#d97706';
+		if (t === 'view_end')        return '#7c3aed';
+		return '#71717a';
+	}
 </script>
 
 <svelte:head>
@@ -498,12 +540,26 @@
 										{/if}
 									</button>
 
-									<button class="icon-action danger" style="margin-left:auto" onclick={() => deleteCatalogue(cat.id, cat.name)} aria-label="Delete" data-tip="Delete">
+									<button class="stats-btn" class:stats-active={cat.session_count > 0} style="margin-left:auto" onclick={(e) => { e.stopPropagation(); openAnalytics(cat); }} title="View analytics">
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+											<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+										</svg>
+										<span class="stats-count">{cat.session_count}</span>
+									</button>
+
+									<button class="icon-action danger" onclick={() => deleteCatalogue(cat.id, cat.name)} aria-label="Delete" data-tip="Delete">
 										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
 											<polyline points="3 6 5 6 21 6"/>
 											<path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
 											<path d="M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
 										</svg>
+									</button>
+								{:else}
+									<button class="stats-btn" class:stats-active={cat.session_count > 0} style="margin-left:auto" onclick={(e) => { e.stopPropagation(); openAnalytics(cat); }} title="View analytics">
+										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+											<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+										</svg>
+										<span class="stats-count">{cat.session_count}</span>
 									</button>
 								{/if}
 							</div>
@@ -514,6 +570,59 @@
 		</main>
 	</div>
 </div>
+
+<!-- ── Analytics modal ──────────────────────────────────────────────────────── -->
+{#if analyticsModal}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="overlay" onclick={(e) => { if (e.target === e.currentTarget) analyticsModal = null; }}>
+		<div class="modal analytics-modal">
+			<button class="modal-close" onclick={() => analyticsModal = null}>✕</button>
+			<h2>Activity — {analyticsModal.cat.name || '(untitled)'}</h2>
+			<p class="modal-sub">{analyticsModal.cat.session_count} session{analyticsModal.cat.session_count !== 1 ? 's' : ''}</p>
+
+			{#if analyticsModal.loading}
+				<div class="an-loading">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="animation:spin 0.7s linear infinite;color:#A1A1AA"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+				</div>
+			{:else if analyticsModal.error}
+				<p class="an-error">{analyticsModal.error}</p>
+			{:else if analyticsModal.sessions.length === 0}
+				<p class="an-empty">No sessions recorded yet.</p>
+			{:else}
+				<div class="an-sessions">
+					{#each analyticsModal.sessions as s (s.id)}
+						<div class="an-session">
+							<div class="an-session-head">
+								<span class="an-device">
+									{#if s.deviceType === 'Mobile'}
+										<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+									{:else if s.deviceType === 'Tablet'}
+										<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+									{:else}
+										<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><polyline points="8 21 12 17 16 21"/></svg>
+									{/if}
+									{s.deviceType}{s.city ? ` · ${s.city}` : ''}
+								</span>
+								<span class="an-ts">{fmtTs(s.sessionAt)}</span>
+							</div>
+							{#if s.events.length > 0}
+								<ul class="an-events">
+									{#each s.events as ev (ev.id)}
+										<li class="an-event">
+											<span class="an-dot" style="background:{evColor(ev.eventType)}"></span>
+											<span class="an-ev-label">{evLabel(ev.eventType, ev.page)}</span>
+											<span class="an-ev-ts">{fmtTs(ev.eventAt)}</span>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	</div>
+{/if}
 
 <!-- ── Move modal ───────────────────────────────────────────────────────────── -->
 {#if moveModal}
@@ -1181,4 +1290,112 @@
 		transition: background 0.12s, color 0.12s;
 	}
 	.share-remove:hover { background: #FEF2F2; color: var(--danger); }
+
+	/* ── Stats button ── */
+	.stats-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		padding: 4px 8px;
+		border: 1px solid #E4E4E7;
+		border-radius: 100px;
+		background: #F9F9F9;
+		color: #A1A1AA;
+		font-size: 11px;
+		font-weight: 600;
+		cursor: pointer;
+		font-family: inherit;
+		transition: background 0.15s, color 0.15s, border-color 0.15s;
+		flex-shrink: 0;
+	}
+	.stats-btn:hover { background: #F4F4F5; color: #52525B; border-color: #D4D4D8; }
+	.stats-btn.stats-active { background: #EFF6FF; border-color: #BFDBFE; color: #1D4ED8; }
+	.stats-btn.stats-active:hover { background: #DBEAFE; }
+	.stats-count { line-height: 1; }
+
+	/* ── Analytics modal ── */
+	.analytics-modal { width: 500px; max-height: 80vh; display: flex; flex-direction: column; }
+	.analytics-modal h2 { font-size: 15px; font-weight: 700; margin: 0 0 2px; padding-right: 28px; }
+	.analytics-modal .modal-sub { font-size: 12px; color: #A1A1AA; margin: 0 0 16px; }
+
+	.an-loading {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 40px 0;
+	}
+
+	.an-error, .an-empty {
+		font-size: 13px;
+		color: #71717A;
+		text-align: center;
+		padding: 32px 0;
+	}
+	.an-error { color: var(--danger); }
+
+	.an-sessions {
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		max-height: calc(80vh - 130px);
+	}
+
+	.an-session {
+		border: 1px solid #F4F4F5;
+		border-radius: 10px;
+		overflow: hidden;
+	}
+
+	.an-session-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding: 9px 12px;
+		background: #FAFAFA;
+		border-bottom: 1px solid #F4F4F5;
+	}
+
+	.an-device {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12.5px;
+		font-weight: 600;
+		color: #52525B;
+	}
+
+	.an-ts {
+		font-size: 11px;
+		color: #A1A1AA;
+		font-weight: 500;
+		white-space: nowrap;
+		flex-shrink: 0;
+	}
+
+	.an-events {
+		list-style: none;
+		margin: 0;
+		padding: 6px 0;
+	}
+
+	.an-event {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 5px 12px;
+		font-size: 12px;
+	}
+	.an-event:hover { background: #FAFAFA; }
+
+	.an-dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.an-ev-label { flex: 1; color: #52525B; font-weight: 500; }
+	.an-ev-ts { font-size: 10.5px; color: #A1A1AA; white-space: nowrap; flex-shrink: 0; }
 </style>
