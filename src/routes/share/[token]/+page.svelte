@@ -11,7 +11,86 @@
 	let zippingPhotos = $state(false);
 	let zipProgress = $state(0);
 
+	// ── Analytics ──────────────────────────────────────────────────────────────
+	// Fire-and-forget — never blocks the UI, never throws to the user.
+	let _sessionId = /** @type {string|null} */ (null);
+
+	/** @param {string} eventType @param {number|null} [page] */
+	function _track(eventType, page = null) {
+		if (!_sessionId) return;
+		fetch(`/api/share/${token}/analytics`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ type: 'event', session_id: _sessionId, event_type: eventType, page }),
+			keepalive: true,
+		}).catch(() => {});
+	}
+
+	$effect(() => {
+		/** @type {IntersectionObserver[]} */
+		const observers = [];
+
+		fetch(`/api/share/${token}/analytics`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ type: 'session' }),
+		})
+			.then((r) => r.json())
+			.then(({ session_id }) => {
+				_sessionId = session_id;
+
+				const pageEls = /** @type {Element[]} */ ([...document.querySelectorAll('.a4-page')]);
+				const tracked = new Set();
+
+				// Fire "view_page" when the middle of a page enters the middle band of the viewport
+				const pageObs = new IntersectionObserver(
+					(entries) => {
+						for (const entry of entries) {
+							if (entry.isIntersecting) {
+								const i = pageEls.indexOf(entry.target);
+								if (i !== -1 && !tracked.has(i)) {
+									tracked.add(i);
+									_track('view_page', i + 1);
+								}
+							}
+						}
+					},
+					{ rootMargin: '-40% 0px -40% 0px', threshold: 0 }
+				);
+				pageEls.forEach((el) => pageObs.observe(el));
+				observers.push(pageObs);
+
+				// Fire "view_end" when a sentinel after the last page becomes visible
+				const wrap = document.querySelector('.pages-wrap');
+				if (wrap) {
+					const sentinel = document.createElement('div');
+					sentinel.setAttribute('data-analytics-sentinel', '1');
+					wrap.appendChild(sentinel);
+
+					let endFired = false;
+					const endObs = new IntersectionObserver(
+						(entries) => {
+							if (entries[0].isIntersecting && !endFired) {
+								endFired = true;
+								_track('view_end');
+							}
+						},
+						{ threshold: 1.0 }
+					);
+					endObs.observe(sentinel);
+					observers.push(endObs);
+				}
+			})
+			.catch(() => {});
+
+		return () => {
+			observers.forEach((o) => o.disconnect());
+			document.querySelector('[data-analytics-sentinel]')?.remove();
+		};
+	});
+
 	async function downloadPhotos() {
+		_track('download_photos');
 		zippingPhotos = true;
 		zipProgress = 0;
 		try {
@@ -57,6 +136,7 @@
 	const EXCEL_SKIP     = ['stock_date', 'colli'];
 
 	function downloadExcel() {
+		_track('download_excel');
 		exportingExcel = true;
 		try {
 			const sheetItems = items.filter(item => !item.type || item.type === 'sheet');
@@ -117,6 +197,7 @@
 	}
 
 	async function downloadPdf() {
+		_track('download_pdf');
 		downloading = true;
 		try {
 			const res = await fetch(`/api/share/${token}/pdf`);
