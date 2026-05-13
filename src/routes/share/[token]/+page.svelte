@@ -11,7 +11,135 @@
 	let zippingPhotos = $state(false);
 	let zipProgress = $state(0);
 
+	// ── Box image padding detection ────────────────────────────────────────────
+	// If an image already has white/transparent margins it fills the box flush.
+	// If not, we keep the default CSS padding so the product has breathing room.
+	// The box is kept invisible until detection resolves to avoid a flicker.
+	/** @type {Record<string, boolean>} */
+	let boxHasPadding = $state({});
+	/** @type {Record<string, boolean>} */
+	let boxDetected = $state({});
+
+	/**
+	 * Scan full rows/columns inward from each edge.
+	 * True = image has a solid white/transparent band of ≥ MIN_DEPTH px on ALL 4 sides.
+	 * A studio-background photo has white at the outermost pixels but product
+	 * content starts within a few rows, so it fails the depth check.
+	 */
+	async function detectBoxPadding(src, key) {
+		try {
+			const img = new Image();
+			img.crossOrigin = 'anonymous';
+			await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src; });
+			const SIZE = 200;
+			const c = document.createElement('canvas');
+			c.width = SIZE; c.height = SIZE;
+			const ctx = c.getContext('2d');
+			ctx.drawImage(img, 0, 0, SIZE, SIZE);
+
+			// Fetch all pixels at once — cheaper than 200+ individual getImageData calls
+			const px = ctx.getImageData(0, 0, SIZE, SIZE).data;
+			const isLight = (x, y) => {
+				const i = (y * SIZE + x) * 4;
+				return px[i + 3] < 30 || (px[i] > 210 && px[i + 1] > 210 && px[i + 2] > 210);
+			};
+			// Returns how many consecutive all-light rows/cols there are from an edge
+			const depthTop    = () => { for (let y = 0; y < SIZE; y++) { for (let x = 0; x < SIZE; x++) { if (!isLight(x, y)) return y; } } return SIZE; };
+			const depthBottom = () => { for (let y = SIZE-1; y >= 0; y--) { for (let x = 0; x < SIZE; x++) { if (!isLight(x, y)) return SIZE-1-y; } } return SIZE; };
+			const depthLeft   = () => { for (let x = 0; x < SIZE; x++) { for (let y = 0; y < SIZE; y++) { if (!isLight(x, y)) return x; } } return SIZE; };
+			const depthRight  = () => { for (let x = SIZE-1; x >= 0; x--) { for (let y = 0; y < SIZE; y++) { if (!isLight(x, y)) return SIZE-1-x; } } return SIZE; };
+
+			// Require at least 5 % white band on every side (10 px of 200)
+			const MIN = Math.round(SIZE * 0.05);
+			const hasMargins = depthTop() >= MIN && depthBottom() >= MIN && depthLeft() >= MIN && depthRight() >= MIN;
+			boxHasPadding = { ...boxHasPadding, [key]: hasMargins };
+		} catch {
+			// Keep default (padding applied) on failure
+		} finally {
+			boxDetected = { ...boxDetected, [key]: true };
+		}
+	}
+
+	// ── Analytics ──────────────────────────────────────────────────────────────
+	// Fire-and-forget — never blocks the UI, never throws to the user.
+	let _sessionId = /** @type {string|null} */ (null);
+
+	/** @param {string} eventType @param {number|null} [page] */
+	function _track(eventType, page = null) {
+		if (!_sessionId) return;
+		fetch(`/api/share/${token}/analytics`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ type: 'event', session_id: _sessionId, event_type: eventType, page }),
+			keepalive: true,
+		}).catch(() => {});
+	}
+
+	$effect(() => {
+		/** @type {IntersectionObserver[]} */
+		const observers = [];
+
+		fetch(`/api/share/${token}/analytics`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ type: 'session' }),
+		})
+			.then((r) => r.json())
+			.then(({ session_id }) => {
+				_sessionId = session_id;
+
+				const pageEls = /** @type {Element[]} */ ([...document.querySelectorAll('.a4-page')]);
+				const tracked = new Set();
+
+				// Fire "view_page" when the middle of a page enters the middle band of the viewport
+				const pageObs = new IntersectionObserver(
+					(entries) => {
+						for (const entry of entries) {
+							if (entry.isIntersecting) {
+								const i = pageEls.indexOf(entry.target);
+								if (i !== -1 && !tracked.has(i)) {
+									tracked.add(i);
+									_track('view_page', i + 1);
+								}
+							}
+						}
+					},
+					{ rootMargin: '-40% 0px -40% 0px', threshold: 0 }
+				);
+				pageEls.forEach((el) => pageObs.observe(el));
+				observers.push(pageObs);
+
+				// Fire "view_end" when a sentinel after the last page becomes visible
+				const wrap = document.querySelector('.pages-wrap');
+				if (wrap) {
+					const sentinel = document.createElement('div');
+					sentinel.setAttribute('data-analytics-sentinel', '1');
+					wrap.appendChild(sentinel);
+
+					let endFired = false;
+					const endObs = new IntersectionObserver(
+						(entries) => {
+							if (entries[0].isIntersecting && !endFired) {
+								endFired = true;
+								_track('view_end');
+							}
+						},
+						{ threshold: 1.0 }
+					);
+					endObs.observe(sentinel);
+					observers.push(endObs);
+				}
+			})
+			.catch(() => {});
+
+		return () => {
+			observers.forEach((o) => o.disconnect());
+			document.querySelector('[data-analytics-sentinel]')?.remove();
+		};
+	});
+
 	async function downloadPhotos() {
+		_track('download_photos');
 		zippingPhotos = true;
 		zipProgress = 0;
 		try {
@@ -57,6 +185,7 @@
 	const EXCEL_SKIP     = ['stock_date', 'colli'];
 
 	function downloadExcel() {
+		_track('download_excel');
 		exportingExcel = true;
 		try {
 			const sheetItems = items.filter(item => !item.type || item.type === 'sheet');
@@ -117,6 +246,7 @@
 	}
 
 	async function downloadPdf() {
+		_track('download_pdf');
 		downloading = true;
 		try {
 			const res = await fetch(`/api/share/${token}/pdf`);
@@ -143,8 +273,42 @@
 	function getHidden(raw) { try { return JSON.parse(raw || '{}'); } catch { return {}; } }
 	function fieldVal(fields, key) { return fields.find(f => f.key === key)?.value ?? ''; }
 	function globalLabel(key) { return globalLabels[key]?.[lang] ?? globalLabels[key]?.['en'] ?? null; }
+
+	/** Age display: append '+' if not already present. "6" → "6+", "6+" → "6+" */
+	function fmtAge(val) {
+		if (!val?.trim()) return val;
+		const v = val.trim();
+		return v.includes('+') ? v : v + '+';
+	}
+
+	/**
+	 * Players display:
+	 * - "1-4"  → "1-4"   (genuine range)
+	 * - "1-1"  → "1+"    (min === max)
+	 * - "1"    → "1+"    (only min, no max)
+	 */
+	function fmtPlayers(val) {
+		if (!val?.trim()) return val;
+		const v = val.trim();
+		if (v.includes('-')) {
+			const [min, max] = v.split('-').map(s => s.trim());
+			return (!max || min === max) ? min + '+' : v;
+		}
+		return v.includes('+') ? v : v + '+';
+	}
 	function dataColLeft(fields) { return fields.filter(f => f.value?.trim() && !EXCLUDE_KEYS.includes(f.key) && !RIGHT_KEYS.includes(f.key)); }
 	function dataColRight(fields) { return fields.filter(f => f.value?.trim() && RIGHT_KEYS.includes(f.key)); }
+
+	// ── YouTube video ─────────────────────────────────────────────────────
+	/** @type {string|null} */
+	let videoModal = $state(null); // URL of video to play (null = closed)
+
+	function extractYouTubeId(url) {
+		if (!url) return null;
+		const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+		return m ? m[1] : null;
+	}
+	function isShorts(url) { return !!url?.includes('/shorts/'); }
 
 	// Build pages respecting image section sizes:
 	//   type='sheet' or 'image_half' → 1 half-page slot
@@ -304,9 +468,17 @@
 								<div class="product-section">
 									<div class="product-image-col">
 										<div class="box-frame">
-											<div class="box-area">
+											<div class="box-area"
+											class:no-padding={boxHasPadding[item.box_image_key]}
+											class:box-detected={!item.box_image_key || boxDetected[item.box_image_key]}
+										>
 												{#if item.box_image_key}
-													<img src="/api/img/{item.box_image_key}" alt={item.product_name} class="box-img" />
+													<img
+														src="/api/img/{item.box_image_key}"
+														alt={item.product_name}
+														class="box-img"
+														onload={(e) => detectBoxPadding(e.currentTarget.src, item.box_image_key)}
+													/>
 												{:else}
 													<div class="box-placeholder">
 														<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.2">
@@ -314,12 +486,20 @@
 														</svg>
 													</div>
 												{/if}
+												{#if item.youtube_url && extractYouTubeId(item.youtube_url)}
+													<button class="video-pill-btn no-print" onclick={() => videoModal = item.youtube_url} title="Watch video">
+														<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+															<path d="M8 5v14l11-7L8 5z"/>
+														</svg>
+														<span>{globalLabel('watch_video') ?? 'Watch Video'}</span>
+													</button>
+												{/if}
 											</div>
 											{#if !hidden.badges && (age || time || players)}
 												<div class="badges-side">
-													{#if age}<div class="badge-hex-wrap">{@html SVG_AGE}<span class="badge-val">{age}</span></div>{/if}
+													{#if age}<div class="badge-hex-wrap">{@html SVG_AGE}<span class="badge-val">{fmtAge(age)}</span></div>{/if}
 													{#if time}<div class="badge-hex-wrap">{@html SVG_TIME}<span class="badge-val">{time}</span></div>{/if}
-													{#if players}<div class="badge-hex-wrap">{@html SVG_PLAYERS}<span class="badge-val">{players}</span></div>{/if}
+													{#if players}<div class="badge-hex-wrap">{@html SVG_PLAYERS}<span class="badge-val">{fmtPlayers(players)}</span></div>{/if}
 												</div>
 											{/if}
 										</div>
@@ -392,6 +572,24 @@
 	</div>
 </div>
 
+<!-- Video play modal (no-print so it never shows in PDF) -->
+{#if videoModal}
+	{@const vid = extractYouTubeId(videoModal)}
+	{@const shorts = isShorts(videoModal)}
+	<div class="video-backdrop no-print" onclick={() => videoModal = null} role="presentation">
+		<div class="video-box" class:video-shorts={shorts} onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+			<button class="video-close" onclick={() => videoModal = null}>✕</button>
+			<iframe
+				src="https://www.youtube.com/embed/{vid}?autoplay=1"
+				title="Product video"
+				frameborder="0"
+				allow="autoplay; encrypted-media; picture-in-picture"
+				allowfullscreen
+			></iframe>
+		</div>
+	</div>
+{/if}
+
 <style>
 	@keyframes spin { to { transform: rotate(360deg); } }
 
@@ -453,7 +651,9 @@
 
 	.product-image-col { flex: 0 0 45%; display: flex; flex-direction: column; align-items: stretch; }
 	.box-frame { position: relative; width: 100%; }
-	.box-area { background: white; border-radius: 24px; box-shadow: 0 16px 56px rgba(0,0,0,0.10); padding: 20px; aspect-ratio: 1/1; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+	.box-area { background: white; border-radius: 24px; box-shadow: 0 16px 56px rgba(0,0,0,0.10); padding: 20px; aspect-ratio: 1/1; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; opacity: 0; transition: opacity 0.15s; position: relative; }
+	.box-area.box-detected { opacity: 1; }
+	.box-area.no-padding { padding: 0; }
 	.box-img { width: 100%; height: 100%; object-fit: contain; }
 	.box-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 
@@ -525,6 +725,86 @@
 		box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
 		font-family: 'Nunito', sans-serif;
 	}
+
+	/* ── Video play button ───────────────────────────────────────────────── */
+	.video-pill-btn {
+		position: absolute;
+		top: 14px;
+		right: 14px;
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		background: #027E3A;
+		color: white;
+		border: none;
+		border-radius: 100px;
+		padding: 6px 12px 6px 10px;
+		font-size: 12px;
+		font-weight: 700;
+		font-family: 'Nunito', sans-serif;
+		letter-spacing: 0.1px;
+		cursor: pointer;
+		z-index: 4;
+		box-shadow: 0 3px 10px rgba(2, 126, 58, 0.45);
+		transition: background 0.15s, transform 0.12s;
+		white-space: nowrap;
+	}
+	.video-pill-btn:hover {
+		background: #025c2a;
+		transform: scale(1.04);
+	}
+
+	/* ── Video modal ─────────────────────────────────────────────────────── */
+	.video-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2000;
+		padding: 24px;
+	}
+
+	.video-box {
+		position: relative;
+		width: 100%;
+		max-width: 854px;
+		border-radius: 16px;
+		overflow: hidden;
+		box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+		aspect-ratio: 16 / 9;
+	}
+	.video-box.video-shorts {
+		max-width: 380px;
+		aspect-ratio: 9 / 16;
+	}
+	.video-box iframe {
+		width: 100%;
+		height: 100%;
+		display: block;
+	}
+
+	.video-close {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		z-index: 10;
+		background: rgba(0, 0, 0, 0.6);
+		color: white;
+		border: none;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		cursor: pointer;
+		font-size: 14px;
+		transition: background 0.15s;
+		backdrop-filter: blur(4px);
+	}
+	.video-close:hover { background: rgba(0, 0, 0, 0.85); }
 
 	@media print {
 		.no-print { display: none !important; }

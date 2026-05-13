@@ -14,7 +14,19 @@
 		globalLabels = {},       // { sku: { en: 'SKU', da: 'SKU', ... }, height: { en: 'Height', da: 'Højde', ... }, ... }
 		hiddenElements = {},     // { cta: true, stock_date: true, description: true, bullets: true, data: true }
 		salesPrices = null,      // { DKK: number, SEK: number, NOK: number, EUR: number, ... } | null
+	youtubeUrl = null,       // YouTube URL string or null
+	onvideoclick = null,     // callback when play button clicked
 	} = $props();
+
+	// ── YouTube helpers ───────────────────────────────────────────────────
+	const youtubeId = $derived(extractYouTubeId(youtubeUrl));
+	const youtubeIsShorts = $derived(youtubeUrl?.includes('/shorts/') ?? false);
+
+	function extractYouTubeId(url) {
+		if (!url) return null;
+		const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+		return m ? m[1] : null;
+	}
 
 	// Language → currency for list price display
 	const LANG_CURRENCY = { da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' };
@@ -68,8 +80,8 @@
 	const RIGHT_KEYS = ['height', 'width', 'depth'];
 	const BADGE_KEYS = ['age', 'time', 'players'];
 
-	// Ensure game badge fields exist for existing sheets
-	for (const bk of BADGE_KEYS) {
+	// Ensure badge + stock_date fields always exist (even on sheets predating them)
+	for (const bk of [...BADGE_KEYS, 'stock_date']) {
 		if (!dataFields.find(f => f.key === bk)) dataFields.push({ key: bk, label: bk, value: '' });
 	}
 
@@ -79,6 +91,34 @@
 	let ageIdx     = $derived(dataFields.findIndex(f => f.key === 'age'));
 	let timeIdx    = $derived(dataFields.findIndex(f => f.key === 'time'));
 	let playersIdx = $derived(dataFields.findIndex(f => f.key === 'players'));
+
+	/** Age display: append '+' if not already present */
+	function fmtAge(val) {
+		if (!val?.trim()) return val;
+		const v = val.trim();
+		return v.includes('+') ? v : v + '+';
+	}
+	/** Players display: "1-1" or "1" → "1+", genuine range "1-4" → "1-4" */
+	function fmtPlayers(val) {
+		if (!val?.trim()) return val;
+		const v = val.trim();
+		if (v.includes('-')) {
+			const [min, max] = v.split('-').map(s => s.trim());
+			return (!max || min === max) ? min + '+' : v;
+		}
+		return v.includes('+') ? v : v + '+';
+	}
+
+	// Which badge is actively being typed into (shows raw value while editing)
+	let editingBadge = $state(/** @type {string|null} */ (null));
+
+	async function startBadgeEdit(key) {
+		if (!editable) return;
+		editingBadge = key;
+		// Tick to let Svelte render the contenteditable, then focus it
+		await new Promise(r => setTimeout(r, 0));
+		document.getElementById(`badge-edit-${key}`)?.focus();
+	}
 
 	// ── Save helper ───────────────────────────────────────────────────────
 	async function saveChange(payload) {
@@ -151,28 +191,33 @@
 	// ── Box photo ─────────────────────────────────────────────────────────
 	let boxFileInput;
 	let boxImageHasPadding = $state(false);
+	let boxImageDetected = $state(false);
 
 	async function detectBoxPadding(src) {
 		try {
 			const img = new Image();
 			img.crossOrigin = 'anonymous';
 			await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = src; });
-			const SIZE = 120;
+			const SIZE = 200;
 			const c = document.createElement('canvas');
 			c.width = SIZE; c.height = SIZE;
 			const ctx = c.getContext('2d');
 			ctx.drawImage(img, 0, 0, SIZE, SIZE);
-			const w = SIZE - 1, h = SIZE - 1, m = SIZE >> 1;
-			// Sample corners + edge midpoints (8 points)
-			const pts = [[0,0],[w,0],[0,h],[w,h],[m,0],[m,h],[0,m],[w,m]];
-			let light = 0;
-			for (const [x, y] of pts) {
-				const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data;
-				if (a < 30 || (r > 220 && g > 220 && b > 220)) light++;
-			}
-			boxImageHasPadding = light >= 6; // 6 of 8 points are white/transparent
+			const px = ctx.getImageData(0, 0, SIZE, SIZE).data;
+			const isLight = (x, y) => {
+				const i = (y * SIZE + x) * 4;
+				return px[i + 3] < 30 || (px[i] > 210 && px[i + 1] > 210 && px[i + 2] > 210);
+			};
+			const depthTop    = () => { for (let y = 0; y < SIZE; y++) { for (let x = 0; x < SIZE; x++) { if (!isLight(x, y)) return y; } } return SIZE; };
+			const depthBottom = () => { for (let y = SIZE-1; y >= 0; y--) { for (let x = 0; x < SIZE; x++) { if (!isLight(x, y)) return SIZE-1-y; } } return SIZE; };
+			const depthLeft   = () => { for (let x = 0; x < SIZE; x++) { for (let y = 0; y < SIZE; y++) { if (!isLight(x, y)) return x; } } return SIZE; };
+			const depthRight  = () => { for (let x = SIZE-1; x >= 0; x--) { for (let y = 0; y < SIZE; y++) { if (!isLight(x, y)) return SIZE-1-x; } } return SIZE; };
+			const MIN = Math.round(SIZE * 0.05);
+			boxImageHasPadding = depthTop() >= MIN && depthBottom() >= MIN && depthLeft() >= MIN && depthRight() >= MIN;
 		} catch {
 			boxImageHasPadding = false;
+		} finally {
+			boxImageDetected = true;
 		}
 	}
 
@@ -187,6 +232,7 @@
 		if (res.ok) {
 			const { key } = await res.json();
 			boxImageKey = key;
+			boxImageDetected = false; // reset so new image fades in after re-detection
 			onchange?.({ type: 'sheet', field: 'box_image_key', value: key });
 		}
 		e.target.value = '';
@@ -340,7 +386,7 @@
 		<!-- Box photo + stock date tag -->
 		<div class="box-col">
 			<div class="box-frame">
-			<div class="box-area" class:no-padding={boxImageHasPadding}>
+			<div class="box-area" class:no-padding={boxImageHasPadding} class:box-detected={!boxImageKey || boxImageDetected}>
 				{#if boxImageKey}
 					<img
 						src="/api/img/{boxImageKey}"
@@ -364,6 +410,14 @@
 				{:else}
 					<div class="box-placeholder">📦</div>
 				{/if}
+				{#if youtubeId && onvideoclick}
+					<button class="video-pill-btn no-print" onclick={onvideoclick} title="Watch video">
+						<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+							<path d="M8 5v14l11-7L8 5z"/>
+						</svg>
+						<span>{globalLabels['watch_video']?.[language] ?? globalLabels['watch_video']?.['en'] ?? 'Watch Video'}</span>
+					</button>
+				{/if}
 			</div>
 
 			<!-- ATA badges: absolutely positioned on left edge of box frame -->
@@ -371,36 +425,57 @@
 			<div class="badges-side">
 				<div class="badge-hex-wrap">
 					{@html SVG_AGE}
-					<span
-						class="badge-val"
-						contenteditable="plaintext-only"
-						bind:textContent={dataFields[ageIdx].value}
-						onblur={() => blurDataField(ageIdx, 'value')}
-						onkeydown={onKeyDown}
-						data-placeholder="–"
-					></span>
+					{#if editable && editingBadge === 'age'}
+						<span
+							id="badge-edit-age"
+							class="badge-val"
+							contenteditable="plaintext-only"
+							bind:textContent={dataFields[ageIdx].value}
+							onblur={() => { editingBadge = null; blurDataField(ageIdx, 'value'); }}
+							onkeydown={onKeyDown}
+							data-placeholder="–"
+						></span>
+					{:else}
+						<span class="badge-val" class:badge-editable={editable} onclick={() => startBadgeEdit('age')} data-placeholder="–">
+							{fmtAge(dataFields[ageIdx].value)}
+						</span>
+					{/if}
 				</div>
 				<div class="badge-hex-wrap">
 					{@html SVG_TIME}
-					<span
-						class="badge-val"
-						contenteditable="plaintext-only"
-						bind:textContent={dataFields[timeIdx].value}
-						onblur={() => blurDataField(timeIdx, 'value')}
-						onkeydown={onKeyDown}
-						data-placeholder="–"
-					></span>
+					{#if editable && editingBadge === 'time'}
+						<span
+							id="badge-edit-time"
+							class="badge-val"
+							contenteditable="plaintext-only"
+							bind:textContent={dataFields[timeIdx].value}
+							onblur={() => { editingBadge = null; blurDataField(timeIdx, 'value'); }}
+							onkeydown={onKeyDown}
+							data-placeholder="–"
+						></span>
+					{:else}
+						<span class="badge-val" class:badge-editable={editable} onclick={() => startBadgeEdit('time')} data-placeholder="–">
+							{dataFields[timeIdx].value}
+						</span>
+					{/if}
 				</div>
 				<div class="badge-hex-wrap">
 					{@html SVG_PLAYERS}
-					<span
-						class="badge-val"
-						contenteditable="plaintext-only"
-						bind:textContent={dataFields[playersIdx].value}
-						onblur={() => blurDataField(playersIdx, 'value')}
-						onkeydown={onKeyDown}
-						data-placeholder="–"
-					></span>
+					{#if editable && editingBadge === 'players'}
+						<span
+							id="badge-edit-players"
+							class="badge-val"
+							contenteditable="plaintext-only"
+							bind:textContent={dataFields[playersIdx].value}
+							onblur={() => { editingBadge = null; blurDataField(playersIdx, 'value'); }}
+							onkeydown={onKeyDown}
+							data-placeholder="–"
+						></span>
+					{:else}
+						<span class="badge-val" class:badge-editable={editable} onclick={() => startBadgeEdit('players')} data-placeholder="–">
+							{fmtPlayers(dataFields[playersIdx].value)}
+						</span>
+					{/if}
 				</div>
 			</div>
 			{/if}
@@ -643,7 +718,10 @@
 		aspect-ratio: 1 / 1;
 		overflow: hidden;
 		width: 100%;
+		opacity: 0;
+		transition: opacity 0.15s;
 	}
+	.box-area.box-detected { opacity: 1; }
 
 	/* Stock date tag — overlaps the bottom of the box frame */
 	.stock-tag-wrap {
@@ -691,6 +769,37 @@
 	}
 
 	.box-area.no-padding { padding: 0; }
+
+	@media print {
+		.video-pill-btn { display: none !important; }
+	}
+
+	.video-pill-btn {
+		position: absolute;
+		top: 14px;
+		right: 14px;
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		background: #027E3A;
+		color: white;
+		border: none;
+		border-radius: 100px;
+		padding: 6px 12px 6px 10px;
+		font-size: 12px;
+		font-weight: 700;
+		font-family: 'Nunito', sans-serif;
+		letter-spacing: 0.1px;
+		cursor: pointer;
+		z-index: 4;
+		box-shadow: 0 3px 10px rgba(2, 126, 58, 0.45);
+		transition: background 0.15s, transform 0.12s;
+		white-space: nowrap;
+	}
+	.video-pill-btn:hover {
+		background: #025c2a;
+		transform: scale(1.04);
+	}
 
 	.box-img { width: 100%; height: 100%; object-fit: contain; }
 	.box-placeholder { font-size: 72px; opacity: 0.15; }
@@ -986,6 +1095,8 @@
 		content: attr(data-placeholder);
 		color: rgba(0,126,58,0.3);
 	}
+
+	.badge-val.badge-editable { cursor: text; }
 
 	.editing .badge-val:focus {
 		border-radius: 3px;

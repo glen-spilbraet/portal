@@ -48,14 +48,18 @@ export async function POST({ params, cookies, platform }) {
 		players: playersVal,
 	};
 
-	// Update value on existing fields where key matches; preserve order & custom fields
-	const updated = existing.map(f =>
-		f.key in rackbeatValues ? { ...f, value: rackbeatValues[f.key] } : f
-	);
+	// Update value on existing fields where key matches.
+	// Only overwrite when Rackbeat actually has data — empty means "no data", so
+	// leave whatever the user filled in intact.
+	const updated = existing.map(f => {
+		if (!(f.key in rackbeatValues)) return f;
+		const rbVal = rackbeatValues[f.key];
+		return rbVal !== '' ? { ...f, value: rbVal } : f;
+	});
 
-	// Add any Rackbeat keys that didn't exist yet
+	// Add any Rackbeat keys that didn't exist yet, but only if Rackbeat has a value
 	for (const [key, value] of Object.entries(rackbeatValues)) {
-		if (!updated.find(f => f.key === key)) {
+		if (value !== '' && !updated.find(f => f.key === key)) {
 			updated.push({ key, label: key, value });
 		}
 	}

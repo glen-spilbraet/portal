@@ -84,6 +84,41 @@
 	let visibilityOpen = $state(false);
 	let addFieldOpen = $state(false);
 
+	// ── YouTube video ─────────────────────────────────────────────────────
+	let youtubeUrl = $state(data.sheet.youtube_url ?? '');
+	let videoModalOpen = $state(false);
+	let videoInputOpen = $state(false);
+	let videoInputValue = $state('');
+
+	function extractYouTubeId(url) {
+		if (!url) return null;
+		const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+		return m ? m[1] : null;
+	}
+	const youtubeId = $derived(extractYouTubeId(youtubeUrl));
+	const youtubeIsShorts = $derived(youtubeUrl?.includes('/shorts/') ?? false);
+
+	function openVideoInput() {
+		videoInputValue = youtubeUrl ?? '';
+		videoInputOpen = true;
+	}
+
+	async function saveVideoUrl() {
+		const trimmed = videoInputValue.trim();
+		// Accept any YouTube URL or empty string (to remove)
+		if (trimmed && !extractYouTubeId(trimmed)) {
+			// not a valid YouTube URL — show error by doing nothing (keep open)
+			return;
+		}
+		youtubeUrl = trimmed;
+		videoInputOpen = false;
+		await fetch(`/api/sheets/${data.sheet.id}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ type: 'sheet', field: 'youtube_url', value: trimmed || null })
+		});
+	}
+
 	let refreshing = $state(false);
 	let refreshFeedback = $state('');
 	let refreshTimer = null;
@@ -236,6 +271,8 @@
 			{globalLabels}
 			{hiddenElements}
 			salesPrices={data.salesPrices}
+			{youtubeUrl}
+			onvideoclick={() => videoModalOpen = true}
 		/>
 	</div>
 
@@ -308,6 +345,12 @@
 			</svg>
 			Add photo
 		</button>
+		<button class="panel-btn" class:panel-btn-active={!!youtubeUrl} onclick={openVideoInput} title="{youtubeUrl ? 'Edit video link' : 'Add YouTube video'}">
+			<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+				<path d="M8 5v14l11-7L8 5z"/>
+			</svg>
+			{youtubeUrl ? 'Edit video' : 'Add video'}
+		</button>
 		<div class="panel-divider"></div>
 		<button class="panel-btn visibility-toggle-btn" onclick={() => ctaOpen = !ctaOpen}>
 			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -362,6 +405,52 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Video URL input modal -->
+{#if videoInputOpen}
+	<div class="modal-backdrop" onclick={() => videoInputOpen = false} role="presentation">
+		<div class="modal-box" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+			<div class="modal-header">
+				<h3 class="modal-title">{youtubeUrl ? 'Edit video' : 'Add YouTube video'}</h3>
+				<button class="modal-close" onclick={() => videoInputOpen = false}>✕</button>
+			</div>
+			<p class="modal-hint">Paste a YouTube link (regular video or Shorts)</p>
+			<input
+				class="modal-input"
+				type="url"
+				placeholder="https://www.youtube.com/watch?v=…"
+				bind:value={videoInputValue}
+				onkeydown={(e) => { if (e.key === 'Enter') saveVideoUrl(); if (e.key === 'Escape') videoInputOpen = false; }}
+			/>
+			{#if videoInputValue.trim() && !extractYouTubeId(videoInputValue.trim())}
+				<p class="modal-error">Not a valid YouTube URL</p>
+			{/if}
+			<div class="modal-actions">
+				{#if youtubeUrl}
+					<button class="modal-btn-danger" onclick={async () => { videoInputValue = ''; await saveVideoUrl(); }}>Remove video</button>
+				{/if}
+				<button class="modal-btn-cancel" onclick={() => videoInputOpen = false}>Cancel</button>
+				<button class="modal-btn-save" onclick={saveVideoUrl} disabled={!!(videoInputValue.trim() && !extractYouTubeId(videoInputValue.trim()))}>Save</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Video play modal -->
+{#if videoModalOpen && youtubeId}
+	<div class="modal-backdrop" onclick={() => videoModalOpen = false} role="presentation">
+		<div class="video-modal-box" class:video-shorts={youtubeIsShorts} onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+			<button class="modal-close video-modal-close" onclick={() => videoModalOpen = false}>✕</button>
+			<iframe
+				src="https://www.youtube.com/embed/{youtubeId}?autoplay=1"
+				title="Product video"
+				frameborder="0"
+				allow="autoplay; encrypted-media; picture-in-picture"
+				allowfullscreen
+			></iframe>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.editor-page { min-height: 100vh; display: flex; flex-direction: column; }
@@ -623,4 +712,172 @@
 	.panel-btn:disabled { opacity: 0.7; cursor: default; }
 	.panel-btn:disabled:hover { background: none; color: #52525B; }
 	.panel-btn:disabled:hover svg { color: #71717A; }
+
+	.panel-btn-active { color: #148246; }
+	.panel-btn-active svg { color: #148246; }
+	.panel-btn-active:hover { background: #F0FDF4; color: #148246; }
+
+	/* ── Modals ──────────────────────────────────────────────────────────── */
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 24px;
+	}
+
+	.modal-box {
+		background: white;
+		border-radius: 16px;
+		padding: 24px;
+		width: 100%;
+		max-width: 420px;
+		box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
+	}
+
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 6px;
+	}
+
+	.modal-title {
+		font-size: 16px;
+		font-weight: 700;
+		color: #18181b;
+		margin: 0;
+	}
+
+	.modal-close {
+		background: none;
+		border: none;
+		font-size: 14px;
+		color: #a0998a;
+		cursor: pointer;
+		padding: 4px;
+		border-radius: 6px;
+		transition: color 0.15s, background 0.15s;
+	}
+	.modal-close:hover { color: #18181b; background: #f4f4f5; }
+
+	.modal-hint {
+		font-size: 13px;
+		color: #71717a;
+		margin: 0 0 12px;
+	}
+
+	.modal-input {
+		width: 100%;
+		box-sizing: border-box;
+		padding: 10px 14px;
+		border: 1px solid var(--border);
+		border-radius: 9px;
+		font-size: 14px;
+		font-family: inherit;
+		outline: none;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	.modal-input:focus {
+		border-color: #f57832;
+		box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.12);
+	}
+
+	.modal-error {
+		font-size: 12px;
+		color: #dc2626;
+		margin: 4px 0 0;
+	}
+
+	.modal-actions {
+		display: flex;
+		gap: 8px;
+		justify-content: flex-end;
+		margin-top: 16px;
+	}
+
+	.modal-btn-danger {
+		margin-right: auto;
+		background: none;
+		border: none;
+		font-size: 12.5px;
+		font-weight: 600;
+		color: #dc2626;
+		cursor: pointer;
+		padding: 7px 10px;
+		border-radius: 8px;
+		font-family: inherit;
+		transition: background 0.15s;
+	}
+	.modal-btn-danger:hover { background: #fef2f2; }
+
+	.modal-btn-cancel {
+		background: none;
+		border: 1px solid var(--border);
+		font-size: 13px;
+		font-weight: 600;
+		color: #52525b;
+		cursor: pointer;
+		padding: 7px 16px;
+		border-radius: 8px;
+		font-family: inherit;
+		transition: background 0.15s;
+	}
+	.modal-btn-cancel:hover { background: #f4f4f5; }
+
+	.modal-btn-save {
+		background: #f57832;
+		border: none;
+		font-size: 13px;
+		font-weight: 600;
+		color: white;
+		cursor: pointer;
+		padding: 7px 18px;
+		border-radius: 8px;
+		font-family: inherit;
+		transition: background 0.15s;
+		box-shadow: 0 2px 8px rgba(245, 120, 50, 0.3);
+	}
+	.modal-btn-save:hover:not(:disabled) { background: #e06820; }
+	.modal-btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	/* Video play modal */
+	.video-modal-box {
+		position: relative;
+		width: 100%;
+		max-width: 854px;
+		border-radius: 16px;
+		overflow: hidden;
+		box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+		aspect-ratio: 16 / 9;
+	}
+	.video-modal-box.video-shorts {
+		max-width: 380px;
+		aspect-ratio: 9 / 16;
+	}
+	.video-modal-box iframe {
+		width: 100%;
+		height: 100%;
+		display: block;
+	}
+
+	.video-modal-close {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		z-index: 10;
+		background: rgba(0, 0, 0, 0.6);
+		color: white;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		backdrop-filter: blur(4px);
+	}
+	.video-modal-close:hover { background: rgba(0, 0, 0, 0.8); color: white; }
 </style>
