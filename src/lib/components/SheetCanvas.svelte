@@ -80,6 +80,23 @@
 	let timeIdx    = $derived(dataFields.findIndex(f => f.key === 'time'));
 	let playersIdx = $derived(dataFields.findIndex(f => f.key === 'players'));
 
+	/** Age display: append '+' if not already present */
+	function fmtAge(val) {
+		if (!val?.trim()) return val;
+		const v = val.trim();
+		return v.includes('+') ? v : v + '+';
+	}
+	/** Players display: "1-1" or "1" → "1+", genuine range "1-4" → "1-4" */
+	function fmtPlayers(val) {
+		if (!val?.trim()) return val;
+		const v = val.trim();
+		if (v.includes('-')) {
+			const [min, max] = v.split('-').map(s => s.trim());
+			return (!max || min === max) ? min + '+' : v;
+		}
+		return v.includes('+') ? v : v + '+';
+	}
+
 	// ── Save helper ───────────────────────────────────────────────────────
 	async function saveChange(payload) {
 		onchange?.(payload);
@@ -377,36 +394,48 @@
 			<div class="badges-side">
 				<div class="badge-hex-wrap">
 					{@html SVG_AGE}
-					<span
-						class="badge-val"
-						contenteditable="plaintext-only"
-						bind:textContent={dataFields[ageIdx].value}
-						onblur={() => blurDataField(ageIdx, 'value')}
-						onkeydown={onKeyDown}
-						data-placeholder="–"
-					></span>
+					{#if editable}
+						<span
+							class="badge-val"
+							contenteditable="plaintext-only"
+							bind:textContent={dataFields[ageIdx].value}
+							onblur={() => blurDataField(ageIdx, 'value')}
+							onkeydown={onKeyDown}
+							data-placeholder="–"
+						></span>
+					{:else}
+						<span class="badge-val" data-placeholder="–">{fmtAge(dataFields[ageIdx].value)}</span>
+					{/if}
 				</div>
 				<div class="badge-hex-wrap">
 					{@html SVG_TIME}
-					<span
-						class="badge-val"
-						contenteditable="plaintext-only"
-						bind:textContent={dataFields[timeIdx].value}
-						onblur={() => blurDataField(timeIdx, 'value')}
-						onkeydown={onKeyDown}
-						data-placeholder="–"
-					></span>
+					{#if editable}
+						<span
+							class="badge-val"
+							contenteditable="plaintext-only"
+							bind:textContent={dataFields[timeIdx].value}
+							onblur={() => blurDataField(timeIdx, 'value')}
+							onkeydown={onKeyDown}
+							data-placeholder="–"
+						></span>
+					{:else}
+						<span class="badge-val" data-placeholder="–">{dataFields[timeIdx].value}</span>
+					{/if}
 				</div>
 				<div class="badge-hex-wrap">
 					{@html SVG_PLAYERS}
-					<span
-						class="badge-val"
-						contenteditable="plaintext-only"
-						bind:textContent={dataFields[playersIdx].value}
-						onblur={() => blurDataField(playersIdx, 'value')}
-						onkeydown={onKeyDown}
-						data-placeholder="–"
-					></span>
+					{#if editable}
+						<span
+							class="badge-val"
+							contenteditable="plaintext-only"
+							bind:textContent={dataFields[playersIdx].value}
+							onblur={() => blurDataField(playersIdx, 'value')}
+							onkeydown={onKeyDown}
+							data-placeholder="–"
+						></span>
+					{:else}
+						<span class="badge-val" data-placeholder="–">{fmtPlayers(dataFields[playersIdx].value)}</span>
+					{/if}
 				</div>
 			</div>
 			{/if}

@@ -273,6 +273,29 @@
 	function getHidden(raw) { try { return JSON.parse(raw || '{}'); } catch { return {}; } }
 	function fieldVal(fields, key) { return fields.find(f => f.key === key)?.value ?? ''; }
 	function globalLabel(key) { return globalLabels[key]?.[lang] ?? globalLabels[key]?.['en'] ?? null; }
+
+	/** Age display: append '+' if not already present. "6" → "6+", "6+" → "6+" */
+	function fmtAge(val) {
+		if (!val?.trim()) return val;
+		const v = val.trim();
+		return v.includes('+') ? v : v + '+';
+	}
+
+	/**
+	 * Players display:
+	 * - "1-4"  → "1-4"   (genuine range)
+	 * - "1-1"  → "1+"    (min === max)
+	 * - "1"    → "1+"    (only min, no max)
+	 */
+	function fmtPlayers(val) {
+		if (!val?.trim()) return val;
+		const v = val.trim();
+		if (v.includes('-')) {
+			const [min, max] = v.split('-').map(s => s.trim());
+			return (!max || min === max) ? min + '+' : v;
+		}
+		return v.includes('+') ? v : v + '+';
+	}
 	function dataColLeft(fields) { return fields.filter(f => f.value?.trim() && !EXCLUDE_KEYS.includes(f.key) && !RIGHT_KEYS.includes(f.key)); }
 	function dataColRight(fields) { return fields.filter(f => f.value?.trim() && RIGHT_KEYS.includes(f.key)); }
 
@@ -455,9 +478,9 @@
 											</div>
 											{#if !hidden.badges && (age || time || players)}
 												<div class="badges-side">
-													{#if age}<div class="badge-hex-wrap">{@html SVG_AGE}<span class="badge-val">{age}</span></div>{/if}
+													{#if age}<div class="badge-hex-wrap">{@html SVG_AGE}<span class="badge-val">{fmtAge(age)}</span></div>{/if}
 													{#if time}<div class="badge-hex-wrap">{@html SVG_TIME}<span class="badge-val">{time}</span></div>{/if}
-													{#if players}<div class="badge-hex-wrap">{@html SVG_PLAYERS}<span class="badge-val">{players}</span></div>{/if}
+													{#if players}<div class="badge-hex-wrap">{@html SVG_PLAYERS}<span class="badge-val">{fmtPlayers(players)}</span></div>{/if}
 												</div>
 											{/if}
 										</div>
