@@ -9,7 +9,7 @@ export async function load({ parent, platform }) {
 
 	const sheetsRaw = await db
 		.prepare(
-			`SELECT s.id, s.sku, s.status, s.primary_language,
+			`SELECT s.id, s.sku, s.primary_language,
               COALESCE(s.usp_count, 3) as usp_count,
               s.data_fields, s.hidden_elements,
               s.box_image_key, s.cta_version_id,
@@ -23,7 +23,7 @@ export async function load({ parent, platform }) {
 		)
 		.all();
 
-	const KNOWN_ORDER = ['ean', 'weight', 'height', 'width', 'depth', 'age', 'time', 'players'];
+	const KNOWN_ORDER = ['ean', 'weight', 'height', 'width', 'depth', 'age', 'time', 'players', 'stock_date'];
 	const fieldKeySet = new Set();
 
 	const sheets = /** @type {any[]} */ (sheetsRaw.results ?? []).map((s) => {
@@ -46,7 +46,6 @@ export async function load({ parent, platform }) {
 		return {
 			id: s.id,
 			sku: s.sku,
-			status: s.status ?? 'draft',
 			primaryLanguage: s.primary_language,
 			uspCount: s.usp_count,
 			hasBoxImage: !!s.box_image_key,

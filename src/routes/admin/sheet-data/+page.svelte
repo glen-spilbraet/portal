@@ -54,6 +54,7 @@
 		age: 'Age',
 		time: 'Time',
 		players: 'Players',
+		stock_date: 'Stock Date',
 	};
 
 	function fieldLabel(key) {
@@ -97,7 +98,6 @@
 			<thead>
 				<tr>
 					<th class="th-sku sticky-col">SKU</th>
-					<th>Status</th>
 					<th>Lang</th>
 					<th class="th-center">USPs</th>
 					<th class="th-center">Box img</th>
@@ -117,9 +117,6 @@
 					<tr>
 						<td class="td-sku sticky-col">
 							<span class="sku-text">{sheet.sku}</span>
-						</td>
-						<td>
-							<span class="status-badge status-{sheet.status}">{sheet.status}</span>
 						</td>
 						<td>
 							<span class="lang-badge"
@@ -362,34 +359,6 @@
 	}
 
 	/* ── Badges ────────────────────────────────────────────────────────────────── */
-
-	.status-badge {
-		display: inline-block;
-		padding: 2px 9px;
-		border-radius: 100px;
-		font-size: 11px;
-		font-weight: 700;
-		border: 1px solid transparent;
-		text-transform: capitalize;
-	}
-
-	.status-published {
-		background: #f0fdf4;
-		color: #15803d;
-		border-color: #bbf7d0;
-	}
-
-	.status-draft {
-		background: #fafafa;
-		color: #71717a;
-		border-color: #e4e4e7;
-	}
-
-	.status-archived {
-		background: #fef2f2;
-		color: #dc2626;
-		border-color: #fecaca;
-	}
 
 	.lang-badge {
 		display: inline-block;
