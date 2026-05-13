@@ -14,7 +14,19 @@
 		globalLabels = {},       // { sku: { en: 'SKU', da: 'SKU', ... }, height: { en: 'Height', da: 'Højde', ... }, ... }
 		hiddenElements = {},     // { cta: true, stock_date: true, description: true, bullets: true, data: true }
 		salesPrices = null,      // { DKK: number, SEK: number, NOK: number, EUR: number, ... } | null
+	youtubeUrl = null,       // YouTube URL string or null
+	onvideoclick = null,     // callback when play button clicked
 	} = $props();
+
+	// ── YouTube helpers ───────────────────────────────────────────────────
+	const youtubeId = $derived(extractYouTubeId(youtubeUrl));
+	const youtubeIsShorts = $derived(youtubeUrl?.includes('/shorts/') ?? false);
+
+	function extractYouTubeId(url) {
+		if (!url) return null;
+		const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+		return m ? m[1] : null;
+	}
 
 	// Language → currency for list price display
 	const LANG_CURRENCY = { da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' };
@@ -398,6 +410,13 @@
 				{:else}
 					<div class="box-placeholder">📦</div>
 				{/if}
+				{#if youtubeId && onvideoclick}
+					<button class="video-play-btn no-print" onclick={onvideoclick} title="Watch video">
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+							<path d="M8 5v14l11-7L8 5z"/>
+						</svg>
+					</button>
+				{/if}
 			</div>
 
 			<!-- ATA badges: absolutely positioned on left edge of box frame -->
@@ -749,6 +768,34 @@
 	}
 
 	.box-area.no-padding { padding: 0; }
+
+	@media print {
+		.video-play-btn { display: none !important; }
+	}
+
+	.video-play-btn {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		width: 34px;
+		height: 34px;
+		border-radius: 50%;
+		background: rgba(0, 0, 0, 0.55);
+		color: white;
+		border: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		z-index: 4;
+		transition: background 0.15s, transform 0.15s;
+		backdrop-filter: blur(4px);
+		padding-left: 2px; /* optical centering of play triangle */
+	}
+	.video-play-btn:hover {
+		background: rgba(255, 0, 0, 0.8);
+		transform: scale(1.1);
+	}
 
 	.box-img { width: 100%; height: 100%; object-fit: contain; }
 	.box-placeholder { font-size: 72px; opacity: 0.15; }

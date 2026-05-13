@@ -330,7 +330,7 @@ export async function getCatalogueItemsWithTranslations(db, catalogueId, languag
     SELECT ci.id, ci.sheet_id, ci.display_order,
            ci.type, ci.section_image_key, ci.section_crop_x, ci.section_crop_y, ci.section_text,
            s.box_image_key, s.data_fields, s.hidden_elements, s.primary_language,
-           s.usp_count,
+           s.usp_count, s.youtube_url,
            COALESCE(t_name_lang.value, t_name_primary.value, '') as product_name,
            COALESCE(t_desc_lang.value, t_desc_primary.value, '') as product_description
     FROM catalogue_items ci

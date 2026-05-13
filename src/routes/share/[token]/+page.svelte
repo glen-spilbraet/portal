@@ -299,6 +299,17 @@
 	function dataColLeft(fields) { return fields.filter(f => f.value?.trim() && !EXCLUDE_KEYS.includes(f.key) && !RIGHT_KEYS.includes(f.key)); }
 	function dataColRight(fields) { return fields.filter(f => f.value?.trim() && RIGHT_KEYS.includes(f.key)); }
 
+	// ── YouTube video ─────────────────────────────────────────────────────
+	/** @type {string|null} */
+	let videoModal = $state(null); // URL of video to play (null = closed)
+
+	function extractYouTubeId(url) {
+		if (!url) return null;
+		const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+		return m ? m[1] : null;
+	}
+	function isShorts(url) { return !!url?.includes('/shorts/'); }
+
 	// Build pages respecting image section sizes:
 	//   type='sheet' or 'image_half' → 1 half-page slot
 	//   type='image_full'             → fills entire page (2 slots)
@@ -475,6 +486,13 @@
 														</svg>
 													</div>
 												{/if}
+												{#if item.youtube_url && extractYouTubeId(item.youtube_url)}
+													<button class="video-play-btn no-print" onclick={() => videoModal = item.youtube_url} title="Watch video">
+														<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+															<path d="M8 5v14l11-7L8 5z"/>
+														</svg>
+													</button>
+												{/if}
 											</div>
 											{#if !hidden.badges && (age || time || players)}
 												<div class="badges-side">
@@ -553,6 +571,24 @@
 	</div>
 </div>
 
+<!-- Video play modal (no-print so it never shows in PDF) -->
+{#if videoModal}
+	{@const vid = extractYouTubeId(videoModal)}
+	{@const shorts = isShorts(videoModal)}
+	<div class="video-backdrop no-print" onclick={() => videoModal = null} role="presentation">
+		<div class="video-box" class:video-shorts={shorts} onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+			<button class="video-close" onclick={() => videoModal = null}>✕</button>
+			<iframe
+				src="https://www.youtube.com/embed/{vid}?autoplay=1"
+				title="Product video"
+				frameborder="0"
+				allow="autoplay; encrypted-media; picture-in-picture"
+				allowfullscreen
+			></iframe>
+		</div>
+	</div>
+{/if}
+
 <style>
 	@keyframes spin { to { transform: rotate(360deg); } }
 
@@ -614,7 +650,7 @@
 
 	.product-image-col { flex: 0 0 45%; display: flex; flex-direction: column; align-items: stretch; }
 	.box-frame { position: relative; width: 100%; }
-	.box-area { background: white; border-radius: 24px; box-shadow: 0 16px 56px rgba(0,0,0,0.10); padding: 20px; aspect-ratio: 1/1; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; opacity: 0; transition: opacity 0.15s; }
+	.box-area { background: white; border-radius: 24px; box-shadow: 0 16px 56px rgba(0,0,0,0.10); padding: 20px; aspect-ratio: 1/1; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; opacity: 0; transition: opacity 0.15s; position: relative; }
 	.box-area.box-detected { opacity: 1; }
 	.box-area.no-padding { padding: 0; }
 	.box-img { width: 100%; height: 100%; object-fit: contain; }
@@ -688,6 +724,83 @@
 		box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
 		font-family: 'Nunito', sans-serif;
 	}
+
+	/* ── Video play button ───────────────────────────────────────────────── */
+	.video-play-btn {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		width: 34px;
+		height: 34px;
+		border-radius: 50%;
+		background: rgba(0, 0, 0, 0.55);
+		color: white;
+		border: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		z-index: 4;
+		transition: background 0.15s, transform 0.15s;
+		backdrop-filter: blur(4px);
+		padding-left: 2px;
+	}
+	.video-play-btn:hover {
+		background: rgba(255, 0, 0, 0.8);
+		transform: scale(1.1);
+	}
+
+	/* ── Video modal ─────────────────────────────────────────────────────── */
+	.video-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2000;
+		padding: 24px;
+	}
+
+	.video-box {
+		position: relative;
+		width: 100%;
+		max-width: 854px;
+		border-radius: 16px;
+		overflow: hidden;
+		box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+		aspect-ratio: 16 / 9;
+	}
+	.video-box.video-shorts {
+		max-width: 380px;
+		aspect-ratio: 9 / 16;
+	}
+	.video-box iframe {
+		width: 100%;
+		height: 100%;
+		display: block;
+	}
+
+	.video-close {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		z-index: 10;
+		background: rgba(0, 0, 0, 0.6);
+		color: white;
+		border: none;
+		width: 32px;
+		height: 32px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		cursor: pointer;
+		font-size: 14px;
+		transition: background 0.15s;
+		backdrop-filter: blur(4px);
+	}
+	.video-close:hover { background: rgba(0, 0, 0, 0.85); }
 
 	@media print {
 		.no-print { display: none !important; }
