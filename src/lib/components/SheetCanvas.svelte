@@ -97,6 +97,17 @@
 		return v.includes('+') ? v : v + '+';
 	}
 
+	// Which badge is actively being typed into (shows raw value while editing)
+	let editingBadge = $state(/** @type {string|null} */ (null));
+
+	async function startBadgeEdit(key) {
+		if (!editable) return;
+		editingBadge = key;
+		// Tick to let Svelte render the contenteditable, then focus it
+		await new Promise(r => setTimeout(r, 0));
+		document.getElementById(`badge-edit-${key}`)?.focus();
+	}
+
 	// ── Save helper ───────────────────────────────────────────────────────
 	async function saveChange(payload) {
 		onchange?.(payload);
@@ -394,47 +405,56 @@
 			<div class="badges-side">
 				<div class="badge-hex-wrap">
 					{@html SVG_AGE}
-					{#if editable}
+					{#if editable && editingBadge === 'age'}
 						<span
+							id="badge-edit-age"
 							class="badge-val"
 							contenteditable="plaintext-only"
 							bind:textContent={dataFields[ageIdx].value}
-							onblur={() => blurDataField(ageIdx, 'value')}
+							onblur={() => { editingBadge = null; blurDataField(ageIdx, 'value'); }}
 							onkeydown={onKeyDown}
 							data-placeholder="–"
 						></span>
 					{:else}
-						<span class="badge-val" data-placeholder="–">{fmtAge(dataFields[ageIdx].value)}</span>
+						<span class="badge-val" class:badge-editable={editable} onclick={() => startBadgeEdit('age')} data-placeholder="–">
+							{fmtAge(dataFields[ageIdx].value)}
+						</span>
 					{/if}
 				</div>
 				<div class="badge-hex-wrap">
 					{@html SVG_TIME}
-					{#if editable}
+					{#if editable && editingBadge === 'time'}
 						<span
+							id="badge-edit-time"
 							class="badge-val"
 							contenteditable="plaintext-only"
 							bind:textContent={dataFields[timeIdx].value}
-							onblur={() => blurDataField(timeIdx, 'value')}
+							onblur={() => { editingBadge = null; blurDataField(timeIdx, 'value'); }}
 							onkeydown={onKeyDown}
 							data-placeholder="–"
 						></span>
 					{:else}
-						<span class="badge-val" data-placeholder="–">{dataFields[timeIdx].value}</span>
+						<span class="badge-val" class:badge-editable={editable} onclick={() => startBadgeEdit('time')} data-placeholder="–">
+							{dataFields[timeIdx].value}
+						</span>
 					{/if}
 				</div>
 				<div class="badge-hex-wrap">
 					{@html SVG_PLAYERS}
-					{#if editable}
+					{#if editable && editingBadge === 'players'}
 						<span
+							id="badge-edit-players"
 							class="badge-val"
 							contenteditable="plaintext-only"
 							bind:textContent={dataFields[playersIdx].value}
-							onblur={() => blurDataField(playersIdx, 'value')}
+							onblur={() => { editingBadge = null; blurDataField(playersIdx, 'value'); }}
 							onkeydown={onKeyDown}
 							data-placeholder="–"
 						></span>
 					{:else}
-						<span class="badge-val" data-placeholder="–">{fmtPlayers(dataFields[playersIdx].value)}</span>
+						<span class="badge-val" class:badge-editable={editable} onclick={() => startBadgeEdit('players')} data-placeholder="–">
+							{fmtPlayers(dataFields[playersIdx].value)}
+						</span>
 					{/if}
 				</div>
 			</div>
@@ -1024,6 +1044,8 @@
 		content: attr(data-placeholder);
 		color: rgba(0,126,58,0.3);
 	}
+
+	.badge-val.badge-editable { cursor: text; }
 
 	.editing .badge-val:focus {
 		border-radius: 3px;
