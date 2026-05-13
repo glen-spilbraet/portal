@@ -487,10 +487,11 @@
 													</div>
 												{/if}
 												{#if item.youtube_url && extractYouTubeId(item.youtube_url)}
-													<button class="video-play-btn no-print" onclick={() => videoModal = item.youtube_url} title="Watch video">
-														<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+													<button class="video-pill-btn no-print" onclick={() => videoModal = item.youtube_url} title="Watch video">
+														<svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
 															<path d="M8 5v14l11-7L8 5z"/>
 														</svg>
+														<span>{globalLabel('watch_video') ?? 'Watch Video'}</span>
 													</button>
 												{/if}
 											</div>
@@ -726,28 +727,31 @@
 	}
 
 	/* ── Video play button ───────────────────────────────────────────────── */
-	.video-play-btn {
+	.video-pill-btn {
 		position: absolute;
-		top: 10px;
-		right: 10px;
-		width: 34px;
-		height: 34px;
-		border-radius: 50%;
-		background: rgba(0, 0, 0, 0.55);
+		top: 9px;
+		right: 9px;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		background: #027E3A;
 		color: white;
 		border: none;
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		border-radius: 100px;
+		padding: 5px 10px 5px 8px;
+		font-size: 10px;
+		font-weight: 700;
+		font-family: 'Nunito', sans-serif;
+		letter-spacing: 0.1px;
 		cursor: pointer;
 		z-index: 4;
-		transition: background 0.15s, transform 0.15s;
-		backdrop-filter: blur(4px);
-		padding-left: 2px;
+		box-shadow: 0 3px 10px rgba(2, 126, 58, 0.45);
+		transition: background 0.15s, transform 0.12s;
+		white-space: nowrap;
 	}
-	.video-play-btn:hover {
-		background: rgba(255, 0, 0, 0.8);
-		transform: scale(1.1);
+	.video-pill-btn:hover {
+		background: #025c2a;
+		transform: scale(1.04);
 	}
 
 	/* ── Video modal ─────────────────────────────────────────────────────── */
