@@ -68,8 +68,8 @@
 	const RIGHT_KEYS = ['height', 'width', 'depth'];
 	const BADGE_KEYS = ['age', 'time', 'players'];
 
-	// Ensure game badge fields exist for existing sheets
-	for (const bk of BADGE_KEYS) {
+	// Ensure badge + stock_date fields always exist (even on sheets predating them)
+	for (const bk of [...BADGE_KEYS, 'stock_date']) {
 		if (!dataFields.find(f => f.key === bk)) dataFields.push({ key: bk, label: bk, value: '' });
 	}
 
