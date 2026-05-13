@@ -412,7 +412,7 @@
 				{/if}
 				{#if youtubeId && onvideoclick}
 					<button class="video-pill-btn no-print" onclick={onvideoclick} title="Watch video">
-						<svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+						<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
 							<path d="M8 5v14l11-7L8 5z"/>
 						</svg>
 						<span>{globalLabels['watch_video']?.[language] ?? globalLabels['watch_video']?.['en'] ?? 'Watch Video'}</span>
@@ -776,17 +776,17 @@
 
 	.video-pill-btn {
 		position: absolute;
-		top: 9px;
-		right: 9px;
+		top: 14px;
+		right: 14px;
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		gap: 5px;
 		background: #027E3A;
 		color: white;
 		border: none;
 		border-radius: 100px;
-		padding: 5px 10px 5px 8px;
-		font-size: 10px;
+		padding: 6px 12px 6px 10px;
+		font-size: 12px;
 		font-weight: 700;
 		font-family: 'Nunito', sans-serif;
 		letter-spacing: 0.1px;
