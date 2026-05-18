@@ -15,11 +15,12 @@ export async function load({ parent, platform, params }) {
 	const rows = await db
 		.prepare(
 			`SELECT
-        s.id         AS session_id,
+        s.id          AS session_id,
         s.device_type,
         s.city,
         s.country,
-        s.created_at AS session_at,
+        s.tracking_id,
+        s.created_at  AS session_at,
         e.id         AS event_id,
         e.event_type,
         e.page,
@@ -44,6 +45,7 @@ export async function load({ parent, platform, params }) {
 				deviceType: row.device_type,
 				city: row.city,
 				country: row.country,
+				trackingId: row.tracking_id ?? null,
 				sessionAt: row.session_at,
 				events: [],
 			});

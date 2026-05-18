@@ -39,11 +39,13 @@
 		}
 	}
 
-	/** @param {{deviceType:string, city:string|null, country:string|null}} session */
+	/** @param {{deviceType:string, city:string|null, country:string|null, trackingId:string|null}} session */
 	function sessionHeader(session) {
 		const parts = [session.deviceType];
 		if (session.city) parts.push(`from ${session.city}`);
-		return parts.join(' ');
+		let label = parts.join(' ');
+		if (session.trackingId) label += ` (${session.trackingId})`;
+		return label;
 	}
 
 	const totalSessions = $derived(data.sessions.length);

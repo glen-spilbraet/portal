@@ -609,7 +609,7 @@
 									{:else}
 										<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><polyline points="8 21 12 17 16 21"/></svg>
 									{/if}
-									{s.deviceType}{s.city ? ` · ${s.city}` : ''}
+									{s.deviceType}{s.city ? ` · ${s.city}` : ''}{s.trackingId ? ` (${s.trackingId})` : ''}
 								</span>
 								<span class="an-ts">{fmtTs(s.sessionAt)}</span>
 								<svg class="an-chevron" class:an-chevron-open={open} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">

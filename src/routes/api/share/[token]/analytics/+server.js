@@ -34,12 +34,14 @@ export async function POST({ params, request, platform }) {
 		const city = cf?.city ?? null;
 		const country = cf?.country ?? null;
 
+		const trackingId = body.tracking_id?.trim() || null;
+
 		const id = crypto.randomUUID();
 		await db
 			.prepare(
-				'INSERT INTO catalogue_analytics_sessions (id, catalogue_id, device_type, city, country) VALUES (?, ?, ?, ?, ?)'
+				'INSERT INTO catalogue_analytics_sessions (id, catalogue_id, device_type, city, country, tracking_id) VALUES (?, ?, ?, ?, ?, ?)'
 			)
-			.bind(id, catalogue.id, deviceType, city, country)
+			.bind(id, catalogue.id, deviceType, city, country, trackingId)
 			.run();
 
 		return json({ session_id: id });

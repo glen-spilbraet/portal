@@ -36,5 +36,12 @@ export async function load({ params, platform }) {
 		itemPrices = Object.fromEntries(results.filter(r => r.price > 0).map(r => [r.sku, r.price]));
 	}
 
-	return { catalogue, items, globalLabels, itemPrices, token: params.token };
+	return {
+		catalogue,
+		items,
+		globalLabels,
+		itemPrices,
+		token: params.token,
+		trackingId: params.trackingId ?? null,
+	};
 }
