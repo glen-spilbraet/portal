@@ -262,9 +262,14 @@
 	let shareLoading = $state(false);
 	let shareCopied = $state(false);
 
-	let shareUrl = $derived(
-		shareToken ? `${typeof window !== 'undefined' ? window.location.origin : ''}/share/${shareToken}` : ''
-	);
+	let shareTrackingId = $state('');
+
+	let shareUrl = $derived((() => {
+		if (!shareToken) return '';
+		const base = `${typeof window !== 'undefined' ? window.location.origin : ''}/share/${shareToken}`;
+		const tid = shareTrackingId.trim();
+		return tid ? `${base}/${encodeURIComponent(tid)}` : base;
+	})());
 
 	async function openShare() {
 		sharePopoverOpen = true;
@@ -510,7 +515,17 @@
 									{/if}
 								</button>
 							</div>
-							<p class="share-hint">Anyone with this link can view and download the catalogue.</p>
+							<div class="share-tracking-row">
+							<label class="share-tracking-label" for="share-tracking-input">Tracking ID <span class="share-tracking-optional">(optional)</span></label>
+							<input
+								id="share-tracking-input"
+								class="share-tracking-input"
+								type="text"
+								placeholder="e.g. newsletter-jan"
+								bind:value={shareTrackingId}
+							/>
+						</div>
+						<p class="share-hint">Anyone with this link can view and download the catalogue.</p>
 						{/if}
 					</div>
 				{/if}
@@ -1870,6 +1885,46 @@
 	}
 	.btn-copy:hover { background: #E06820; }
 	.btn-copy.copied { background: #16a34a; }
+
+	.share-tracking-row {
+		margin-top: 10px;
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+	}
+
+	.share-tracking-label {
+		font-size: 11px;
+		font-weight: 700;
+		color: #71717A;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+
+	.share-tracking-optional {
+		font-weight: 500;
+		text-transform: none;
+		color: #A1A1AA;
+		letter-spacing: 0;
+	}
+
+	.share-tracking-input {
+		width: 100%;
+		box-sizing: border-box;
+		padding: 7px 10px;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		font-size: 13px;
+		font-family: inherit;
+		color: #18181B;
+		outline: none;
+		transition: border-color 0.15s, box-shadow 0.15s;
+	}
+	.share-tracking-input:focus {
+		border-color: #F57832;
+		box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.12);
+	}
+	.share-tracking-input::placeholder { color: #D4D4D8; }
 
 	.share-hint {
 		font-size: 12px;

@@ -4,7 +4,7 @@
 	import { zipSync } from 'fflate';
 
 	let { data } = $props();
-	const { catalogue, items, globalLabels, itemPrices, token } = data;
+	const { catalogue, items, globalLabels, itemPrices, token, trackingId } = data;
 
 	let downloading = $state(false);
 	let exportingExcel = $state(false);
@@ -82,7 +82,7 @@
 		fetch(`/api/share/${token}/analytics`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ type: 'session' }),
+			body: JSON.stringify({ type: 'session', tracking_id: trackingId ?? null }),
 		})
 			.then((r) => r.json())
 			.then(({ session_id }) => {
