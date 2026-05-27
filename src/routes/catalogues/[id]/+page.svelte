@@ -61,6 +61,51 @@
 		await savePatch({ language });
 	}
 
+	// ── Image resize helpers ─────────────────────────────────────────────
+	/** Resize a File/Blob to fit within maxSize×maxSize, returns a webp Blob */
+	function resizeToBlob(file, maxSize) {
+		return new Promise((resolve) => {
+			const img = new Image();
+			const objectUrl = URL.createObjectURL(file);
+			img.onload = () => {
+				URL.revokeObjectURL(objectUrl);
+				const scale = Math.min(1, maxSize / img.naturalWidth, maxSize / img.naturalHeight);
+				const w = Math.round(img.naturalWidth  * scale);
+				const h = Math.round(img.naturalHeight * scale);
+				const canvas = document.createElement('canvas');
+				canvas.width  = w;
+				canvas.height = h;
+				canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+				canvas.toBlob(resolve, 'image/webp', 0.88);
+			};
+			img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(null); };
+			img.src = objectUrl;
+		});
+	}
+
+	/** Derives a variant R2 key: path/to/id.jpg → path/to/id_1600.webp */
+	function mkVariantKey(originalKey, size) {
+		const lastSlash = originalKey.lastIndexOf('/');
+		const lastDot   = originalKey.lastIndexOf('.');
+		return lastDot > lastSlash
+			? originalKey.slice(0, lastDot) + `_${size}.webp`
+			: originalKey + `_${size}.webp`;
+	}
+
+	/** Upload 1600px and 400px variants in the background — best-effort */
+	async function uploadCatalogueVariants(file, originalKey, uploadUrl) {
+		for (const size of [1600, 400]) {
+			try {
+				const blob = await resizeToBlob(file, size);
+				if (!blob) continue;
+				const fd = new FormData();
+				fd.append('file', new File([blob], `variant_${size}.webp`, { type: 'image/webp' }));
+				fd.append('variantKey', mkVariantKey(originalKey, size));
+				await fetch(uploadUrl, { method: 'POST', body: fd });
+			} catch { /* best-effort */ }
+		}
+	}
+
 	// Cover photo upload + crop
 	let coverFileInput;
 	let coverImageKey = $state(data.catalogue.cover_image_key ?? null);
@@ -85,6 +130,8 @@
 				coverImageKey = key;
 				coverCropX = 50;
 				coverCropY = 50;
+				// Upload 1600px and 400px variants in background
+				uploadCatalogueVariants(file, key, `/api/catalogues/${data.catalogue.id}/cover`);
 			}
 		} finally {
 			coverUploading = false;
@@ -385,6 +432,8 @@
 				items = items.map(i =>
 					i.id === item.id ? { ...i, section_image_key: key } : i
 				);
+				// Upload 1600px and 400px variants in background
+				uploadCatalogueVariants(file, key, `/api/catalogues/${data.catalogue.id}/items/${item.id}/image`);
 			}
 		} finally {
 			sectionUploadingId = null;
@@ -566,7 +615,7 @@
 						tabindex="-1"
 					>
 						<img
-							src="/api/img/{coverImageKey}"
+							src="/api/img/{coverImageKey}?size=1600"
 							alt="Cover"
 							class="cover-img"
 							style="object-position: {coverCropX}% {coverCropY}%"
