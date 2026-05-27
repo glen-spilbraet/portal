@@ -386,7 +386,7 @@
 		<div class="a4-page front-page">
 			{#if catalogue.cover_image_key}
 				<div class="cover-image-wrap">
-					<img src="/api/img/{catalogue.cover_image_key}" alt="" class="cover-image"
+					<img src="/api/img/{catalogue.cover_image_key}?size=1600" alt="" class="cover-image"
 						style="object-position: {catalogue.cover_crop_x ?? 50}% {catalogue.cover_crop_y ?? 50}%" />
 				</div>
 			{/if}
@@ -416,7 +416,7 @@
 				<!-- Full-page image section -->
 				<div class="a4-page image-full-page">
 					{#if pagePair[0].section_image_key}
-						<img src="/api/img/{pagePair[0].section_image_key}" alt="" class="section-img-full" />
+						<img src="/api/img/{pagePair[0].section_image_key}?size=1600" alt="" class="section-img-full" />
 					{:else}
 						<div class="section-placeholder">
 							<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
@@ -440,7 +440,7 @@
 							<!-- Half-page image section -->
 							<div class="product-half" class:divider-above={slotIdx === 1}>
 								{#if item.section_image_key}
-									<img src="/api/img/{item.section_image_key}" alt="" class="section-img-half" />
+									<img src="/api/img/{item.section_image_key}?size=1600" alt="" class="section-img-half" />
 								{:else}
 									<div class="section-placeholder">
 										<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">

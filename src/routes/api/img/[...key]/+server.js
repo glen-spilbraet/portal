@@ -15,7 +15,7 @@ export async function GET({ params, url, platform }) {
 	const size = url.searchParams.get('size');
 
 	// Try variant first when a size is requested
-	if (size === '300' || size === '1000') {
+	if (size === '300' || size === '400' || size === '1000' || size === '1600') {
 		const lastSlash = key.lastIndexOf('/');
 		const lastDot   = key.lastIndexOf('.');
 		const variantKey = lastDot > lastSlash
