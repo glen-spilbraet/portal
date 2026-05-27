@@ -1,27 +1,50 @@
 /** @param {App.Platform['env']['DB']} db */
 
-export async function listSheets(db) {
+const SHEET_SELECT = `
+	SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by,
+	       COALESCE(u.first_name, '') as creator_first_name,
+	       t_en.value as name_en,
+	       t_da.value as name_da,
+	       t_sv.value as name_sv,
+	       t_no.value as name_no,
+	       COALESCE(s.usp_count, 3) as usp_count,
+	       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'en' AND key LIKE 'usp_%' AND value != '') as usp_filled_en,
+	       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'da' AND key LIKE 'usp_%' AND value != '') as usp_filled_da,
+	       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'sv' AND key LIKE 'usp_%' AND value != '') as usp_filled_sv,
+	       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'no' AND key LIKE 'usp_%' AND value != '') as usp_filled_no
+	FROM sales_sheets s
+	LEFT JOIN allowed_users u ON u.email = s.created_by
+	LEFT JOIN translations t_en ON t_en.sheet_id = s.id AND t_en.language = 'en' AND t_en.key = 'product_name'
+	LEFT JOIN translations t_da ON t_da.sheet_id = s.id AND t_da.language = 'da' AND t_da.key = 'product_name'
+	LEFT JOIN translations t_sv ON t_sv.sheet_id = s.id AND t_sv.language = 'sv' AND t_sv.key = 'product_name'
+	LEFT JOIN translations t_no ON t_no.sheet_id = s.id AND t_no.language = 'no' AND t_no.key = 'product_name'`;
+
+export async function listSheets(db, { limit = 30, offset = 0 } = {}) {
 	const rows = await db
-		.prepare(
-			`SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by,
-              COALESCE(u.first_name, '') as creator_first_name,
-              t_en.value as name_en,
-              t_da.value as name_da,
-              t_sv.value as name_sv,
-              t_no.value as name_no,
-              COALESCE(s.usp_count, 3) as usp_count,
-              (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'en' AND key LIKE 'usp_%' AND value != '') as usp_filled_en,
-              (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'da' AND key LIKE 'usp_%' AND value != '') as usp_filled_da,
-              (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'sv' AND key LIKE 'usp_%' AND value != '') as usp_filled_sv,
-              (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'no' AND key LIKE 'usp_%' AND value != '') as usp_filled_no
-       FROM sales_sheets s
-       LEFT JOIN allowed_users u ON u.email = s.created_by
-       LEFT JOIN translations t_en ON t_en.sheet_id = s.id AND t_en.language = 'en' AND t_en.key = 'product_name'
-       LEFT JOIN translations t_da ON t_da.sheet_id = s.id AND t_da.language = 'da' AND t_da.key = 'product_name'
-       LEFT JOIN translations t_sv ON t_sv.sheet_id = s.id AND t_sv.language = 'sv' AND t_sv.key = 'product_name'
-       LEFT JOIN translations t_no ON t_no.sheet_id = s.id AND t_no.language = 'no' AND t_no.key = 'product_name'
-       ORDER BY s.updated_at DESC`
-		)
+		.prepare(`${SHEET_SELECT} ORDER BY s.updated_at DESC LIMIT ? OFFSET ?`)
+		.bind(limit, offset)
+		.all();
+	return rows.results;
+}
+
+export async function countSheets(db) {
+	const row = await db.prepare('SELECT COUNT(*) as n FROM sales_sheets').first();
+	return row?.n ?? 0;
+}
+
+export async function searchSheets(db, query) {
+	const q = `%${query.toLowerCase()}%`;
+	const rows = await db
+		.prepare(`${SHEET_SELECT}
+		WHERE lower(s.sku) LIKE ?
+		   OR lower(COALESCE(t_en.value,'')) LIKE ?
+		   OR lower(COALESCE(t_da.value,'')) LIKE ?
+		   OR lower(COALESCE(t_sv.value,'')) LIKE ?
+		   OR lower(COALESCE(t_no.value,'')) LIKE ?
+		   OR lower(COALESCE((SELECT value FROM translations WHERE sheet_id=s.id AND key='ean' LIMIT 1),'')) LIKE ?
+		ORDER BY s.updated_at DESC
+		LIMIT 100`)
+		.bind(q, q, q, q, q, q)
 		.all();
 	return rows.results;
 }

@@ -1,11 +1,16 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { listSheets, deleteSheet } from '$lib/db.js';
+import { listSheets, countSheets, deleteSheet } from '$lib/db.js';
+
+const PAGE_SIZE = 30;
 
 export async function load({ platform }) {
 	const db = platform?.env?.DB;
-	if (!db) return { sheets: [] };
-	const sheets = await listSheets(db);
-	return { sheets };
+	if (!db) return { sheets: [], totalCount: 0 };
+	const [sheets, totalCount] = await Promise.all([
+		listSheets(db, { limit: PAGE_SIZE }),
+		countSheets(db),
+	]);
+	return { sheets, totalCount };
 }
 
 export const actions = {
