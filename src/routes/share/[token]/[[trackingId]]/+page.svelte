@@ -474,7 +474,7 @@
 										>
 												{#if item.box_image_key}
 													<img
-														src="/api/img/{item.box_image_key}"
+														src="/api/img/{item.box_image_key}?size=1000"
 														alt={item.product_name}
 														class="box-img"
 														onload={(e) => detectBoxPadding(e.currentTarget.src, item.box_image_key)}
