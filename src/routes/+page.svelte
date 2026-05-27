@@ -4,6 +4,8 @@
 
 	let { data } = $props();
 
+	const PAGE_SIZE = 30;
+
 	function formatDate(ts) {
 		return new Date(ts * 1000).toLocaleDateString('en-GB', {
 			day: 'numeric',
@@ -14,7 +16,6 @@
 
 	const LANGS = ['en', 'da', 'sv', 'no'];
 
-	// Returns 'complete' | 'partial' | 'empty' for a sheet+language
 	function langStatus(sheet, lang) {
 		const name = sheet[`name_${lang}`];
 		if (!name?.trim()) return 'empty';
@@ -29,26 +30,61 @@
 		return null;
 	}
 
-	let query = $state('');
+	function decorate(sheet) {
+		return {
+			...sheet,
+			_display: sheet.name_en || sheet.name_da || sheet.name_sv || sheet.name_no || '',
+		};
+	}
 
-	let searchIndex = $derived(
-		data.sheets.map(sheet => {
-			const fields = JSON.parse(sheet.data_fields || '[]');
-			const ean = fields.find(f => f.key === 'ean')?.value || '';
-			return {
-				...sheet,
-				_display: sheet.name_en || sheet.name_da || sheet.name_sv || sheet.name_no || '',
-				_search: [sheet.sku, ean, sheet.name_en, sheet.name_da, sheet.name_sv, sheet.name_no]
-					.filter(Boolean).join(' ').toLowerCase()
-			};
-		})
-	);
+	// ── Paginated sheets list ─────────────────────────────────────────────
+	let loadedSheets = $state(data.sheets.map(decorate));
+	let totalCount   = $state(data.totalCount);
+	let loadingMore  = $state(false);
+	const hasMore    = $derived(!query.trim() && loadedSheets.length < totalCount);
 
-	let filtered = $derived(
-		!query.trim()
-			? searchIndex
-			: searchIndex.filter(s => s._search.includes(query.toLowerCase().trim()))
-	);
+	async function loadMore() {
+		if (loadingMore) return;
+		loadingMore = true;
+		try {
+			const res = await fetch(`/api/sheets?offset=${loadedSheets.length}`);
+			if (res.ok) {
+				const { sheets } = await res.json();
+				loadedSheets = [...loadedSheets, ...sheets.map(decorate)];
+			}
+		} finally {
+			loadingMore = false;
+		}
+	}
+
+	// ── Search (server-side so it spans ALL sheets) ───────────────────────
+	let query        = $state('');
+	let searchResults = $state(/** @type {any[]|null} */ (null));
+	let searching    = $state(false);
+	let searchTimer  = /** @type {ReturnType<typeof setTimeout>|null} */ (null);
+
+	$effect(() => {
+		const q = query.trim();
+		clearTimeout(searchTimer ?? undefined);
+		if (!q) {
+			searchResults = null;
+			return;
+		}
+		searching = true;
+		searchTimer = setTimeout(async () => {
+			try {
+				const res = await fetch(`/api/sheets?q=${encodeURIComponent(q)}`);
+				if (res.ok) {
+					const { sheets } = await res.json();
+					searchResults = sheets.map(decorate);
+				}
+			} finally {
+				searching = false;
+			}
+		}, 220);
+	});
+
+	const displayed = $derived(query.trim() ? (searchResults ?? []) : loadedSheets);
 </script>
 
 <svelte:head>
@@ -61,7 +97,10 @@
 
 	<main>
 		<div class="page-header">
-			<h1 class="page-title">Sheets</h1>
+			<div class="title-row">
+				<h1 class="page-title">Sheets</h1>
+				<span class="total-badge">{totalCount} total</span>
+			</div>
 			<div class="header-right">
 				<div class="search-wrap">
 					<svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -73,17 +112,22 @@
 						placeholder="Search SKU, EAN or name…"
 						bind:value={query}
 					/>
+					{#if searching}
+						<svg class="search-spinner" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+							<path d="M21 12a9 9 0 11-6.219-8.56"/>
+						</svg>
+					{/if}
 				</div>
 				<a href="/sheet/new" class="btn-new">
-				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-					<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-				</svg>
-				New Sheet
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+						<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+					</svg>
+					New Sheet
 				</a>
 			</div>
 		</div>
 
-		{#if data.sheets.length === 0}
+		{#if totalCount === 0}
 			<div class="empty">
 				<div class="empty-icon">
 					<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -100,11 +144,13 @@
 					New Sheet
 				</a>
 			</div>
-		{:else if filtered.length === 0}
+		{:else if query.trim() && searchResults !== null && searchResults.length === 0}
 			<div class="no-results">No sheets match "<strong>{query}</strong>"</div>
+		{:else if query.trim() && searchResults === null}
+			<!-- searching spinner state — grid already shows while debouncing -->
 		{:else}
 			<div class="grid">
-				{#each filtered as sheet}
+				{#each displayed as sheet}
 					<div class="card">
 						<a href="/sheet/{sheet.id}" class="card-thumb">
 							{#if sheet.box_image_key}
@@ -177,6 +223,22 @@
 					</div>
 				{/each}
 			</div>
+
+			{#if hasMore}
+				<div class="load-more-row">
+					<button class="btn-load-more" onclick={loadMore} disabled={loadingMore}>
+						{#if loadingMore}
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="animation: spin 0.7s linear infinite; flex-shrink:0">
+								<path d="M21 12a9 9 0 11-6.219-8.56"/>
+							</svg>
+							Loading…
+						{:else}
+							Load more
+							<span class="load-more-count">({totalCount - loadedSheets.length} remaining)</span>
+						{/if}
+					</button>
+				</div>
+			{/if}
 		{/if}
 	</main>
 </div>
@@ -204,11 +266,27 @@
 		gap: 16px;
 	}
 
+	.title-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
 	.page-title {
 		font-size: 18px;
 		font-weight: 700;
 		color: #18181B;
 		letter-spacing: -0.3px;
+		flex-shrink: 0;
+	}
+
+	.total-badge {
+		font-size: 12px;
+		font-weight: 600;
+		color: #A1A1AA;
+		background: #F4F4F5;
+		border-radius: 100px;
+		padding: 2px 10px;
 		flex-shrink: 0;
 	}
 
@@ -249,6 +327,16 @@
 		border-color: #A1A1AA;
 		box-shadow: 0 0 0 3px rgba(0,0,0,0.05);
 	}
+
+	.search-spinner {
+		position: absolute;
+		right: 10px;
+		color: #A1A1AA;
+		pointer-events: none;
+		animation: spin 0.7s linear infinite;
+	}
+
+	@keyframes spin { to { transform: rotate(360deg); } }
 
 	.no-results {
 		padding: 60px 24px;
@@ -431,4 +519,35 @@
 	.action-btn:hover { background: #F4F4F5; color: #18181B; }
 	.action-btn.danger { color: #A1A1AA; }
 	.action-btn.danger:hover { background: #FEF2F2; color: var(--danger); }
+
+	/* ── Load more ───────────────────────────────────────────────────────── */
+	.load-more-row {
+		display: flex;
+		justify-content: center;
+		margin-top: 32px;
+	}
+
+	.btn-load-more {
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+		padding: 9px 24px;
+		background: white;
+		border: 1px solid var(--border);
+		border-radius: 100px;
+		font-size: 13px;
+		font-weight: 600;
+		color: #52525B;
+		cursor: pointer;
+		font-family: inherit;
+		transition: background 0.15s, border-color 0.15s, color 0.15s;
+		box-shadow: var(--shadow);
+	}
+	.btn-load-more:hover:not(:disabled) { background: #F4F4F5; color: #18181B; border-color: #D4D4D8; }
+	.btn-load-more:disabled { opacity: 0.65; cursor: default; }
+
+	.load-more-count {
+		font-weight: 500;
+		color: #A1A1AA;
+	}
 </style>
