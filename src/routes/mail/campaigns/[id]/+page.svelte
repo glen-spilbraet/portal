@@ -679,7 +679,7 @@
                     <div class="ep-main">
                       <div class="ep-img-wrap">
                         {#if sheet.box_image_key}
-                          <img src="/api/img/{sheet.box_image_key}" alt={sheet.product_name} class="ep-img" />
+                          <img src="/api/img/{sheet.box_image_key}?size=300" alt={sheet.product_name} class="ep-img" />
                         {:else}
                           <div class="ep-img-empty">
                             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.25"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>

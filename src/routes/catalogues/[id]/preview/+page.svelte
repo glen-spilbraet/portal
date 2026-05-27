@@ -349,7 +349,7 @@
 										<div class="box-frame">
 											<div class="box-area">
 												{#if item.box_image_key}
-													<img src="/api/img/{item.box_image_key}" alt={item.product_name} class="box-img" />
+													<img src="/api/img/{item.box_image_key}?size=1000" alt={item.product_name} class="box-img" />
 												{:else}
 													<div class="box-placeholder">
 														<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.2">
