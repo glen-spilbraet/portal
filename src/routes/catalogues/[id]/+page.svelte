@@ -706,7 +706,7 @@
 								disabled={isAdded(sheet.id) || addingSheet}
 							>
 								{#if sheet.box_image_key}
-									<img src="/api/img/{sheet.box_image_key}" alt="" class="result-thumb" />
+									<img src="/api/img/{sheet.box_image_key}?size=300" alt="" class="result-thumb" />
 								{:else}
 									<div class="result-thumb-empty">
 										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -826,7 +826,7 @@
 								{:else}
 									<!-- Sheet item -->
 									{#if item.box_image_key}
-										<img src="/api/img/{item.box_image_key}" alt="" class="item-thumb" />
+										<img src="/api/img/{item.box_image_key}?size=300" alt="" class="item-thumb" />
 									{:else}
 										<div class="item-thumb-empty">
 											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">

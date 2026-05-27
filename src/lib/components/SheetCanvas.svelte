@@ -188,6 +188,53 @@
 		saveChange({ type: 'sheet', field: 'data_fields', value: JSON.stringify(dataFields) });
 	}
 
+	// ── Image resize helpers ──────────────────────────────────────────────
+	/** Resize a File/Blob to fit within maxSize×maxSize, returns a webp Blob */
+	function resizeToBlob(file, maxSize) {
+		return new Promise((resolve) => {
+			const img = new Image();
+			const objectUrl = URL.createObjectURL(file);
+			img.onload = () => {
+				URL.revokeObjectURL(objectUrl);
+				const scale = Math.min(1, maxSize / img.naturalWidth, maxSize / img.naturalHeight);
+				const w = Math.round(img.naturalWidth  * scale);
+				const h = Math.round(img.naturalHeight * scale);
+				const canvas = document.createElement('canvas');
+				canvas.width  = w;
+				canvas.height = h;
+				canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+				canvas.toBlob(resolve, 'image/webp', 0.88);
+			};
+			img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(null); };
+			img.src = objectUrl;
+		});
+	}
+
+	/** Derives a variant R2 key: abc/box/id.jpg → abc/box/id_1000.webp */
+	function variantKey(originalKey, size) {
+		const lastSlash = originalKey.lastIndexOf('/');
+		const lastDot   = originalKey.lastIndexOf('.');
+		return lastDot > lastSlash
+			? originalKey.slice(0, lastDot) + `_${size}.webp`
+			: originalKey + `_${size}.webp`;
+	}
+
+	/** Upload resized variants (1000 and 300) in the background — best-effort */
+	async function uploadBoxVariants(file, originalKey) {
+		for (const size of [1000, 300]) {
+			try {
+				const blob = await resizeToBlob(file, size);
+				if (!blob) continue;
+				const fd = new FormData();
+				fd.append('file', new File([blob], `box_${size}.webp`, { type: 'image/webp' }));
+				fd.append('sheetId', sheetId);
+				fd.append('type', 'box');
+				fd.append('variantKey', variantKey(originalKey, size));
+				await fetch('/api/images', { method: 'POST', body: fd });
+			} catch { /* best-effort */ }
+		}
+	}
+
 	// ── Box photo ─────────────────────────────────────────────────────────
 	let boxFileInput;
 	let boxImageHasPadding = $state(false);
@@ -234,6 +281,8 @@
 			boxImageKey = key;
 			boxImageDetected = false; // reset so new image fades in after re-detection
 			onchange?.({ type: 'sheet', field: 'box_image_key', value: key });
+			// Upload 1000px and 300px variants in background (best-effort)
+			uploadBoxVariants(file, key);
 		}
 		e.target.value = '';
 	}
@@ -389,7 +438,7 @@
 			<div class="box-area" class:no-padding={boxImageHasPadding} class:box-detected={!boxImageKey || boxImageDetected}>
 				{#if boxImageKey}
 					<img
-						src="/api/img/{boxImageKey}"
+						src="/api/img/{boxImageKey}?size=1000"
 						alt="Product box"
 						class="box-img"
 						onload={(e) => detectBoxPadding(e.currentTarget.src)}
