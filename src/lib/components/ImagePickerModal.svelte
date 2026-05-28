@@ -8,22 +8,32 @@
 	 *   onupload    — called when user clicks "Upload new photo" (triggers parent file input)
 	 *   onclose     — called to close the modal
 	 */
-	let { open = false, onselect, onupload, onclose } = $props();
+	let {
+		open        = false,
+		libraryUrl  = '/api/catalogues/image-library',
+		onselect,
+		onupload,
+		onclose,
+	} = $props();
 
 	let query   = $state('');
 	let images  = $state(/** @type {Array<{key:string,image_type:string,label:string}>} */ ([]));
 	let loading = $state(false);
 	let loaded  = $state(false);
 
-	// Load library when modal opens for the first time
+	// Reload library when the URL changes (e.g. switching between logo and image picker)
 	$effect(() => {
 		if (open && !loaded) fetchLibrary();
+	});
+	$effect(() => {
+		// Reset when libraryUrl changes so new URL is fetched fresh
+		libraryUrl; loaded = false; images = []; query = '';
 	});
 
 	async function fetchLibrary() {
 		loading = true;
 		try {
-			const res = await fetch('/api/catalogues/image-library');
+			const res = await fetch(libraryUrl);
 			if (res.ok) {
 				const data = await res.json();
 				images = data.images ?? [];
@@ -47,6 +57,7 @@
 		if (t === 'cover')      return 'Cover';
 		if (t === 'image_full') return 'Full page';
 		if (t === 'image_half') return 'Half page';
+		if (t === 'logo')       return 'Logo';
 		return t;
 	}
 
