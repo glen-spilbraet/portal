@@ -1,4 +1,6 @@
 <script>
+	import ImagePickerModal from '$lib/components/ImagePickerModal.svelte';
+
 	let { data } = $props();
 
 	const LANGUAGES = [
@@ -106,8 +108,52 @@
 		}
 	}
 
+	// ── Image picker modal ──────────────────────────────────────────────
+	/** 'cover' | section item id | null */
+	let pickerTarget = $state(/** @type {string|null} */ (null));
+	const pickerOpen = $derived(pickerTarget !== null);
+
+	/** Open picker for the cover photo */
+	function openPickerForCover() { pickerTarget = 'cover'; }
+
+	/** Open picker for a section image item */
+	function openPickerForSection(itemId) { pickerTarget = itemId; }
+
+	function closePicker() { pickerTarget = null; }
+
+	/** Called when the user picks an existing image from the library */
+	async function handlePickerSelect(key) {
+		if (pickerTarget === 'cover') {
+			coverImageKey = key;
+			coverCropX = 50;
+			coverCropY = 50;
+			await savePatch({ cover_image_key: key, cover_crop_x: 50, cover_crop_y: 50 });
+		} else if (pickerTarget) {
+			// Section image
+			const itemId = pickerTarget;
+			items = items.map(i => i.id === itemId ? { ...i, section_image_key: key } : i);
+			await fetch(`/api/catalogues/${data.catalogue.id}/items/${itemId}/image`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ key })
+			});
+		}
+	}
+
+	// File-input refs triggered when picker's "Upload new" is clicked
+	let pickerCoverFileInput;
+	let pickerSectionFileInputs = $state({});
+
+	/** Called when picker wants an upload — re-opens the correct file input */
+	function handlePickerUpload() {
+		if (pickerTarget === 'cover') {
+			pickerCoverFileInput?.click();
+		} else if (pickerTarget) {
+			pickerSectionFileInputs[pickerTarget]?.click();
+		}
+	}
+
 	// Cover photo upload + crop
-	let coverFileInput;
 	let coverImageKey = $state(data.catalogue.cover_image_key ?? null);
 	let coverUploading = $state(false);
 	let coverCropX = $state(data.catalogue.cover_crop_x ?? 50);
@@ -351,7 +397,6 @@
 	});
 
 	// ── Image sections ────────────────────────────────────────────────────────
-	let sectionFileInputs = $state({});
 	let sectionUploadingId = $state(null);
 	let addingSectionType = $state(null); // 'image_half' | 'image_full'
 
@@ -624,7 +669,7 @@
 						<div class="cover-drag-hint">Drag to reposition</div>
 					</div>
 				{/if}
-				<input bind:this={coverFileInput} type="file" accept="image/*" style="display:none" onchange={handleCoverUpload} />
+				<input bind:this={pickerCoverFileInput} type="file" accept="image/*" style="display:none" onchange={handleCoverUpload} />
 
 				<img class="pattern-overlay" src="/pattern.png" alt="" aria-hidden="true" />
 
@@ -683,7 +728,7 @@
 			<!-- Front cover upload -->
 			<div class="panel-section">
 				<p class="col-label">Front Cover</p>
-				<button class="cover-upload-btn" onclick={() => coverFileInput.click()} disabled={coverUploading}>
+				<button class="cover-upload-btn" onclick={openPickerForCover} disabled={coverUploading}>
 					{#if coverUploading}
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.7s linear infinite">
 							<path d="M21 12a9 9 0 11-6.219-8.56"/>
@@ -832,8 +877,8 @@
 										<button
 											class="item-section-upload"
 											disabled={sectionUploadingId === item.id}
-											onclick={() => sectionFileInputs[item.id]?.click()}
-											title="Upload photo"
+											onclick={() => openPickerForSection(item.id)}
+											title="Choose photo"
 										>
 											{#if sectionUploadingId === item.id}
 												<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="animation: spin 0.7s linear infinite">
@@ -851,7 +896,7 @@
 										type="file"
 										accept="image/*"
 										style="display:none"
-										bind:this={sectionFileInputs[item.id]}
+										bind:this={pickerSectionFileInputs[item.id]}
 										onchange={(e) => uploadSectionImage(item, e)}
 									/>
 									<div class="item-info">
@@ -863,7 +908,7 @@
 											{/if}
 										</button>
 										<span class="item-sku">
-											{item.type === 'image_full' ? 'Full page' : 'Half page'} · <button class="item-replace-link" onclick={() => sectionFileInputs[item.id]?.click()}>{item.section_image_key ? 'Replace photo' : 'Upload photo'}</button>
+											{item.type === 'image_full' ? 'Full page' : 'Half page'} · <button class="item-replace-link" onclick={() => openPickerForSection(item.id)}>{item.section_image_key ? 'Replace photo' : 'Choose photo'}</button>
 										</span>
 									</div>
 									<button
@@ -1019,6 +1064,14 @@
 		</div>
 	</div>
 {/if}
+
+<!-- Image picker modal -->
+<ImagePickerModal
+	open={pickerOpen}
+	onselect={handlePickerSelect}
+	onupload={handlePickerUpload}
+	onclose={closePicker}
+/>
 
 <style>
 	.page {
