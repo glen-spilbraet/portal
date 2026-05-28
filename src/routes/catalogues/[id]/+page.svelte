@@ -116,8 +116,18 @@
 	/** Open picker for the cover photo */
 	function openPickerForCover() { pickerTarget = 'cover'; }
 
+	/** Open picker for the catalogue logo */
+	function openPickerForLogo() { pickerTarget = 'logo'; }
+
 	/** Open picker for a section image item */
 	function openPickerForSection(itemId) { pickerTarget = itemId; }
+
+	/** Library URL for the currently open picker */
+	const pickerLibraryUrl = $derived(
+		pickerTarget === 'logo'
+			? '/api/catalogues/logo-library'
+			: '/api/catalogues/image-library'
+	);
 
 	function closePicker() { pickerTarget = null; }
 
@@ -128,6 +138,9 @@
 			coverCropX = 50;
 			coverCropY = 50;
 			await savePatch({ cover_image_key: key, cover_crop_x: 50, cover_crop_y: 50 });
+		} else if (pickerTarget === 'logo') {
+			logoKey = key;
+			await savePatch({ logo_key: key });
 		} else if (pickerTarget) {
 			// Section image
 			const itemId = pickerTarget;
@@ -142,6 +155,7 @@
 
 	// File-input refs triggered when picker's "Upload new" is clicked
 	let pickerCoverFileInput;
+	let pickerLogoFileInput;
 	let pickerSectionFileInputs = $state({});
 
 	/** Called when picker wants an upload — capture target before closing, then trigger file input */
@@ -150,6 +164,8 @@
 		closePicker();
 		if (target === 'cover') {
 			pickerCoverFileInput?.click();
+		} else if (target === 'logo') {
+			pickerLogoFileInput?.click();
 		} else if (target) {
 			pickerSectionFileInputs[target]?.click();
 		}
@@ -205,7 +221,6 @@
 	}
 
 	// Logo upload
-	let logoFileInput;
 	let logoUploading = $state(false);
 
 	async function detectBgColor(file) {
@@ -680,9 +695,9 @@
 					<button
 						class="logo-box"
 						style="background: {logoBgColor}"
-						onclick={() => logoFileInput.click()}
+						onclick={openPickerForLogo}
 						disabled={logoUploading}
-						title="Click to upload logo"
+						title="Click to choose or upload a logo"
 					>
 						{#if logoUploading}
 							<div class="logo-spinner"></div>
@@ -699,7 +714,7 @@
 							</div>
 						{/if}
 					</button>
-					<input bind:this={logoFileInput} type="file" accept="image/*" style="display:none" onchange={handleLogoUpload} />
+					<input bind:this={pickerLogoFileInput} type="file" accept="image/*" style="display:none" onchange={handleLogoUpload} />
 				</div>
 
 				<!-- Language-matched logo at the bottom -->
@@ -1070,6 +1085,7 @@
 <!-- Image picker modal -->
 <ImagePickerModal
 	open={pickerOpen}
+	libraryUrl={pickerLibraryUrl}
 	onselect={handlePickerSelect}
 	onupload={handlePickerUpload}
 	onclose={closePicker}
