@@ -144,12 +144,14 @@
 	let pickerCoverFileInput;
 	let pickerSectionFileInputs = $state({});
 
-	/** Called when picker wants an upload — re-opens the correct file input */
+	/** Called when picker wants an upload — capture target before closing, then trigger file input */
 	function handlePickerUpload() {
-		if (pickerTarget === 'cover') {
+		const target = pickerTarget; // capture before closePicker() clears it
+		closePicker();
+		if (target === 'cover') {
 			pickerCoverFileInput?.click();
-		} else if (pickerTarget) {
-			pickerSectionFileInputs[pickerTarget]?.click();
+		} else if (target) {
+			pickerSectionFileInputs[target]?.click();
 		}
 	}
 
