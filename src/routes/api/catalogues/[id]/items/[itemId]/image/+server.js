@@ -45,3 +45,25 @@ export async function POST({ params, request, cookies, platform }) {
 
 	return json({ key: r2Key });
 }
+
+/** PATCH /api/catalogues/[id]/items/[itemId]/image
+ *  Re-use an existing R2 key without re-uploading.
+ *  Body: { key: string }
+ */
+export async function PATCH({ params, request, cookies, platform }) {
+	if (!(await checkAuth(cookies, platform))) error(401, 'Unauthorized');
+
+	const db = platform?.env?.DB;
+	if (!db) error(500, 'Storage unavailable');
+
+	const { key } = await request.json();
+	if (!key || typeof key !== 'string') error(400, 'key required');
+
+	await updateCatalogueItemSection(db, params.itemId, {
+		section_image_key: key,
+		section_crop_x: 50,
+		section_crop_y: 50
+	});
+
+	return json({ key });
+}
