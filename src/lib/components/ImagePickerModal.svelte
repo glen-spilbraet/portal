@@ -60,8 +60,7 @@
 	}
 
 	function handleUpload() {
-		onclose?.();
-		onupload?.();
+		onupload?.(); // parent captures target and closes the modal itself
 	}
 </script>
 
