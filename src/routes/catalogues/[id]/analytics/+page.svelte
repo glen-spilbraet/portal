@@ -216,8 +216,8 @@
 		{:else}
 			<div class="sessions">
 				{#each filtered as session (session.id)}
+					{@const summaryTypes = [...new Set(session.events.filter(e => e.eventType !== 'view_page').map(e => e.eventType))]}
 					<div class="session-card">
-						{@const summaryTypes = [...new Set(session.events.filter(e => e.eventType !== 'view_page').map(e => e.eventType))]}
 						<button class="session-header" onclick={() => toggleSession(session.id)}>
 							<div class="device-icon">
 								{#if session.deviceType === 'iPhone' || session.deviceType === 'Android'}
