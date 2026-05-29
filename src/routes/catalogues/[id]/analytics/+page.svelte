@@ -121,6 +121,15 @@
 			default:                return 'dot';
 		}
 	}
+
+	// ── Collapse / expand ─────────────────────────────────────────────────────
+	/** @type {Record<string, boolean>} */
+	let expanded = $state({});
+
+	/** @param {string} id */
+	function toggleSession(id) {
+		expanded = { ...expanded, [id]: !expanded[id] };
+	}
 </script>
 
 <svelte:head>
@@ -208,7 +217,8 @@
 			<div class="sessions">
 				{#each filtered as session (session.id)}
 					<div class="session-card">
-						<div class="session-header">
+						{@const summaryTypes = [...new Set(session.events.filter(e => e.eventType !== 'view_page').map(e => e.eventType))]}
+						<button class="session-header" onclick={() => toggleSession(session.id)}>
 							<div class="device-icon">
 								{#if session.deviceType === 'iPhone' || session.deviceType === 'Android'}
 									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -232,46 +242,76 @@
 									{/if}
 								</span>
 							</div>
-							<span class="session-time">{fmt(session.sessionAt)}</span>
-						</div>
-
-						{#if session.events.length === 0}
-							<p class="no-events">No events recorded in this session.</p>
-						{:else}
-							<ul class="event-list">
-								{#each session.events as ev (ev.id)}
-									{@const icon = eventIcon(ev.eventType)}
-									<li class="event-row event-{ev.eventType}">
-										<span class="event-dot">
-											{#if icon === 'eye'}
-												<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-													<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-												</svg>
-											{:else if icon === 'image'}
+							{#if summaryTypes.length > 0}
+								<div class="header-event-icons">
+									{#each summaryTypes as et}
+										<span class="header-ev-icon header-ev-{et}" title={eventLabel(et, null)}>
+											{#if et === 'download_photos'}
 												<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 													<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
 												</svg>
-											{:else if icon === 'table'}
+											{:else if et === 'download_excel'}
 												<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 													<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>
 												</svg>
-											{:else if icon === 'file'}
+											{:else if et === 'download_pdf'}
 												<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 													<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
 												</svg>
-											{:else if icon === 'flag'}
+											{:else if et === 'view_end'}
 												<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
 													<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>
 												</svg>
-											{:else}
-												<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
 											{/if}
 										</span>
-										<span class="event-label">{eventLabel(ev.eventType, ev.page)}</span>
-										<span class="event-ts">{fmt(ev.eventAt)}</span>
-									</li>
-								{/each}
-							</ul>
+									{/each}
+								</div>
+							{/if}
+							<span class="session-time">{fmt(session.sessionAt)}</span>
+							<svg class="chevron" class:open={expanded[session.id]} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<polyline points="9 18 15 12 9 6"/>
+							</svg>
+						</button>
+
+						{#if expanded[session.id]}
+							{#if session.events.length === 0}
+								<p class="no-events">No events recorded in this session.</p>
+							{:else}
+								<ul class="event-list">
+									{#each session.events as ev (ev.id)}
+										{@const icon = eventIcon(ev.eventType)}
+										<li class="event-row event-{ev.eventType}">
+											<span class="event-dot">
+												{#if icon === 'eye'}
+													<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+														<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+													</svg>
+												{:else if icon === 'image'}
+													<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+														<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+													</svg>
+												{:else if icon === 'table'}
+													<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+														<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>
+													</svg>
+												{:else if icon === 'file'}
+													<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+														<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+													</svg>
+												{:else if icon === 'flag'}
+													<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+														<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>
+													</svg>
+												{:else}
+													<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
+												{/if}
+											</span>
+											<span class="event-label">{eventLabel(ev.eventType, ev.page)}</span>
+											<span class="event-ts">{fmt(ev.eventAt)}</span>
+										</li>
+									{/each}
+								</ul>
+							{/if}
 						{/if}
 					</div>
 				{/each}
@@ -484,8 +524,15 @@
 		gap: 8px;
 		padding: 13px 18px;
 		background: #fafaf8;
+		border: none;
 		border-bottom: 1px solid var(--border, #e4e2db);
+		width: 100%;
+		text-align: left;
+		cursor: pointer;
+		font-family: 'Nunito', sans-serif;
+		transition: background 0.12s;
 	}
+	.session-header:hover { background: #f5f0e8; }
 
 	.device-icon {
 		width: 24px;
@@ -531,6 +578,39 @@
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 		flex-shrink: 0;
+	}
+
+	.header-event-icons {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		flex-shrink: 0;
+	}
+
+	.header-ev-icon {
+		width: 20px;
+		height: 20px;
+		border-radius: 5px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		background: #f4f4f5;
+		color: #71717a;
+	}
+	.header-ev-download_photos { background: #f0fdf4; color: #16a34a; }
+	.header-ev-download_excel  { background: #f0fdf4; color: #16a34a; }
+	.header-ev-download_pdf    { background: #fef3c7; color: #d97706; }
+	.header-ev-view_end        { background: #faf5ff; color: #7c3aed; }
+
+	.chevron {
+		flex-shrink: 0;
+		color: #a0998a;
+		transform: rotate(0deg);
+		transition: transform 0.18s ease;
+	}
+	.chevron.open {
+		transform: rotate(90deg);
 	}
 
 	.no-events {
