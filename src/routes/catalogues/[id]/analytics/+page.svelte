@@ -324,6 +324,10 @@
 	.layout {
 		display: flex;
 		min-height: calc(100vh - 56px);
+		max-width: 1140px;
+		margin: 0 auto;
+		width: 100%;
+		padding: 0 28px;
 	}
 
 	/* ── Sidebar ─────────────────────────────────────────────────────────────── */
