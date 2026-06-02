@@ -10,7 +10,7 @@ export async function load({ params, platform }) {
 
 	const [items, sheets] = await Promise.all([
 		getCatalogueItems(db, params.id),
-		listSheets(db)
+		listSheets(db, { limit: 10_000 })
 	]);
 
 	return { catalogue, items, sheets };
