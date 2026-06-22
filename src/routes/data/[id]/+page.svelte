@@ -24,8 +24,9 @@
 	let savingCustomHeaders = $state(false);
 
 	// Row picker state (shown after file is chosen, before upload is sent)
-	let rowPickerData    = $state(null); // { previewRows: string[][], base64: string } | null
+	let rowPickerData    = $state(null); // { allRows: string[][], arrayBuffer } | null
 	let selectedRowIndex = $state(0);
+	let rowsShown        = $state(3);
 
 	// UI state
 	let templateUploading = $state(false);
@@ -255,13 +256,14 @@
 				return;
 			}
 
-			// Collect up to 3 rows for the row picker
-			const previewRows = allRows.slice(0, 3).map(row =>
+			// Convert all rows to strings for the row picker
+			const pickerRows = allRows.map(row =>
 				(row || []).map(cell => (cell === undefined || cell === null) ? '' : String(cell))
 			);
 
-			rowPickerData = { previewRows, arrayBuffer };
+			rowPickerData = { allRows: pickerRows, arrayBuffer };
 			selectedRowIndex = 0;
+			rowsShown = 3;
 		} catch (err) {
 			alert(`Error reading file: ${err.message}`);
 		} finally {
@@ -601,7 +603,7 @@
 						<!-- Row picker: shown after a file is scanned, before confirming -->
 						<p class="section-hint">Select which row contains the column headers:</p>
 						<div class="row-picker">
-							{#each rowPickerData.previewRows as row, i}
+							{#each rowPickerData.allRows.slice(0, rowsShown) as row, i}
 								{@const nonEmpty = row.filter(Boolean)}
 								<button
 									class="row-option"
@@ -626,8 +628,13 @@
 									</div>
 								</button>
 							{/each}
+							{#if rowsShown < rowPickerData.allRows.length}
+								<button class="btn-more-rows" onclick={() => rowsShown += 3} type="button">
+									Get 3 more rows
+								</button>
+							{/if}
 							<div class="row-picker-actions">
-								<button class="btn-cancel-picker" onclick={() => rowPickerData = null} type="button">Cancel</button>
+								<button class="btn-cancel-picker" onclick={() => { rowPickerData = null; rowsShown = 3; }} type="button">Cancel</button>
 								<button class="btn-confirm-picker" onclick={confirmRowSelection} disabled={templateUploading} type="button">
 									{#if templateUploading}
 										<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: spin 0.7s linear infinite"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
@@ -1637,6 +1644,21 @@
 		color: #A1A1AA;
 		font-weight: 500;
 	}
+
+	.btn-more-rows {
+		width: 100%;
+		padding: 8px 12px;
+		border: 1.5px dashed var(--border);
+		border-radius: 10px;
+		background: none;
+		font-size: 12px;
+		font-weight: 600;
+		color: #71717A;
+		cursor: pointer;
+		font-family: inherit;
+		transition: border-color 0.15s, color 0.15s, background 0.15s;
+	}
+	.btn-more-rows:hover { border-color: #A1A1AA; color: #18181B; background: #F8F8F6; }
 
 	.row-picker-actions {
 		display: flex;
