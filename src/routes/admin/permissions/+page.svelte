@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ sheets: true, catalogues: true, planograms: true, data: true });
+	let newAccess = $state({ sheets: true, catalogues: true, planograms: true, data: true, price_lists: false });
 	let creating = $state(false);
 	let createError = $state('');
 
@@ -16,10 +16,11 @@
 	let saving = $state({});
 
 	const SECTIONS = [
-		{ key: 'sheets',     label: 'Sheets' },
-		{ key: 'catalogues', label: 'Catalogues' },
-		{ key: 'planograms', label: 'Planograms' },
-		{ key: 'data',       label: 'Data' },
+		{ key: 'sheets',      label: 'Sheets' },
+		{ key: 'catalogues',  label: 'Catalogues' },
+		{ key: 'planograms',  label: 'Planograms' },
+		{ key: 'data',        label: 'Data' },
+		{ key: 'price_lists', label: 'Price List' },
 	];
 
 	async function createSet() {
@@ -32,24 +33,26 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name,
-					access_sheets:     newAccess.sheets,
-					access_catalogues: newAccess.catalogues,
-					access_planograms: newAccess.planograms,
-					access_data:       newAccess.data,
+					access_sheets:      newAccess.sheets,
+					access_catalogues:  newAccess.catalogues,
+					access_planograms:  newAccess.planograms,
+					access_data:        newAccess.data,
+					access_price_lists: newAccess.price_lists,
 				})
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
 			const created = await res.json();
 			sets = [...sets, {
-				id:                created.id,
-				name:              name,
-				access_sheets:     newAccess.sheets     ? 1 : 0,
-				access_catalogues: newAccess.catalogues ? 1 : 0,
-				access_planograms: newAccess.planograms ? 1 : 0,
-				access_data:       newAccess.data       ? 1 : 0,
+				id:                 created.id,
+				name:               name,
+				access_sheets:      newAccess.sheets       ? 1 : 0,
+				access_catalogues:  newAccess.catalogues   ? 1 : 0,
+				access_planograms:  newAccess.planograms   ? 1 : 0,
+				access_data:        newAccess.data         ? 1 : 0,
+				access_price_lists: newAccess.price_lists  ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { sheets: true, catalogues: true, planograms: true, data: true };
+			newAccess = { sheets: true, catalogues: true, planograms: true, data: true, price_lists: false };
 		} catch (e) {
 			createError = e.message;
 		} finally {
@@ -59,11 +62,12 @@
 
 	function startEdit(set) {
 		editing[set.id] = {
-			name:              set.name,
-			access_sheets:     !!set.access_sheets,
-			access_catalogues: !!set.access_catalogues,
-			access_planograms: !!set.access_planograms,
-			access_data:       !!set.access_data,
+			name:               set.name,
+			access_sheets:      !!set.access_sheets,
+			access_catalogues:  !!set.access_catalogues,
+			access_planograms:  !!set.access_planograms,
+			access_data:        !!set.access_data,
+			access_price_lists: !!set.access_price_lists,
 		};
 	}
 
@@ -81,21 +85,23 @@
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					name:              e.name,
-					access_sheets:     e.access_sheets,
-					access_catalogues: e.access_catalogues,
-					access_planograms: e.access_planograms,
-					access_data:       e.access_data,
+					name:               e.name,
+					access_sheets:      e.access_sheets,
+					access_catalogues:  e.access_catalogues,
+					access_planograms:  e.access_planograms,
+					access_data:        e.access_data,
+					access_price_lists: e.access_price_lists,
 				})
 			});
 			if (!res.ok) throw new Error('Failed to save');
 			sets = sets.map(s => s.id !== id ? s : {
 				...s,
-				name:              e.name,
-				access_sheets:     e.access_sheets     ? 1 : 0,
-				access_catalogues: e.access_catalogues ? 1 : 0,
-				access_planograms: e.access_planograms ? 1 : 0,
-				access_data:       e.access_data       ? 1 : 0,
+				name:               e.name,
+				access_sheets:      e.access_sheets      ? 1 : 0,
+				access_catalogues:  e.access_catalogues  ? 1 : 0,
+				access_planograms:  e.access_planograms  ? 1 : 0,
+				access_data:        e.access_data        ? 1 : 0,
+				access_price_lists: e.access_price_lists ? 1 : 0,
 			});
 			cancelEdit(id);
 		} catch (err) {

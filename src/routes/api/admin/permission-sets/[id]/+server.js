@@ -20,10 +20,11 @@ export async function PUT({ params, request, cookies, platform }) {
 	const patch  = {};
 
 	if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim();
-	if (typeof body.access_sheets     === 'boolean') patch.access_sheets     = body.access_sheets     ? 1 : 0;
-	if (typeof body.access_catalogues === 'boolean') patch.access_catalogues = body.access_catalogues ? 1 : 0;
-	if (typeof body.access_planograms === 'boolean') patch.access_planograms = body.access_planograms ? 1 : 0;
-	if (typeof body.access_data       === 'boolean') patch.access_data       = body.access_data       ? 1 : 0;
+	if (typeof body.access_sheets      === 'boolean') patch.access_sheets      = body.access_sheets      ? 1 : 0;
+	if (typeof body.access_catalogues  === 'boolean') patch.access_catalogues  = body.access_catalogues  ? 1 : 0;
+	if (typeof body.access_planograms  === 'boolean') patch.access_planograms  = body.access_planograms  ? 1 : 0;
+	if (typeof body.access_data        === 'boolean') patch.access_data        = body.access_data        ? 1 : 0;
+	if (typeof body.access_price_lists === 'boolean') patch.access_price_lists = body.access_price_lists ? 1 : 0;
 
 	if (Object.keys(patch).length === 0) error(400, 'Nothing to update');
 	await updatePermissionSet(db, params.id, patch);
