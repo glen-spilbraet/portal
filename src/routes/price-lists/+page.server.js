@@ -11,44 +11,43 @@ const MARKETS = [
 ];
 
 export async function load({ url, platform }) {
-	const market  = url.searchParams.get('market') ?? 'da_DK';
-	const q       = url.searchParams.get('q') ?? '';
-	const page    = Math.max(1, parseInt(url.searchParams.get('page') ?? '1'));
-	const offset  = (page - 1) * PAGE_SIZE;
+	const market = url.searchParams.get('market') ?? 'da_DK';
+	const q      = url.searchParams.get('q') ?? '';
+	const page   = Math.max(1, parseInt(url.searchParams.get('page') ?? '1'));
+	const offset = (page - 1) * PAGE_SIZE;
 
 	if (!MARKETS.some(m => m.key === market)) error(400, 'Invalid market');
 
 	const search = q.trim() ? `%${q.trim()}%` : '%';
 
-	const [rows, countResult] = await withPg(platform, async (client) => {
-		return Promise.all([
-			client.query(
-				`SELECT p.sku, pi.name, p.ean, pi.price::text AS price, p.stock
-				 FROM product p
-				 JOIN product_information pi ON pi.fk_product = p.id
-				 WHERE pi.locale = $1
-				   AND pi.published IS NOT NULL
-				   AND (p.sku ILIKE $2 OR p.ean ILIKE $2 OR pi.name ILIKE $2)
-				 ORDER BY p.sku ASC
-				 LIMIT $3 OFFSET $4`,
-				[market, search, PAGE_SIZE, offset]
-			),
-			client.query(
-				`SELECT COUNT(*)::int AS count
-				 FROM product p
-				 JOIN product_information pi ON pi.fk_product = p.id
-				 WHERE pi.locale = $1
-				   AND pi.published IS NOT NULL
-				   AND (p.sku ILIKE $2 OR p.ean ILIKE $2 OR pi.name ILIKE $2)`,
-				[market, search]
-			),
-		]);
-	});
+	const [products, [{ count }]] = await withPg(platform, (sql) =>
+		Promise.all([
+			sql`
+				SELECT p.sku, pi.name, p.ean, pi.price::text AS price, p.stock
+				FROM product p
+				JOIN product_information pi ON pi.fk_product = p.id
+				WHERE pi.locale    = ${market}
+				  AND pi.published IS NOT NULL
+				  AND (p.sku ILIKE ${search} OR p.ean ILIKE ${search} OR pi.name ILIKE ${search})
+				ORDER BY p.sku ASC
+				LIMIT  ${PAGE_SIZE}
+				OFFSET ${offset}
+			`,
+			sql`
+				SELECT COUNT(*)::int AS count
+				FROM product p
+				JOIN product_information pi ON pi.fk_product = p.id
+				WHERE pi.locale    = ${market}
+				  AND pi.published IS NOT NULL
+				  AND (p.sku ILIKE ${search} OR p.ean ILIKE ${search} OR pi.name ILIKE ${search})
+			`,
+		])
+	);
 
-	const total = countResult.rows[0]?.count ?? 0;
+	const total = count ?? 0;
 
 	return {
-		products:   rows.rows,
+		products,
 		total,
 		page,
 		pageSize:   PAGE_SIZE,

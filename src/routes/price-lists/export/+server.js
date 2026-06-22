@@ -29,21 +29,20 @@ export async function GET({ url, cookies, platform }) {
 	if (!MARKETS[market]) error(400, 'Invalid market');
 
 	const search = q.trim() ? `%${q.trim()}%` : '%';
+	const currency = MARKETS[market];
 
-	const { rows } = await withPg(platform, (client) =>
-		client.query(
-			`SELECT p.sku, pi.name, p.ean, pi.price::text AS price, p.stock
-			 FROM product p
-			 JOIN product_information pi ON pi.fk_product = p.id
-			 WHERE pi.locale = $1
-			   AND pi.published IS NOT NULL
-			   AND (p.sku ILIKE $2 OR p.ean ILIKE $2 OR pi.name ILIKE $2)
-			 ORDER BY p.sku ASC`,
-			[market, search]
-		)
+	const rows = await withPg(platform, (sql) =>
+		sql`
+			SELECT p.sku, pi.name, p.ean, pi.price::text AS price, p.stock
+			FROM product p
+			JOIN product_information pi ON pi.fk_product = p.id
+			WHERE pi.locale    = ${market}
+			  AND pi.published IS NOT NULL
+			  AND (p.sku ILIKE ${search} OR p.ean ILIKE ${search} OR pi.name ILIKE ${search})
+			ORDER BY p.sku ASC
+		`
 	);
 
-	const currency = MARKETS[market];
 	const lines = [
 		['SKU', 'Name', 'EAN', `Price (${currency})`, 'Stock'].join(','),
 		...rows.map(r => [
