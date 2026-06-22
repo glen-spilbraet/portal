@@ -9,6 +9,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/planograms'))                  return 'planograms';
 	if (pathname.startsWith('/data'))                        return 'data';
 	if (pathname.startsWith('/mail'))                        return 'mail';
+	if (pathname.startsWith('/price-lists'))                 return 'price_lists';
 	return null;
 }
 
@@ -33,7 +34,7 @@ export async function load({ cookies, url, platform }) {
 
 	const realPermissions = db
 		? await getUserPermissions(db, user)
-		: { sheets: true, catalogues: true, planograms: true, data: true };
+		: { sheets: true, catalogues: true, planograms: true, data: true, price_lists: true };
 
 	// ── Simulation (admins only) ─────────────────────────────────────────────
 	let simulatedAs = null;
