@@ -13,7 +13,7 @@ export async function withPg(platform, fn) {
 		username:        platform?.env?.PGUSER,
 		password:        platform?.env?.PGPASSWORD,
 		database:        platform?.env?.PGDATABASE,
-		ssl:             'require',
+		ssl:             false,
 		max:             1,
 		connect_timeout: 10,
 		idle_timeout:    20,
