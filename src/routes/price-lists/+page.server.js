@@ -20,44 +20,40 @@ export async function load({ url, platform }) {
 
 	const search = q.trim() ? `%${q.trim()}%` : '%';
 
-	try {
-		const [products, [{ count }]] = await withPg(platform, (sql) =>
-			Promise.all([
-				sql`
-					SELECT p.sku, pi.name, p.ean, pi.price::text AS price, p.stock
-					FROM product p
-					JOIN product_information pi ON pi.fk_product = p.id
-					WHERE pi.locale    = ${market}
-					  AND pi.published IS NOT NULL
-					  AND (p.sku ILIKE ${search} OR p.ean ILIKE ${search} OR pi.name ILIKE ${search})
-					ORDER BY p.sku ASC
-					LIMIT  ${PAGE_SIZE}
-					OFFSET ${offset}
-				`,
-				sql`
-					SELECT COUNT(*)::int AS count
-					FROM product p
-					JOIN product_information pi ON pi.fk_product = p.id
-					WHERE pi.locale    = ${market}
-					  AND pi.published IS NOT NULL
-					  AND (p.sku ILIKE ${search} OR p.ean ILIKE ${search} OR pi.name ILIKE ${search})
-				`,
-			])
-		);
+	const [products, [{ count }]] = await withPg(platform, (sql) =>
+		Promise.all([
+			sql`
+				SELECT p.sku, pi.name, p.ean, pi.price::text AS price, p.stock
+				FROM product p
+				JOIN product_information pi ON pi.fk_product = p.id
+				WHERE pi.locale    = ${market}
+				  AND pi.published IS NOT NULL
+				  AND (p.sku ILIKE ${search} OR p.ean ILIKE ${search} OR pi.name ILIKE ${search})
+				ORDER BY p.sku ASC
+				LIMIT  ${PAGE_SIZE}
+				OFFSET ${offset}
+			`,
+			sql`
+				SELECT COUNT(*)::int AS count
+				FROM product p
+				JOIN product_information pi ON pi.fk_product = p.id
+				WHERE pi.locale    = ${market}
+				  AND pi.published IS NOT NULL
+				  AND (p.sku ILIKE ${search} OR p.ean ILIKE ${search} OR pi.name ILIKE ${search})
+			`,
+		])
+	);
 
-		const total = count ?? 0;
+	const total = count ?? 0;
 
-		return {
-			products,
-			total,
-			page,
-			pageSize:   PAGE_SIZE,
-			totalPages: Math.ceil(total / PAGE_SIZE),
-			market,
-			q,
-			markets: MARKETS,
-		};
-	} catch (e) {
-		error(500, `DB error: ${e?.message ?? String(e)}`);
-	}
+	return {
+		products,
+		total,
+		page,
+		pageSize:   PAGE_SIZE,
+		totalPages: Math.ceil(total / PAGE_SIZE),
+		market,
+		q,
+		markets: MARKETS,
+	};
 }
