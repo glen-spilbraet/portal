@@ -1,0 +1,23 @@
+name = "forecast-quantity-log"
+main = "src/index.ts"
+compatibility_date = "2025-04-25"
+
+[observability]
+enabled = true
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[vars]
+# The deal pipeline to scan. "default" is HubSpot's built-in Sales Pipeline id.
+HUBSPOT_PIPELINE_ID = "default"
+# Comma-separated dealstage ids for the "Forecast" lane(s).
+# Deals in these stages are logged even before forecast_start_date is set.
+# Deals outside these stages are still logged if they have forecast_start_date.
+# Find ids via GET /pipelines on this worker (see README).
+FORECAST_STAGE_IDS = ""
+TIMEZONE = "Europe/Copenhagen"
+
+# Secrets (set with `wrangler secret put <NAME> -c workers/forecast-quantity-log/wrangler.toml`):
+#   HUBSPOT_TOKEN - HubSpot private app access token
+#   ADMIN_KEY     - bearer key protecting the manual /run and /pipelines endpoints
