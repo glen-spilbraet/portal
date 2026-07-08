@@ -15,7 +15,8 @@ HUBSPOT_PIPELINE_ID = "default"
 # Deals in these stages are logged even before forecast_start_date is set.
 # Deals outside these stages are still logged if they have forecast_start_date.
 # Find ids via GET /pipelines on this worker (see README).
-FORECAST_STAGE_IDS = ""
+# "[0] Forecasting" stage in the Sales Pipeline
+FORECAST_STAGE_IDS = "961100990"
 TIMEZONE = "Europe/Copenhagen"
 
 # Secrets (set with `wrangler secret put <NAME> -c workers/forecast-quantity-log/wrangler.toml`):
