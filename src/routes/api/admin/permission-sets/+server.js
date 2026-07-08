@@ -28,10 +28,11 @@ export async function POST({ request, cookies, platform }) {
 
 	const id     = crypto.randomUUID();
 	const access = {
-		sheets:     body.access_sheets     !== false,
-		catalogues: body.access_catalogues !== false,
-		planograms: body.access_planograms !== false,
-		data:       body.access_data       !== false,
+		sheets:      body.access_sheets      !== false,
+		catalogues:  body.access_catalogues  !== false,
+		planograms:  body.access_planograms  !== false,
+		data:        body.access_data        !== false,
+		price_lists: body.access_price_lists === true,
 	};
 	await createPermissionSet(db, id, name, access);
 	return json({ id, name, ...body }, { status: 201 });

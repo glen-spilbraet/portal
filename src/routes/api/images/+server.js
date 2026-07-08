@@ -23,9 +23,8 @@ export async function POST({ request, cookies, platform }) {
 	const order = parseInt(formData.get('order')?.toString() ?? '0');
 
 	if (!file || typeof file === 'string') error(400, 'No file provided');
-	if (!sheetId) error(400, 'No sheetId provided');
 
-	// ── Variant upload (resized copy, no DB change) ───────────────────────
+	// ── Variant upload (resized copy, no DB change — no sheetId needed) ──
 	const variantKey = formData.get('variantKey')?.toString();
 	if (variantKey) {
 		const buffer = await file.arrayBuffer();
@@ -34,6 +33,8 @@ export async function POST({ request, cookies, platform }) {
 		});
 		return json({ key: variantKey });
 	}
+
+	if (!sheetId) error(400, 'No sheetId provided');
 
 	// ── Original upload ───────────────────────────────────────────────────
 	const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';

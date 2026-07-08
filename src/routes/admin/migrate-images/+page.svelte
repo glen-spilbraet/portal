@@ -32,6 +32,23 @@
 			: originalKey + `_${size}.webp`;
 	}
 
+	/** Fetch with an AbortController timeout (ms). */
+	function fetchWithTimeout(url, opts = {}, ms = 30_000) {
+		const ctrl = new AbortController();
+		const timer = setTimeout(() => ctrl.abort(), ms);
+		return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+	}
+
+	/** Wrap a promise with a timeout that rejects with a descriptive error. */
+	function withTimeout(promise, ms, label) {
+		return Promise.race([
+			promise,
+			new Promise((_, reject) =>
+				setTimeout(() => reject(new Error(`${label} timed out`)), ms)
+			)
+		]);
+	}
+
 	/**
 	 * Migrate a single item: fetch original, resize to each size, upload variant.
 	 * Updates `statusMap[item.id]` in place.
@@ -39,7 +56,7 @@
 	async function migrateItem(item, sizes, uploadUrl, statusMap) {
 		statusMap[item.id] = { status: 'running' };
 		try {
-			const imgRes = await fetch(`/api/img/${item.image_key}`);
+			const imgRes = await fetchWithTimeout(`/api/img/${item.image_key}`, {}, 30_000);
 			if (!imgRes.ok) throw new Error(`Fetch failed: HTTP ${imgRes.status}`);
 			const originalBlob = await imgRes.blob();
 
@@ -48,22 +65,22 @@
 				const vKey = mkVariantKey(item.image_key, size);
 
 				// Skip if variant already exists
-				const checkRes = await fetch(`/api/img/${vKey}`, { method: 'HEAD' }).catch(() => null);
+				const checkRes = await fetchWithTimeout(`/api/img/${vKey}`, { method: 'HEAD' }, 15_000).catch(() => null);
 				if (checkRes?.ok) { uploaded.push(`${size}px ✓ (existed)`); continue; }
 
-				const resizedBlob = await resizeToBlob(originalBlob, size);
+				const resizedBlob = await withTimeout(resizeToBlob(originalBlob, size), 20_000, `Resize ${size}px`);
 				if (!resizedBlob) throw new Error(`Resize to ${size}px failed`);
 
 				const fd = new FormData();
 				fd.append('file', new File([resizedBlob], `variant_${size}.webp`, { type: 'image/webp' }));
 				fd.append('variantKey', vKey);
-				const up = await fetch(uploadUrl, { method: 'POST', body: fd });
+				const up = await fetchWithTimeout(uploadUrl, { method: 'POST', body: fd }, 30_000);
 				if (!up.ok) throw new Error(`Upload ${size}px: HTTP ${up.status}`);
 				uploaded.push(`${size}px ✓`);
 			}
 			statusMap[item.id] = { status: 'ok', sizes: uploaded };
 		} catch (err) {
-			statusMap[item.id] = { status: 'error', msg: err.message };
+			statusMap[item.id] = { status: 'error', msg: err.name === 'AbortError' ? 'Timed out' : err.message };
 		}
 	}
 
