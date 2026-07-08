@@ -56,7 +56,9 @@ Runs that change nothing create no notes.
 3. A **private app** access token with scopes:
    - `crm.objects.deals.read`
    - `crm.objects.line_items.read` + `crm.objects.line_items.write`
-   - `crm.objects.notes.write` (deal timeline notes)
+   - `crm.objects.contacts.write` (authorizes deal timeline notes — the
+     documented `crm.objects.notes.write` scope is not selectable for
+     private apps; this is HubSpot's known workaround)
 
 ## Setup & deploy
 

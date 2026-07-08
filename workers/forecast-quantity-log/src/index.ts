@@ -446,11 +446,11 @@ async function hubspot(env: Env, method: string, path: string, body?: unknown): 
 		},
 		body: body === undefined ? undefined : JSON.stringify(body)
 	});
+	const text = await response.text();
 	if (!response.ok) {
-		const text = await response.text();
 		throw new Error(`HubSpot ${method} ${path} -> ${response.status}: ${text.slice(0, 500)}`);
 	}
-	return response.json();
+	return text ? JSON.parse(text) : null;
 }
 
 function chunk<T>(items: T[], size: number): T[][] {

@@ -6,8 +6,7 @@ compatibility_date = "2025-04-25"
 enabled = true
 
 [triggers]
-# Temporarily disabled until the notes scope is confirmed; re-enable with ["*/15 * * * *"]
-crons = []
+crons = ["*/15 * * * *"]
 
 [vars]
 # The deal pipeline to scan. "default" is HubSpot's built-in Sales Pipeline id.
