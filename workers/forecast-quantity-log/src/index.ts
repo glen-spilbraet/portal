@@ -112,6 +112,27 @@ export default {
 				return json(summary);
 			}
 
+			// Verifies the note-creation scope: creates a test note on the given
+			// deal and immediately deletes it again.
+			if (request.method === 'POST' && url.pathname === '/test-note') {
+				const dealId = url.searchParams.get('dealId');
+				if (!dealId) return json({ error: 'dealId query param required' }, 400);
+				const note = await hubspot(env, 'POST', '/crm/v3/objects/notes', {
+					properties: {
+						hs_timestamp: new Date().toISOString(),
+						hs_note_body: 'Scope test from forecast-quantity-log — deleted automatically.'
+					},
+					associations: [
+						{
+							to: { id: dealId },
+							types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: NOTE_TO_DEAL }]
+						}
+					]
+				});
+				await hubspot(env, 'DELETE', `/crm/v3/objects/notes/${note.id}`);
+				return json({ ok: true, noteId: note.id, deleted: true });
+			}
+
 			if (request.method === 'GET' && url.pathname === '/pipelines') {
 				const data = await hubspot(env, 'GET', '/crm/v3/pipelines/deals');
 				const pipelines = (data.results ?? []).map((p: any) => ({
