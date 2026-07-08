@@ -13,6 +13,10 @@
  *   - On its trigger date: written, overwriting any pre-filled value.
  *   - After its trigger date: written only if still empty (backfill).
  *
+ * Whenever a run changes anything on a deal's line items, a note is created
+ * on that deal's timeline summarizing what was logged, per log type:
+ *   "SKU: Product Name (Quantity)" per line item.
+ *
  * Runs on a cron trigger every 15 minutes. Also exposes, protected by
  * ADMIN_KEY:
  *   POST /run            - manual run ("?dryRun=1" to preview without writing)
@@ -32,10 +36,15 @@ const HUBSPOT_BASE = 'https://api.hubapi.com';
 const LINE_ITEM_PROPS = [
 	'quantity',
 	'createdate',
+	'name',
+	'hs_sku',
 	'quantity_log_create',
 	'quantity_log_1_month',
 	'quantity_log_start'
 ] as const;
+
+/** HubSpot-defined association type: note -> deal */
+const NOTE_TO_DEAL = 214;
 
 interface Deal {
 	id: string;
@@ -52,12 +61,21 @@ interface LineItemUpdate {
 	properties: Record<string, string>;
 }
 
+/** Per-deal list of "SKU: Product Name (Quantity)" lines, per log type. */
+interface DealChangeLog {
+	create: string[];
+	oneMonth: string[];
+	start: string[];
+}
+
 interface RunSummary {
 	dryRun: boolean;
 	today: string;
 	dealsScanned: number;
 	lineItemsScanned: number;
 	lineItemsUpdated: number;
+	dealsChanged: number;
+	notesCreated: number;
 	updates: Array<{ lineItemId: string; dealId: string; dealName?: string; properties: Record<string, string> }>;
 	errors: string[];
 }
@@ -70,7 +88,8 @@ export default {
 					console.log(
 						`forecast-quantity-log: ${summary.dealsScanned} deals, ` +
 							`${summary.lineItemsScanned} line items scanned, ` +
-							`${summary.lineItemsUpdated} updated` +
+							`${summary.lineItemsUpdated} updated, ` +
+							`${summary.notesCreated}/${summary.dealsChanged} deal notes created` +
 							(summary.errors.length ? `, errors: ${summary.errors.join(' | ')}` : '')
 					),
 				(err) => console.error('forecast-quantity-log failed:', err)
@@ -120,6 +139,8 @@ async function runQuantityLog(env: Env, dryRun: boolean): Promise<RunSummary> {
 		dealsScanned: 0,
 		lineItemsScanned: 0,
 		lineItemsUpdated: 0,
+		dealsChanged: 0,
+		notesCreated: 0,
 		updates: [],
 		errors: []
 	};
@@ -138,6 +159,8 @@ async function runQuantityLog(env: Env, dryRun: boolean): Promise<RunSummary> {
 
 	// Keyed by line item id so an item shared between deals is only updated once.
 	const updates = new Map<string, LineItemUpdate>();
+	// Per-deal change summary, used for the timeline note.
+	const dealChanges = new Map<string, DealChangeLog>();
 
 	for (const deal of deals) {
 		const startDate = normalizeDate(deal.properties.forecast_start_date, tz);
@@ -168,14 +191,28 @@ async function runQuantityLog(env: Env, dryRun: boolean): Promise<RunSummary> {
 					dealName: deal.properties.dealname,
 					properties
 				});
+
+				let changeLog = dealChanges.get(deal.id);
+				if (!changeLog) {
+					changeLog = { create: [], oneMonth: [], start: [] };
+					dealChanges.set(deal.id, changeLog);
+				}
+				const sku = item.properties.hs_sku?.trim();
+				const name = item.properties.name?.trim() || `Line item ${lineItemId}`;
+				const label = `${sku ? `${sku}: ` : ''}${name} (${quantity})`;
+				if (properties.quantity_log_create !== undefined) changeLog.create.push(label);
+				if (properties.quantity_log_1_month !== undefined) changeLog.oneMonth.push(label);
+				if (properties.quantity_log_start !== undefined) changeLog.start.push(label);
 			}
 		}
 	}
 
 	if (!dryRun) {
 		await batchUpdateLineItems(env, [...updates.values()], summary.errors);
+		summary.notesCreated = await createDealNotes(env, dealChanges, today, summary.errors);
 	}
 	summary.lineItemsUpdated = updates.size;
+	summary.dealsChanged = dealChanges.size;
 
 	// Keep the response payload bounded on large backfills.
 	if (summary.updates.length > 500) {
@@ -313,6 +350,60 @@ async function batchReadLineItems(env: Env, ids: string[]): Promise<Map<string, 
 		}
 	}
 	return map;
+}
+
+/** Creates one timeline note per changed deal summarizing what was logged. */
+async function createDealNotes(
+	env: Env,
+	dealChanges: Map<string, DealChangeLog>,
+	today: string,
+	errors: string[]
+): Promise<number> {
+	const inputs = [...dealChanges.entries()].map(([dealId, changeLog]) => ({
+		properties: {
+			hs_timestamp: new Date().toISOString(),
+			hs_note_body: buildNoteBody(changeLog, today)
+		},
+		associations: [
+			{
+				to: { id: dealId },
+				types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: NOTE_TO_DEAL }]
+			}
+		]
+	}));
+
+	let created = 0;
+	for (const batch of chunk(inputs, 100)) {
+		try {
+			await hubspot(env, 'POST', '/crm/v3/objects/notes/batch/create', { inputs: batch });
+			created += batch.length;
+		} catch (err) {
+			errors.push(String(err));
+		}
+	}
+	return created;
+}
+
+export function buildNoteBody(changeLog: DealChangeLog, today: string): string {
+	const sections: Array<[string, string[]]> = [
+		['On line item creation, logged quantity to be:', changeLog.create],
+		['1 month before start, logged quantity to be:', changeLog.oneMonth],
+		['At forecast start, logged quantity to be:', changeLog.start]
+	];
+	let html = `<strong>Forecast quantity log</strong> &mdash; ${today}`;
+	for (const [heading, entries] of sections) {
+		if (entries.length === 0) continue;
+		html += `<br><br><strong>${heading}</strong><br>${entries.map(escapeHtml).join('<br>')}`;
+	}
+	return html;
+}
+
+function escapeHtml(text: string): string {
+	return text
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;')
+		.replaceAll('"', '&quot;');
 }
 
 async function batchUpdateLineItems(env: Env, updates: LineItemUpdate[], errors: string[]): Promise<void> {

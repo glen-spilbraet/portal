@@ -28,6 +28,19 @@ Runs every 15 minutes via a Cloudflare Cron Trigger (no external cron service
 needed), so `quantity_log_create` is stamped within ~15 minutes of a line item
 being added.
 
+## Deal timeline notes
+
+Whenever a run changes anything on a deal's line items, one note is created on
+that deal's timeline summarizing what was logged, grouped per log type:
+
+> **Forecast quantity log** — 2026-12-01
+>
+> **1 month before start, logged quantity to be:**
+> SKU123: Product Name (12)
+> SKU456: Other Product (5)
+
+Runs that change nothing create no notes.
+
 ## Which deals are scanned
 
 - Deals in the stage(s) listed in `FORECAST_STAGE_IDS` (the Forecast lane) —
@@ -42,7 +55,8 @@ being added.
 2. `forecast_start_date` is a date property on the Deal object.
 3. A **private app** access token with scopes:
    - `crm.objects.deals.read`
-   - `e-commerce` (read + write line items)
+   - `crm.objects.line_items.read` + `crm.objects.line_items.write`
+   - `crm.objects.notes.write` (deal timeline notes)
 
 ## Setup & deploy
 
