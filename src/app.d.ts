@@ -9,6 +9,7 @@ declare global {
 				APP_PASSWORD: string;
 				APP_SECRET: string;
 				RACKBEAT_API_KEY?: string;
+				HUBSPOT_TOKEN?: string;
 			};
 		}
 	}

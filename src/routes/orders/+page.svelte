@@ -129,16 +129,21 @@
 
 	<main>
 		<div class="page-header">
-			<h1 class="page-title">Orders</h1>
-			<p class="page-sub">
-				{#if loading}
-					Loading…
-				{:else if userRole === 'admin'}
-					All non-invoiced orders
-				{:else}
-					Your non-invoiced orders
-				{/if}
-			</p>
+			<div>
+				<h1 class="page-title">Orders</h1>
+				<p class="page-sub">
+					{#if loading}
+						Loading…
+					{:else if userRole === 'admin'}
+						All non-invoiced orders
+					{:else}
+						Your non-invoiced orders
+					{/if}
+				</p>
+			</div>
+			{#if userRole === 'admin'}
+				<a class="create-drafts-link" href="/orders/rackbeat-drafts">Create drafts from HubSpot</a>
+			{/if}
 		</div>
 
 		{#if loadError}
@@ -378,7 +383,18 @@
 		padding: 32px 28px 80px;
 	}
 
-	.page-header { margin-bottom: 24px; }
+	.page-header {
+		display: flex; align-items: flex-start; justify-content: space-between;
+		gap: 16px; margin-bottom: 24px;
+	}
+	.create-drafts-link {
+		display: inline-flex; align-items: center;
+		padding: 7px 14px; border: 1px solid var(--border); border-radius: 10px;
+		background: white; color: #18181B;
+		font-size: 13px; font-weight: 600; text-decoration: none;
+		white-space: nowrap; transition: background 0.15s;
+	}
+	.create-drafts-link:hover { background: #F4F4F5; }
 	.page-title {
 		font-size: 18px; font-weight: 700;
 		color: #18181B; letter-spacing: -0.3px; margin: 0 0 2px;
