@@ -258,11 +258,11 @@ async function processDeal(dealId, hubspotToken, rackbeatKey) {
 	/** @type {Record<string, any>} */
 	const payload = { customer_id: customerId, lines: rbLines };
 
+	const dealName = (props.dealname ?? '').trim();
+	if (dealName) payload.heading = dealName.slice(0, RACKBEAT_HEADING_MAX);
+
 	const description = (props.description ?? '').trim();
-	if (description) {
-		payload.heading = description.slice(0, RACKBEAT_HEADING_MAX);
-		payload.note = description.slice(0, RACKBEAT_NOTE_MAX);
-	}
+	if (description) payload.note = description.slice(0, RACKBEAT_NOTE_MAX);
 
 	if (props.delivery_date) {
 		const ymd = toYmd(props.delivery_date);
