@@ -51,8 +51,10 @@
 			<div>
 				<h1 class="page-title">Create Rackbeat drafts from HubSpot</h1>
 				<p class="page-sub">
-					Paste HubSpot deal ids — each deal becomes a draft customer order in Rackbeat.
-					A deal is skipped entirely if anything is invalid (no partial orders).
+					Paste HubSpot deal ids — each deal becomes a draft customer order in Rackbeat
+					(customer from the deal's company), and the Rackbeat order id is written back to
+					the deal's rackbeat_id. Deals that already have a rackbeat_id are skipped, and a
+					deal is skipped entirely if anything is invalid (no partial orders).
 				</p>
 			</div>
 			<a class="back-link" href="/orders">← Orders</a>

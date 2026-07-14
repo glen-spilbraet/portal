@@ -36,10 +36,13 @@ class HttpError extends Error {
  * POST /api/rackbeat-drafts
  * Body: { dealIds: string[] }
  *
- * For each HubSpot deal: reads the deal + its line items, validates everything
- * against Rackbeat (customer + SKUs must exist), then creates a Rackbeat order
- * draft. A deal either fully succeeds or is skipped entirely — no partial orders.
- * Returns a per-deal report.
+ * For each HubSpot deal: reads the deal, its primary company (whose rackbeat_id
+ * is the Rackbeat customer) and its line items, validates everything against
+ * Rackbeat (customer + SKUs must exist), creates a Rackbeat order draft, then
+ * writes the created order id back to the deal's rackbeat_id. A deal whose
+ * rackbeat_id is already set is skipped (draft already exists). A deal either
+ * fully succeeds or is skipped entirely — no partial orders. Returns a
+ * per-deal report.
  */
 export async function POST({ request, cookies, platform }) {
 	const token  = cookies.get('session');
@@ -124,8 +127,42 @@ async function processDeal(dealId, hubspotToken, rackbeatKey) {
 	}
 
 	result.dealName = props.dealname ?? null;
-	const customerId = (props.rackbeat_id ?? '').trim();
-	if (!customerId) result.errors.push('Deal has no rackbeat_id');
+
+	// The deal's rackbeat_id holds the Rackbeat order id once a draft has been
+	// created — a non-empty value means this deal was already transferred.
+	const existingOrderId = (props.rackbeat_id ?? '').trim();
+	if (existingOrderId) {
+		result.errors.push(`Deal already linked to Rackbeat order ${existingOrderId} — skipped`);
+		return result;
+	}
+
+	// ── 1b. Customer id from the deal's (primary) company ──────────────────────
+	let customerId = '';
+	try {
+		const assoc = await hubspot(hubspotToken, 'POST', '/crm/v4/associations/deals/companies/batch/read', {
+			inputs: [{ id: dealId }]
+		});
+		const companies = assoc.results?.[0]?.to ?? [];
+		const primary =
+			companies.find((/** @type {any} */ c) =>
+				(c.associationTypes ?? []).some((/** @type {any} */ t) => /primary/i.test(t.label ?? ''))
+			) ?? companies[0];
+
+		if (!primary) {
+			result.errors.push('Deal has no associated company');
+		} else {
+			const company = await hubspot(
+				hubspotToken, 'GET',
+				`/crm/v3/objects/companies/${primary.toObjectId}?properties=rackbeat_id,name`
+			);
+			customerId = (company.properties?.rackbeat_id ?? '').trim();
+			if (!customerId) {
+				result.errors.push(`Company "${company.properties?.name ?? primary.toObjectId}" has no rackbeat_id`);
+			}
+		}
+	} catch (err) {
+		result.errors.push(`HubSpot company lookup: ${errMessage(err)}`);
+	}
 	result.customerId = customerId || null;
 
 	// ── 2. Line items ──────────────────────────────────────────────────────────
@@ -250,6 +287,20 @@ async function processDeal(dealId, hubspotToken, rackbeatKey) {
 	} catch { /* draft was created; number just unknown */ }
 
 	result.status = 'created';
+
+	// ── 6. Write the Rackbeat order id back to the deal's rackbeat_id ──────────
+	if (result.rackbeatNumber != null) {
+		try {
+			await hubspot(hubspotToken, 'PATCH', `/crm/v3/objects/deals/${dealId}`, {
+				properties: { rackbeat_id: String(result.rackbeatNumber) }
+			});
+		} catch (err) {
+			result.warnings.push(`Draft created, but writing rackbeat_id back to the deal failed: ${errMessage(err)}`);
+		}
+	} else {
+		result.warnings.push('Draft created, but Rackbeat returned no order number — rackbeat_id not written back');
+	}
+
 	return result;
 }
 
