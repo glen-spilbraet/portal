@@ -44,7 +44,7 @@
 </svelte:head>
 
 <div class="page">
-	<AppNav active="orders" user={data.user} />
+	<AppNav active="create-orders" user={data.user} />
 
 	<main>
 		<div class="page-header">

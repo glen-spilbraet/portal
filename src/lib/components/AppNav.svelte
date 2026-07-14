@@ -21,7 +21,7 @@
 		{ href: '/mail/campaigns', label: 'Campaigns',    key: 'mail-campaigns' },
 	];
 
-	const adminRoutes = ['translations', 'admin', 'permissions', 'item-library', 'orders', 'sheet-data', 'analytics', 'migrate-images'];
+	const adminRoutes = ['translations', 'admin', 'permissions', 'item-library', 'orders', 'create-orders', 'sheet-data', 'analytics', 'migrate-images'];
 	const salesActive = $derived(salesItems.some(i => i.key === active));
 	const mailActive  = $derived(active.startsWith('mail-'));
 	const adminActive = $derived(adminRoutes.includes(active));
@@ -151,6 +151,7 @@
 						<div class="dropdown">
 							<div class="dropdown-inner">
 								<a href="/orders" class="dropdown-item" class:active={active === 'orders'}>Orders</a>
+								<a href="/orders/rackbeat-drafts" class="dropdown-item" class:active={active === 'create-orders'}>Create Orders</a>
 								<div class="dropdown-divider"></div>
 								<a href="/translations" class="dropdown-item" class:active={active === 'translations'}>Translations</a>
 								<a href="/admin/users" class="dropdown-item" class:active={active === 'admin'}>Users</a>
