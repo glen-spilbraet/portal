@@ -2,6 +2,9 @@ name = "hubspot-sales-sync"
 main = "src/index.js"
 compatibility_date = "2025-04-25"
 
+[observability]
+enabled = true
+
 # Daily at 04:30 UTC. Refreshes the sales_deals mirror in portal-db.
 [triggers]
 crons = ["30 4 * * *"]
