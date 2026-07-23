@@ -4,6 +4,7 @@ declare global {
 		interface Platform {
 			env: {
 				DB: import('@cloudflare/workers-types').D1Database;
+				SALES_DB: import('@cloudflare/workers-types').D1Database;
 				IMAGES: import('@cloudflare/workers-types').R2Bucket;
 				PHOTOS: import('@cloudflare/workers-types').R2Bucket;
 				APP_PASSWORD: string;

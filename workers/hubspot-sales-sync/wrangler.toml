@@ -1,0 +1,21 @@
+name = "hubspot-sales-sync"
+main = "src/index.js"
+compatibility_date = "2025-04-25"
+
+# Daily at 04:30 UTC. Refreshes the sales_deals mirror in portal-db.
+[triggers]
+crons = ["30 4 * * *"]
+
+# Writes into the shared production portal-db.
+[[d1_databases]]
+binding = "DB"
+database_name = "portal-db"
+database_id = "2dca2f5d-21fd-4515-ba49-d5970c249571"
+
+# Oldest close-date year to sync. Older closed-won deals are ignored.
+[vars]
+START_YEAR = "2015"
+
+# Secrets (set with `wrangler secret put <NAME>`), NOT stored here:
+#   HUBSPOT_TOKEN  - HubSpot private-app token (deals/companies/owners read scopes)
+#   SYNC_SECRET    - bearer token required to trigger a manual run via HTTP
