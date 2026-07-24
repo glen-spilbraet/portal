@@ -111,24 +111,26 @@ export async function load({ platform, url, cookies, parent }) {
 
 	const now = new Date();
 	const curYear = now.getUTCFullYear();
-	const periods = [
-		{ key: 'qtd', label: 'This Quarter to date' },
-		{ key: 'quarter', label: 'This Quarter' },
-		{ key: 'last-quarter', label: 'Last Quarter' },
-		{ key: 'month', label: 'This Month' },
-		{ key: 'last-month', label: 'Last Month' },
-	];
 	const yearOptions = [
 		{ key: 'ytd', label: 'This Year to date' },
 		{ key: 'this-year', label: 'This Year' },
 		{ key: String(curYear - 1), label: String(curYear - 1) },
 		{ key: String(curYear - 2), label: String(curYear - 2) },
 	];
+	const quarterOptions = [
+		{ key: 'qtd', label: 'This Quarter to date' },
+		{ key: 'quarter', label: 'This Quarter' },
+		{ key: 'last-quarter', label: 'Last Quarter' },
+	];
+	const monthOptions = [
+		{ key: 'month', label: 'This Month' },
+		{ key: 'last-month', label: 'Last Month' },
+	];
 	const { cur, prior, label, priorLabel, selected } = resolveRange(url, now);
 	const range = { start: cur.start, endInclusive: addDaysStr(cur.end, -1) };
 
 	if (!db) {
-		return { widgets: [], companies: [], periods, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin };
+		return { widgets: [], companies: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin };
 	}
 
 	const [curTotals, priorTotals, curCompanies, priorCompanies, meta] = await Promise.all([
@@ -166,7 +168,8 @@ export async function load({ platform, url, cookies, parent }) {
 	return {
 		widgets,
 		companies,
-		periods,
+		quarterOptions,
+		monthOptions,
 		yearOptions,
 		selected,
 		range,

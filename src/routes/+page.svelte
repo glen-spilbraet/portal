@@ -74,13 +74,18 @@
 			<div class="range-controls">
 				<select class="quick-select" class:active={isQuickSelected} aria-label="Quick select" onchange={pickQuick}>
 					<option value="" disabled selected={!isQuickSelected}>Quick Select</option>
-					<optgroup label="Quarter & Month">
-						{#each data.periods as o}
+					<optgroup label="Year">
+						{#each data.yearOptions as o}
 							<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
 						{/each}
 					</optgroup>
-					<optgroup label="Year">
-						{#each data.yearOptions as o}
+					<optgroup label="Quarter">
+						{#each data.quarterOptions as o}
+							<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
+						{/each}
+					</optgroup>
+					<optgroup label="Month">
+						{#each data.monthOptions as o}
 							<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
 						{/each}
 					</optgroup>
