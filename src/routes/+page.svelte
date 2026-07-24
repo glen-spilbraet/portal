@@ -4,9 +4,9 @@
 
 	let { data } = $props();
 
-	const isYearSelected = $derived((data.yearOptions ?? []).some((o) => o.key === data.selected));
+	const isQuickSelected = $derived(data.selected !== 'custom');
 
-	function pickYear(e) {
+	function pickQuick(e) {
 		const v = e.currentTarget.value;
 		if (v) goto(`?period=${v}`, { noScroll: true });
 	}
@@ -71,23 +71,19 @@
 		</div>
 
 		<div class="controls">
-			<div class="periods">
-				{#each data.periods as pr}
-					<a
-						href="?period={pr.key}"
-						class="period-btn"
-						class:active={data.selected === pr.key}
-						data-sveltekit-noscroll
-					>{pr.label}</a>
-				{/each}
-			</div>
-
 			<div class="range-controls">
-				<select class="year-select" class:active={isYearSelected} aria-label="Year range" onchange={pickYear}>
-					<option value="" disabled selected={!isYearSelected}>Year…</option>
-					{#each data.yearOptions as o}
-						<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
-					{/each}
+				<select class="quick-select" class:active={isQuickSelected} aria-label="Quick select" onchange={pickQuick}>
+					<option value="" disabled selected={!isQuickSelected}>Quick Select</option>
+					<optgroup label="Quarter & Month">
+						{#each data.periods as o}
+							<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
+						{/each}
+					</optgroup>
+					<optgroup label="Year">
+						{#each data.yearOptions as o}
+							<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
+						{/each}
+					</optgroup>
 				</select>
 
 				<form class="custom-range" method="GET" data-sveltekit-noscroll>
@@ -216,34 +212,13 @@
 	.sub strong { color: #7B3803; font-weight: 700; }
 	.scope { color: #A1A1AA; }
 
-	.periods {
-		display: flex;
-		gap: 4px;
-		background: #fff;
-		border: 1px solid var(--border);
-		border-radius: 10px;
-		padding: 4px;
-	}
-	.period-btn {
-		padding: 6px 14px;
-		border-radius: 7px;
-		font-size: 13px;
-		font-weight: 700;
-		color: #8A7550;
-		text-decoration: none;
-		transition: background 0.12s, color 0.12s;
-		white-space: nowrap;
-	}
-	.period-btn:hover { background: #FFF5D2; color: #7B3803; }
-	.period-btn.active { background: #FFE6A5; color: #7B3803; }
-
 	.range-controls {
 		display: flex;
 		align-items: center;
 		gap: 10px;
 		flex-wrap: wrap;
 	}
-	.year-select {
+	.quick-select {
 		font-family: inherit;
 		font-size: 13px;
 		font-weight: 700;
@@ -254,12 +229,12 @@
 		padding: 7px 10px;
 		cursor: pointer;
 	}
-	.year-select:focus {
+	.quick-select:focus {
 		outline: none;
 		border-color: var(--accent);
 		box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.15);
 	}
-	.year-select.active {
+	.quick-select.active {
 		background: #FFE6A5;
 		color: #7B3803;
 		border-color: #F4CE7A;
