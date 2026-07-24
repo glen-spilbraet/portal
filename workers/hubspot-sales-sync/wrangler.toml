@@ -17,7 +17,7 @@ database_id = "2dca2f5d-21fd-4515-ba49-d5970c249571"
 
 # Oldest close-date year to sync. Older closed-won deals are ignored.
 [vars]
-START_YEAR = "2015"
+START_YEAR = "2024"
 
 # Secrets (set with `wrangler secret put <NAME>`), NOT stored here:
 #   HUBSPOT_TOKEN  - HubSpot private-app token (deals/companies/owners read scopes)

@@ -31,7 +31,11 @@ const COMPANY_PROPS = ['name', 'country', 'customer_group', 'customer_color', 'h
 
 export default {
 	async scheduled(_event, env, ctx) {
-		ctx.waitUntil(runSync(env, {}));
+		// Daily refresh syncs only the current + previous year. Older years are
+		// closed-won (immutable) and are loaded once via manual `?year=` runs;
+		// re-syncing everything daily would blow the per-invocation subrequest cap.
+		const currentYear = new Date().getUTCFullYear();
+		ctx.waitUntil(runSync(env, { sinceYear: currentYear - 1 }));
 	},
 
 	async fetch(request, env) {
@@ -42,7 +46,12 @@ export default {
 		}
 		const url = new URL(request.url);
 		const yearParam = url.searchParams.get('year');
-		const opts = yearParam ? { onlyYear: parseInt(yearParam, 10) } : {};
+		const sinceParam = url.searchParams.get('since');
+		const opts = yearParam
+			? { onlyYear: parseInt(yearParam, 10) }
+			: sinceParam
+			? { sinceYear: parseInt(sinceParam, 10) }
+			: {};
 		try {
 			const summary = await runSync(env, opts);
 			return json({ ok: true, ...summary });
@@ -52,12 +61,12 @@ export default {
 	},
 };
 
-async function runSync(env, { onlyYear }) {
+async function runSync(env, { onlyYear, sinceYear }) {
 	const started = new Date().toISOString();
 	await setMeta(env.DB, { status: 'running', message: `started ${started}`, last_run: started });
 
 	try {
-		const startYear = onlyYear ?? parseInt(env.START_YEAR || '2015', 10);
+		const startYear = onlyYear ?? sinceYear ?? parseInt(env.START_YEAR || '2024', 10);
 		const endYear = onlyYear ?? new Date().getUTCFullYear();
 
 		// Owner id -> {email, name}. Fetched once, reused for every company.
@@ -103,7 +112,7 @@ async function runSync(env, { onlyYear }) {
 			};
 		});
 
-		await writeRows(env.DB, rows, { onlyYear });
+		await writeRows(env.DB, rows, { onlyYear, sinceYear });
 
 		const finished = new Date().toISOString();
 		await setMeta(env.DB, {
@@ -236,13 +245,16 @@ async function hsRequest(env, url, init, attempt = 0) {
 
 // ---- D1 write ---------------------------------------------------------------
 
-async function writeRows(db, rows, { onlyYear }) {
-	// A single-year run replaces just that year; a full run replaces everything.
+async function writeRows(db, rows, { onlyYear, sinceYear }) {
+	// Replace exactly the window we just re-fetched: a single year, everything
+	// from `sinceYear` onward (daily cron), or the whole table (full rebuild).
 	if (onlyYear) {
 		await db
 			.prepare('DELETE FROM sales_deals WHERE close_date >= ? AND close_date < ?')
 			.bind(`${onlyYear}-01-01`, `${onlyYear + 1}-01-01`)
 			.run();
+	} else if (sinceYear) {
+		await db.prepare('DELETE FROM sales_deals WHERE close_date >= ?').bind(`${sinceYear}-01-01`).run();
 	} else {
 		await db.prepare('DELETE FROM sales_deals').run();
 	}
