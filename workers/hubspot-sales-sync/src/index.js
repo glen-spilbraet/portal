@@ -139,33 +139,39 @@ async function fetchOwners(env) {
 }
 
 async function fetchDealsForYear(env, year) {
+	// HubSpot Search returns at most 10,000 results per query (pagination past
+	// `after=10000` errors). A single year can exceed that, so we chunk by
+	// month — each month stays well under the cap.
+	//
 	// `closedate` is a HubSpot *datetime* property; the Search API wants its
 	// filter values as epoch milliseconds (UTC), not YYYY-MM-DD strings.
-	const gte = String(Date.UTC(year, 0, 1));
-	const lt = String(Date.UTC(year + 1, 0, 1));
 	const results = [];
-	let after;
-	do {
-		const body = {
-			filterGroups: [
-				{
-					filters: [
-						{ propertyName: 'hs_is_closed_won', operator: 'EQ', value: 'true' },
-						{ propertyName: 'auto_imported', operator: 'EQ', value: 'true' },
-						{ propertyName: 'closedate', operator: 'GTE', value: gte },
-						{ propertyName: 'closedate', operator: 'LT', value: lt },
-					],
-				},
-			],
-			properties: DEAL_PROPS,
-			sorts: [{ propertyName: 'closedate', direction: 'ASCENDING' }],
-			limit: 100,
-			...(after ? { after } : {}),
-		};
-		const data = await hsPost(env, `${HS}/crm/v3/objects/deals/search`, body);
-		results.push(...(data.results || []));
-		after = data.paging?.next?.after;
-	} while (after);
+	for (let month = 0; month < 12; month++) {
+		const gte = String(Date.UTC(year, month, 1));
+		const lt = String(Date.UTC(year, month + 1, 1)); // month 12 rolls to next Jan
+		let after;
+		do {
+			const body = {
+				filterGroups: [
+					{
+						filters: [
+							{ propertyName: 'hs_is_closed_won', operator: 'EQ', value: 'true' },
+							{ propertyName: 'auto_imported', operator: 'EQ', value: 'true' },
+							{ propertyName: 'closedate', operator: 'GTE', value: gte },
+							{ propertyName: 'closedate', operator: 'LT', value: lt },
+						],
+					},
+				],
+				properties: DEAL_PROPS,
+				sorts: [{ propertyName: 'closedate', direction: 'ASCENDING' }],
+				limit: 100,
+				...(after ? { after } : {}),
+			};
+			const data = await hsPost(env, `${HS}/crm/v3/objects/deals/search`, body);
+			results.push(...(data.results || []));
+			after = data.paging?.next?.after;
+		} while (after);
+	}
 	return results;
 }
 
