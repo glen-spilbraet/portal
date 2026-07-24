@@ -2,7 +2,28 @@ import { getMarketTotals, getCompanyTotals, getSyncMeta, MARKETS } from '$lib/sa
 import { getEffectiveEmail } from '$lib/server/effectiveEmail.js';
 import { listSalesTargetsForYear } from '$lib/db.js';
 
-const QUARTER_PERIODS = ['qtd', 'quarter', 'last-quarter'];
+/**
+ * True when [startStr, endExcl) is a whole calendar quarter, or the current
+ * quarter up to today. Works for both quick-select and custom date ranges, so
+ * the target tracker shows whenever the range really is a quarter.
+ */
+function isQuarterRange(startStr, endExcl, now) {
+	const [sy, sm, sd] = startStr.split('-').map(Number);
+	if (sd !== 1 || ![1, 4, 7, 10].includes(sm)) return false; // must start on a quarter boundary
+
+	// Complete quarter: ends exactly on the next quarter's first day.
+	const nextQuarter = new Date(Date.UTC(sy, sm - 1 + 3, 1)).toISOString().slice(0, 10);
+	if (endExcl === nextQuarter) return true;
+
+	// Current quarter to date: starts this quarter and ends tomorrow.
+	const y = now.getUTCFullYear();
+	const q = Math.floor(now.getUTCMonth() / 3);
+	const curQuarterStart = new Date(Date.UTC(y, q * 3, 1)).toISOString().slice(0, 10);
+	const tomorrow = new Date(Date.UTC(y, now.getUTCMonth(), now.getUTCDate()) + 86400000)
+		.toISOString()
+		.slice(0, 10);
+	return startStr === curQuarterStart && endExcl === tomorrow;
+}
 
 const MONTHS = [
 	'January', 'February', 'March', 'April', 'May', 'June',
@@ -172,7 +193,7 @@ export async function load({ platform, url, cookies, parent }) {
 	let tracker = null;
 	const curRev = curTotals.total.dkk;
 	const priorRev = priorTotals.total.dkk;
-	if (QUARTER_PERIODS.includes(selected) && priorRev > 0) {
+	if (isQuarterRange(cur.start, cur.end, now) && priorRev > 0) {
 		const targetYear = Number(cur.start.slice(0, 4));
 		const rows = await listSalesTargetsForYear(db, targetYear);
 		if (rows.length) {
