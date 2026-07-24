@@ -126,6 +126,32 @@
 		{/each}
 	</section>
 
+	{#if data.tracker}
+		<section class="targets">
+			<div class="targets-head">
+				<h2>Quarterly Targets</h2>
+				<span class="t-sub">{data.periodLabel} · Index {data.tracker.index}</span>
+			</div>
+			<div class="tier-cards">
+				{#each data.tracker.targets as t (t.name)}
+					<div class="tier" class:done={t.reached} class:next={t.next}>
+						{#if t.next}<div class="tflag">NEXT</div>{/if}
+						<div class="tname">{t.name}</div>
+						<div class="tindex">Index {t.index}</div>
+						{#if t.reached}
+							<div class="tstate reached">✓ Reached</div>
+						{:else}
+							<div class="tstate gap" class:muted={!t.next}>{formatDkk(t.gap)} to go</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+			{#if data.tracker.allReached}
+				<p class="all-reached">🎉 All targets reached — great work!</p>
+			{/if}
+		</section>
+	{/if}
+
 	<section class="table-wrap">
 		<div class="table-head">
 			<h2>Companies</h2>
@@ -354,6 +380,52 @@
 		color: #8A7550;
 	}
 	.index-line .vs { color: #C0AC7C; font-weight: 600; }
+
+	/* ── Quarterly target tracker ────────────────────────────────────────────── */
+	.targets { margin-top: 26px; }
+	.targets-head {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+		margin-bottom: 12px;
+	}
+	.targets-head h2 {
+		font-size: 15px;
+		font-weight: 800;
+		color: #18181B;
+		margin: 0;
+		letter-spacing: -0.2px;
+	}
+	.t-sub { font-size: 13px; color: #8A7550; font-weight: 600; }
+
+	.tier-cards {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+		gap: 14px;
+	}
+	.tier {
+		position: relative;
+		background: #fff;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow);
+		padding: 18px;
+	}
+	.tier.done { background: #E7F6EC; border-color: transparent; }
+	.tier.next { border-color: var(--accent); border-width: 2px; box-shadow: 0 4px 14px rgba(245,120,50,0.18); }
+	.tflag {
+		position: absolute; top: -9px; left: 16px;
+		background: var(--accent); color: #fff;
+		font-size: 10px; font-weight: 800; letter-spacing: 0.5px;
+		padding: 2px 9px; border-radius: 100px;
+	}
+	.tname { font-size: 15px; font-weight: 800; color: #18181B; }
+	.tindex { font-size: 12px; color: #8A7550; font-weight: 600; margin: 3px 0 12px; }
+	.tstate { font-size: 14px; font-weight: 800; }
+	.tstate.reached { color: #16794C; }
+	.tstate.gap { color: #7B3803; }
+	.tstate.gap.muted { color: #A88B52; font-weight: 700; }
+	.all-reached { margin-top: 12px; font-size: 14px; font-weight: 700; color: #16794C; }
 
 	/* ── Companies table ─────────────────────────────────────────────────────── */
 	.table-wrap {

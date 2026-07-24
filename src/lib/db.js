@@ -756,6 +756,39 @@ export async function getUserPermissions(db, user) {
 	};
 }
 
+// ── Sales Targets (index tiers for the quarterly target tracker) ────────────
+export async function listSalesTargets(db) {
+	const rows = await db.prepare('SELECT * FROM sales_targets ORDER BY year DESC, index_value ASC').all();
+	return rows.results ?? [];
+}
+
+export async function listSalesTargetsForYear(db, year) {
+	const rows = await db
+		.prepare('SELECT * FROM sales_targets WHERE year = ? ORDER BY index_value ASC')
+		.bind(year)
+		.all();
+	return rows.results ?? [];
+}
+
+export async function createSalesTarget(db, id, year, name, indexValue) {
+	await db
+		.prepare('INSERT INTO sales_targets (id, year, name, index_value) VALUES (?, ?, ?, ?)')
+		.bind(id, year, name, indexValue)
+		.run();
+}
+
+export async function updateSalesTarget(db, id, patch) {
+	const fields = [], values = [];
+	for (const [k, v] of Object.entries(patch)) { fields.push(`${k} = ?`); values.push(v); }
+	if (!fields.length) return;
+	values.push(id);
+	await db.prepare(`UPDATE sales_targets SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+
+export async function deleteSalesTarget(db, id) {
+	await db.prepare('DELETE FROM sales_targets WHERE id = ?').bind(id).run();
+}
+
 // ── Key Accounts ───────────────────────────────────────────────────────────
 export async function listKeyAccounts(db) {
   const rows = await db.prepare('SELECT * FROM key_accounts ORDER BY name ASC').all();

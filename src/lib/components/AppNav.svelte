@@ -22,7 +22,7 @@
 		{ href: '/mail/campaigns', label: 'Campaigns',    key: 'mail-campaigns' },
 	];
 
-	const adminRoutes = ['translations', 'admin', 'permissions', 'item-library', 'orders', 'create-orders', 'sheet-data', 'analytics', 'migrate-images'];
+	const adminRoutes = ['translations', 'admin', 'permissions', 'item-library', 'orders', 'create-orders', 'sheet-data', 'analytics', 'migrate-images', 'targets'];
 	const salesActive = $derived(salesItems.some(i => i.key === active));
 	const mailActive  = $derived(active.startsWith('mail-'));
 	const adminActive = $derived(adminRoutes.includes(active));
@@ -162,6 +162,7 @@
 								<a href="/translations" class="dropdown-item" class:active={active === 'translations'}>Translations</a>
 								<a href="/admin/users" class="dropdown-item" class:active={active === 'admin'}>Users</a>
 								<a href="/admin/permissions" class="dropdown-item" class:active={active === 'permissions'}>Permission Sets</a>
+								<a href="/admin/targets" class="dropdown-item" class:active={active === 'targets'}>Targets</a>
 								<a href="/admin/item-library" class="dropdown-item" class:active={active === 'item-library'}>Item Library</a>
 								<a href="/admin/sheet-data" class="dropdown-item" class:active={active === 'sheet-data'}>Sheet Data</a>
 								<a href="/admin/analytics" class="dropdown-item" class:active={active === 'analytics'}>Analytics</a>

@@ -1,5 +1,8 @@
 import { getMarketTotals, getCompanyTotals, getSyncMeta, MARKETS } from '$lib/salesStats.js';
 import { getEffectiveEmail } from '$lib/server/effectiveEmail.js';
+import { listSalesTargetsForYear } from '$lib/db.js';
+
+const QUARTER_PERIODS = ['qtd', 'quarter', 'last-quarter'];
 
 const MONTHS = [
 	'January', 'February', 'March', 'April', 'May', 'June',
@@ -165,9 +168,39 @@ export async function load({ platform, url, cookies, parent }) {
 		...MARKETS.map((m) => widget(m.toLowerCase(), m, curTotals.byMarket[m], priorTotals.byMarket[m])),
 	];
 
+	// Quarterly target tracker — only for quarter views with prior-year data.
+	let tracker = null;
+	const curRev = curTotals.total.dkk;
+	const priorRev = priorTotals.total.dkk;
+	if (QUARTER_PERIODS.includes(selected) && priorRev > 0) {
+		const targetYear = Number(cur.start.slice(0, 4));
+		const rows = await listSalesTargetsForYear(platform.env.DB, targetYear);
+		if (rows.length) {
+			const index = (curRev / priorRev) * 100;
+			const targets = rows.map((t) => {
+				const needed = (t.index_value / 100) * priorRev;
+				return {
+					name: t.name,
+					index: t.index_value,
+					reached: curRev >= needed,
+					gap: Math.max(0, needed - curRev),
+				};
+			});
+			const nextIdx = targets.findIndex((t) => !t.reached);
+			targets.forEach((t, i) => (t.next = i === nextIdx));
+			tracker = {
+				year: targetYear,
+				index: Math.round(index * 10) / 10,
+				allReached: nextIdx === -1,
+				targets,
+			};
+		}
+	}
+
 	return {
 		widgets,
 		companies,
+		tracker,
 		quarterOptions,
 		monthOptions,
 		yearOptions,
