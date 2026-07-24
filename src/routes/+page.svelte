@@ -1,14 +1,67 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
+	import MultiFilter from '$lib/components/MultiFilter.svelte';
 	import { goto } from '$app/navigation';
 
 	let { data } = $props();
 
 	const isQuickSelected = $derived(data.selected !== 'custom');
 
+	// Filter options → {value,label} for the dropdowns.
+	const toOpts = (arr) => (arr ?? []).map((v) => ({ value: v, label: v }));
+	const levelOpts = $derived(toOpts(data.filterOptions?.levels));
+	const groupOpts = $derived(toOpts(data.filterOptions?.groups));
+	const countryOpts = $derived(toOpts(data.filterOptions?.countries));
+	const repOpts = $derived((data.reps ?? []).map((r) => ({ value: r.email, label: r.name || r.email })));
+
+	const anyFilter = $derived(
+		(data.activeFilters?.levels?.length ?? 0) +
+			(data.activeFilters?.groups?.length ?? 0) +
+			(data.activeFilters?.countries?.length ?? 0) +
+			(data.activeFilters?.rep ? 1 : 0) > 0
+	);
+
+	/** Append the currently-active filters to a URLSearchParams. */
+	function addFilters(p, override = {}) {
+		const f = { ...data.activeFilters, ...override };
+		if (f.levels?.length) p.set('level', f.levels.join(','));
+		if (f.groups?.length) p.set('group', f.groups.join(','));
+		if (f.countries?.length) p.set('country', f.countries.join(','));
+		if (f.rep) p.set('rep', f.rep);
+		return p;
+	}
+	/** Current period as params (quick key or custom from/to). */
+	function periodParams(p) {
+		if (data.selected === 'custom') { p.set('from', data.range.start); p.set('to', data.range.endInclusive); }
+		else p.set('period', data.selected);
+		return p;
+	}
+
+	function navigate(p) { goto(`?${p.toString()}`, { noScroll: true }); }
+
 	function pickQuick(e) {
 		const v = e.currentTarget.value;
-		if (v) goto(`?period=${v}`, { noScroll: true });
+		if (!v) return;
+		const p = new URLSearchParams();
+		p.set('period', v);
+		navigate(addFilters(p));
+	}
+	function applyCustom(e) {
+		e.preventDefault();
+		const f = e.currentTarget;
+		if (!f.from.value || !f.to.value) return;
+		const p = new URLSearchParams();
+		p.set('from', f.from.value);
+		p.set('to', f.to.value);
+		navigate(addFilters(p));
+	}
+	/** A filter changed → keep the period, swap that filter's values. */
+	function applyFilter(key, vals) {
+		const override = key === 'rep' ? { rep: vals[0] ?? null } : { [key]: vals };
+		navigate(addFilters(periodParams(new URLSearchParams()), override));
+	}
+	function clearAllFilters() {
+		navigate(periodParams(new URLSearchParams()));
 	}
 
 	const dkkFmt = new Intl.NumberFormat('da-DK', { maximumFractionDigits: 0 });
@@ -70,6 +123,24 @@
 			</p>
 		</div>
 
+		<div class="filter-bar">
+			<span class="fb-label">Filters</span>
+			<MultiFilter label="Customer Level" options={levelOpts} selected={data.activeFilters.levels}
+				onApply={(v) => applyFilter('levels', v)} />
+			<MultiFilter label="Customer Group" options={groupOpts} selected={data.activeFilters.groups}
+				onApply={(v) => applyFilter('groups', v)} />
+			<MultiFilter label="Country" options={countryOpts} selected={data.activeFilters.countries}
+				onApply={(v) => applyFilter('countries', v)} />
+			{#if data.isAdmin}
+				<MultiFilter label="Sales Rep" single options={repOpts}
+					selected={data.activeFilters.rep ? [data.activeFilters.rep] : []}
+					onApply={(v) => applyFilter('rep', v)} />
+			{/if}
+			{#if anyFilter}
+				<button type="button" class="fb-clear" onclick={clearAllFilters}>Clear all</button>
+			{/if}
+		</div>
+
 		<div class="controls">
 			<div class="range-controls">
 				<select class="quick-select" class:active={isQuickSelected} aria-label="Quick select" onchange={pickQuick}>
@@ -91,7 +162,7 @@
 					</optgroup>
 				</select>
 
-				<form class="custom-range" method="GET" data-sveltekit-noscroll>
+				<form class="custom-range" onsubmit={applyCustom}>
 					<input type="date" name="from" value={data.range.start} class="date-input" aria-label="From date" />
 					<span class="range-dash">–</span>
 					<input type="date" name="to" value={data.range.endInclusive} class="date-input" aria-label="To date" />
@@ -228,6 +299,32 @@
 		gap: 12px 20px;
 		flex-wrap: wrap;
 	}
+	.filter-bar {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+	.fb-label {
+		font-size: 11px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: #A88B52;
+		margin-right: 2px;
+	}
+	.fb-clear {
+		font-family: inherit;
+		font-size: 12px;
+		font-weight: 700;
+		color: #B15A12;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 6px 8px;
+		border-radius: 8px;
+	}
+	.fb-clear:hover { background: #FFF5D2; text-decoration: underline; }
 	h1 {
 		font-size: 24px;
 		font-weight: 800;

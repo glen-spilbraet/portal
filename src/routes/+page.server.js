@@ -1,4 +1,4 @@
-import { getMarketTotals, getCompanyTotals, getSyncMeta, MARKETS } from '$lib/salesStats.js';
+import { getMarketTotals, getCompanyTotals, getFilterOptions, getReps, getSyncMeta, MARKETS } from '$lib/salesStats.js';
 import { getEffectiveEmail } from '$lib/server/effectiveEmail.js';
 import { listSalesTargetsForYear } from '$lib/db.js';
 
@@ -131,7 +131,23 @@ export async function load({ platform, url, cookies, parent }) {
 	// Admins see every owner's deals; others only their own company-owner rows.
 	const isAdmin = user?.role === 'admin';
 	const email = await getEffectiveEmail(cookies, platform);
-	const ownerFilter = isAdmin ? null : email;
+
+	// Filter bar. Sales-rep filter is admin-only (reps are already scoped to self).
+	const csv = (name) =>
+		(url.searchParams.get(name) ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+	const repParam = isAdmin ? url.searchParams.get('rep') || null : null;
+	const activeFilters = {
+		levels: csv('level'),
+		groups: csv('group'),
+		countries: csv('country'),
+		rep: repParam,
+	};
+	const filters = {
+		ownerEmail: isAdmin ? repParam : email,
+		levels: activeFilters.levels,
+		groups: activeFilters.groups,
+		countries: activeFilters.countries,
+	};
 
 	const now = new Date();
 	const curYear = now.getUTCFullYear();
@@ -153,16 +169,19 @@ export async function load({ platform, url, cookies, parent }) {
 	const { cur, prior, label, priorLabel, selected } = resolveRange(url, now);
 	const range = { start: cur.start, endInclusive: addDaysStr(cur.end, -1) };
 
+	const emptyOptions = { levels: [], groups: [], countries: [] };
 	if (!db) {
-		return { widgets: [], companies: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin };
+		return { widgets: [], companies: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
 	}
 
-	const [curTotals, priorTotals, curCompanies, priorCompanies, meta] = await Promise.all([
-		getMarketTotals(db, cur.start, cur.end, ownerFilter),
-		getMarketTotals(db, prior.start, prior.end, ownerFilter),
-		getCompanyTotals(db, cur.start, cur.end, ownerFilter),
-		getCompanyTotals(db, prior.start, prior.end, ownerFilter),
+	const [curTotals, priorTotals, curCompanies, priorCompanies, meta, filterOptions, reps] = await Promise.all([
+		getMarketTotals(db, cur.start, cur.end, filters),
+		getMarketTotals(db, prior.start, prior.end, filters),
+		getCompanyTotals(db, cur.start, cur.end, filters),
+		getCompanyTotals(db, prior.start, prior.end, filters),
 		getSyncMeta(db),
+		getFilterOptions(db, isAdmin ? null : email),
+		isAdmin ? getReps(db) : Promise.resolve([]),
 	]);
 
 	// Per-company YoY: match current companies to their prior-year revenue.
@@ -231,5 +250,8 @@ export async function load({ platform, url, cookies, parent }) {
 		priorLabel,
 		meta,
 		isAdmin,
+		filterOptions,
+		reps,
+		activeFilters,
 	};
 }
