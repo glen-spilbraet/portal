@@ -47,6 +47,38 @@ export async function getMarketTotals(db, startIncl, endExcl, ownerEmail = null)
 	return { total, byMarket };
 }
 
+/**
+ * Revenue per company for a half-open date window [startIncl, endExcl).
+ * Optionally scoped to a single company owner (null = all owners / admin view).
+ *
+ * @param {App.Platform['env']['SALES_DB']} db
+ * @param {string} startIncl  YYYY-MM-DD (inclusive)
+ * @param {string} endExcl    YYYY-MM-DD (exclusive)
+ * @param {string|null} ownerEmail
+ */
+export async function getCompanyTotals(db, startIncl, endExcl, ownerEmail = null) {
+	const where = ['close_date >= ?', 'close_date < ?'];
+	const binds = [startIncl, endExcl];
+	if (ownerEmail) {
+		where.push('owner_email = ?');
+		binds.push(ownerEmail);
+	}
+	const rows = await db
+		.prepare(
+			`SELECT COALESCE(company_id, 'none') AS cid,
+			        COALESCE(company_name, '(No company)') AS name,
+			        MAX(owner_name) AS owner_name,
+			        COALESCE(SUM(amount_dkk), 0) AS revenue,
+			        COUNT(*) AS deals
+			 FROM sales_deals
+			 WHERE ${where.join(' AND ')}
+			 GROUP BY cid`
+		)
+		.bind(...binds)
+		.all();
+	return rows.results ?? [];
+}
+
 /** Latest sync metadata (for a "data as of …" line). */
 export async function getSyncMeta(db) {
 	return db.prepare('SELECT last_run, status, deal_count FROM sales_sync_meta WHERE id = 1').first();

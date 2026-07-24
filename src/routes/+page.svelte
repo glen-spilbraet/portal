@@ -20,6 +20,32 @@
 		if (isNaN(d)) return meta.last_run;
 		return d.toLocaleString('da-DK', { dateStyle: 'medium', timeStyle: 'short' });
 	}
+
+	// ── Companies table sorting ──────────────────────────────────────────────
+	let sortKey = $state('revenue');
+	let sortDir = $state('desc'); // 'asc' | 'desc'
+
+	function setSort(key) {
+		if (sortKey === key) {
+			sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+		} else {
+			sortKey = key;
+			sortDir = key === 'name' || key === 'owner' ? 'asc' : 'desc';
+		}
+	}
+
+	const sortedCompanies = $derived(
+		[...(data.companies ?? [])].sort((a, b) => {
+			let av, bv;
+			if (sortKey === 'name') { av = a.name?.toLowerCase() ?? ''; bv = b.name?.toLowerCase() ?? ''; }
+			else if (sortKey === 'owner') { av = a.owner?.toLowerCase() ?? ''; bv = b.owner?.toLowerCase() ?? ''; }
+			else if (sortKey === 'pct') { av = a.pct ?? -Infinity; bv = b.pct ?? -Infinity; }
+			else { av = a.revenue; bv = b.revenue; }
+			if (av < bv) return sortDir === 'asc' ? -1 : 1;
+			if (av > bv) return sortDir === 'asc' ? 1 : -1;
+			return 0;
+		})
+	);
 </script>
 
 <svelte:head><title>Sales Stats · Product Portal</title></svelte:head>
@@ -71,6 +97,57 @@
 				{/if}
 			</div>
 		{/each}
+	</section>
+
+	<section class="table-wrap">
+		<div class="table-head">
+			<h2>Companies</h2>
+			<span class="count">{numFmt.format(sortedCompanies.length)}</span>
+		</div>
+		<div class="table-scroll">
+			<table>
+				<thead>
+					<tr>
+						<th class="th-sort" class:sorted={sortKey === 'name'} onclick={() => setSort('name')}>
+							Company name{#if sortKey === 'name'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+						</th>
+						<th class="th-sort" class:sorted={sortKey === 'owner'} onclick={() => setSort('owner')}>
+							Owner Name{#if sortKey === 'owner'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+						</th>
+						<th class="th-sort num" class:sorted={sortKey === 'revenue'} onclick={() => setSort('revenue')}>
+							Revenue{#if sortKey === 'revenue'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+						</th>
+						<th class="th-sort num" class:sorted={sortKey === 'pct'} onclick={() => setSort('pct')}>
+							% Δ{#if sortKey === 'pct'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+						</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each sortedCompanies as c (c.cid)}
+						<tr>
+							<td class="name">{c.name}</td>
+							<td class="owner">{c.owner ?? '—'}</td>
+							<td class="num">{numFmt.format(Math.round(c.revenue))}</td>
+							<td class="num">
+								{#if c.pct !== null}
+									<span class="delta" class:up={c.pct >= 0} class:down={c.pct < 0}>
+										{c.pct >= 0 ? '' : '−'}{Math.abs(c.pct).toFixed(1)}%
+										<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+											{#if c.pct >= 0}<polyline points="6 15 12 9 18 15" />{:else}<polyline points="6 9 12 15 18 9" />{/if}
+										</svg>
+									</span>
+								{:else}
+									<span class="delta flat">–</span>
+								{/if}
+							</td>
+						</tr>
+					{/each}
+					{#if sortedCompanies.length === 0}
+						<tr><td colspan="4" class="empty">No companies in this period.</td></tr>
+					{/if}
+				</tbody>
+			</table>
+		</div>
 	</section>
 
 	{#if dataAsOf(data.meta)}
@@ -203,6 +280,90 @@
 		color: #8A7550;
 	}
 	.index-line .vs { color: #C0AC7C; font-weight: 600; }
+
+	/* ── Companies table ─────────────────────────────────────────────────────── */
+	.table-wrap {
+		margin-top: 26px;
+		background: #fff;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow);
+		overflow: hidden;
+	}
+	.table-head {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 16px 20px;
+		border-bottom: 1px solid var(--border);
+	}
+	.table-head h2 {
+		font-size: 15px;
+		font-weight: 800;
+		color: #18181B;
+		margin: 0;
+		letter-spacing: -0.2px;
+	}
+	.count {
+		font-size: 12px;
+		font-weight: 700;
+		color: #A88B52;
+		background: #FFF5D2;
+		padding: 2px 9px;
+		border-radius: 100px;
+	}
+
+	.table-scroll {
+		max-height: 620px;
+		overflow: auto;
+	}
+	table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 13.5px;
+	}
+	thead th {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		background: #FBEFCB;
+		color: #7B3803;
+		font-weight: 800;
+		text-align: left;
+		padding: 11px 20px;
+		white-space: nowrap;
+		border-bottom: 1px solid var(--border);
+		user-select: none;
+	}
+	th.num, td.num { text-align: right; }
+	.th-sort { cursor: pointer; transition: background 0.12s; }
+	.th-sort:hover { background: #F8E6B0; }
+	.th-sort.sorted { color: #B15A12; }
+	.caret { font-size: 9px; margin-left: 4px; }
+
+	tbody td {
+		padding: 11px 20px;
+		border-bottom: 1px solid #F5EDD8;
+		color: #3f3a33;
+	}
+	tbody tr:nth-child(even) td { background: #FFFBEF; }
+	tbody tr:hover td { background: #FFF5D2; }
+	td.name { font-weight: 700; color: #18181B; }
+	td.owner { color: #6b5e4e; }
+	td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+	.delta {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		font-weight: 800;
+		justify-content: flex-end;
+	}
+	.delta.up { color: #16794C; }
+	.delta.down { color: #C4381B; }
+	.delta.flat { color: #C0AC7C; }
+
+	.empty { text-align: center; color: #A1A1AA; padding: 28px; }
 
 	.freshness {
 		margin-top: 18px;

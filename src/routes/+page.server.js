@@ -1,4 +1,4 @@
-import { getMarketTotals, getSyncMeta, MARKETS } from '$lib/salesStats.js';
+import { getMarketTotals, getCompanyTotals, getSyncMeta, MARKETS } from '$lib/salesStats.js';
 import { getEffectiveEmail } from '$lib/server/effectiveEmail.js';
 
 /** YYYY-MM-DD for a Date (UTC). */
@@ -56,14 +56,26 @@ export async function load({ platform, url, cookies, parent }) {
 	const { cur, prior, label } = resolvePeriod(selected, now);
 
 	if (!db) {
-		return { widgets: [], periods, selected, periodLabel: label, meta: null, isAdmin };
+		return { widgets: [], companies: [], periods, selected, periodLabel: label, meta: null, isAdmin };
 	}
 
-	const [curTotals, priorTotals, meta] = await Promise.all([
+	const [curTotals, priorTotals, curCompanies, priorCompanies, meta] = await Promise.all([
 		getMarketTotals(db, cur.start, cur.end, ownerFilter),
 		getMarketTotals(db, prior.start, prior.end, ownerFilter),
+		getCompanyTotals(db, cur.start, cur.end, ownerFilter),
+		getCompanyTotals(db, prior.start, prior.end, ownerFilter),
 		getSyncMeta(db),
 	]);
+
+	// Per-company YoY: match current companies to their prior-year revenue.
+	const priorByCompany = new Map(priorCompanies.map((r) => [r.cid, r.revenue]));
+	const companies = curCompanies
+		.map((r) => {
+			const priorRev = priorByCompany.get(r.cid) ?? 0;
+			const pct = priorRev > 0 ? (r.revenue / priorRev - 1) * 100 : null;
+			return { cid: r.cid, name: r.name, owner: r.owner_name, revenue: r.revenue, deals: r.deals, pct };
+		})
+		.sort((a, b) => b.revenue - a.revenue);
 
 	/** Build one widget: current dkk/deals + YoY index vs prior-year same window. */
 	function widget(key, wLabel, curVal, priorVal) {
@@ -81,6 +93,7 @@ export async function load({ platform, url, cookies, parent }) {
 
 	return {
 		widgets,
+		companies,
 		periods,
 		selected,
 		periodLabel: label,
