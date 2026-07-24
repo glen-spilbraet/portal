@@ -139,8 +139,10 @@ async function fetchOwners(env) {
 }
 
 async function fetchDealsForYear(env, year) {
-	const gte = `${year}-01-01`;
-	const lt = `${year + 1}-01-01`;
+	// `closedate` is a HubSpot *datetime* property; the Search API wants its
+	// filter values as epoch milliseconds (UTC), not YYYY-MM-DD strings.
+	const gte = String(Date.UTC(year, 0, 1));
+	const lt = String(Date.UTC(year + 1, 0, 1));
 	const results = [];
 	let after;
 	do {
