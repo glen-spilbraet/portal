@@ -5,6 +5,7 @@ import { getAllowedUser, getUserPermissions } from '$lib/db.js';
 /** Map a pathname to the section key it requires. Returns null for unguarded paths. */
 function sectionForPath(pathname) {
 	if (pathname === '/' || pathname.startsWith('/sheet/')) return 'sheets';
+	if (pathname.startsWith('/stats'))                       return 'stats';
 	if (pathname.startsWith('/catalogues'))                  return 'catalogues';
 	if (pathname.startsWith('/planograms'))                  return 'planograms';
 	if (pathname.startsWith('/data'))                        return 'data';
@@ -34,7 +35,7 @@ export async function load({ cookies, url, platform }) {
 
 	const realPermissions = db
 		? await getUserPermissions(db, user)
-		: { sheets: true, catalogues: true, planograms: true, data: true, price_lists: true };
+		: { sheets: true, catalogues: true, planograms: true, data: true, price_lists: true, stats: true };
 
 	// ── Simulation (admins only) ─────────────────────────────────────────────
 	let simulatedAs = null;

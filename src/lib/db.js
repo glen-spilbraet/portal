@@ -741,10 +741,10 @@ export async function deletePermissionSet(db, id) {
  */
 export async function getUserPermissions(db, user) {
 	if (user.role === 'admin' || !user.permission_set_id) {
-		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true };
+		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true };
 	}
 	const ps = await getPermissionSet(db, user.permission_set_id);
-	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true };
+	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true };
 	return {
 		sheets:       !!ps.access_sheets,
 		catalogues:   !!ps.access_catalogues,
@@ -752,6 +752,7 @@ export async function getUserPermissions(db, user) {
 		data:         !!ps.access_data,
 		mail:         !!ps.access_mail,
 		price_lists:  !!ps.access_price_lists,
+		stats:        !!ps.access_stats,
 	};
 }
 

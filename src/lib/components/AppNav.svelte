@@ -2,7 +2,7 @@
 	let { active = 'sheets', user = null } = $props();
 
 	// Permissions — default to full access so the nav never breaks if not provided
-	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true });
+	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true });
 
 	const salesItems = $derived([
 		p.sheets       && { href: '/',             label: 'Sheets',      key: 'sheets' },
@@ -12,6 +12,7 @@
 	].filter(Boolean));
 
 	const showSales = $derived(salesItems.length > 0);
+	const showStats = $derived(!!p.stats);
 	const showData  = $derived(p.data);
 	const showMail  = $derived(!!p.mail);
 
@@ -96,6 +97,11 @@
 			</a>
 
 			<nav class="nav-links">
+				<!-- Stats (direct link) -->
+				{#if showStats}
+					<a href="/stats" class="nav-link" class:active={active === 'stats'}>Stats</a>
+				{/if}
+
 				<!-- Sales dropdown -->
 				{#if showSales}
 					<div class="nav-group" class:active={salesActive}>
