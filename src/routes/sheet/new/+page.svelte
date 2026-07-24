@@ -37,7 +37,7 @@
 
 <div class="page">
 	<header>
-		<a href="/" class="back">← Back</a>
+		<a href="/sheets" class="back">← Back</a>
 		<h1>New Sales Sheet</h1>
 	</header>
 
@@ -99,7 +99,7 @@
 				</div>
 
 				<div class="actions">
-					<a href="/" class="btn-outline">Cancel</a>
+					<a href="/sheets" class="btn-outline">Cancel</a>
 					<button type="submit" class="btn-primary" disabled={loading || !!existingSheet}>
 						{loading ? 'Creating…' : 'Create Sheet →'}
 					</button>

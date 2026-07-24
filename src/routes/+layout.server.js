@@ -4,8 +4,8 @@ import { getAllowedUser, getUserPermissions } from '$lib/db.js';
 
 /** Map a pathname to the section key it requires. Returns null for unguarded paths. */
 function sectionForPath(pathname) {
-	if (pathname === '/' || pathname.startsWith('/sheet/')) return 'sheets';
-	if (pathname.startsWith('/stats'))                       return 'stats';
+	if (pathname === '/')                                    return 'stats';
+	if (pathname.startsWith('/sheets') || pathname.startsWith('/sheet/')) return 'sheets';
 	if (pathname.startsWith('/catalogues'))                  return 'catalogues';
 	if (pathname.startsWith('/planograms'))                  return 'planograms';
 	if (pathname.startsWith('/data'))                        return 'data';
@@ -58,6 +58,20 @@ export async function load({ cookies, url, platform }) {
 				effectiveFirstName   = simUser.first_name ?? null;
 			}
 		}
+	}
+
+	// The dashboard is the homepage but is gated by `stats`. Rather than 403 a
+	// user who lacks it, send them to the first section they can reach.
+	if (url.pathname === '/' && !effectivePermissions.stats) {
+		const fallback = [
+			['sheets', '/sheets'],
+			['catalogues', '/catalogues'],
+			['planograms', '/planograms'],
+			['price_lists', '/price-lists'],
+			['data', '/data'],
+			['mail', '/mail/accounts'],
+		].find(([perm]) => effectivePermissions[perm]);
+		if (fallback) redirect(303, fallback[1]);
 	}
 
 	// Block routes based on effective (possibly simulated) permissions

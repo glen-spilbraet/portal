@@ -5,7 +5,7 @@
 	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true });
 
 	const salesItems = $derived([
-		p.sheets       && { href: '/',             label: 'Sheets',      key: 'sheets' },
+		p.sheets       && { href: '/sheets',       label: 'Sheets',      key: 'sheets' },
 		p.catalogues   && { href: '/catalogues',   label: 'Catalogues',  key: 'catalogues' },
 		p.planograms   && { href: '/planograms',   label: 'Planograms',  key: 'planograms' },
 		p.price_lists  && { href: '/price-lists',  label: 'Price List',  key: 'price-lists' },
@@ -99,7 +99,7 @@
 			<nav class="nav-links">
 				<!-- Stats (direct link) -->
 				{#if showStats}
-					<a href="/stats" class="nav-link" class:active={active === 'stats'}>Stats</a>
+					<a href="/" class="nav-link" class:active={active === 'stats'}>Stats</a>
 				{/if}
 
 				<!-- Sales dropdown -->
