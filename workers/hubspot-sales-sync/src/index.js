@@ -18,8 +18,8 @@ const HS = 'https://api.hubapi.com';
 const DEAL_PROPS = [
 	'dealname',
 	'closedate',
-	'hs_projected_amount', // amount normalised to DKK (already converted by HubSpot)
-	'amount',              // raw amount in the deal's own currency
+	'amount_in_home_currency', // amount converted to the account home currency (DKK)
+	'amount',                  // raw amount in the deal's own currency
 	'deal_currency_code',
 	'pipeline',
 	'dealstage',
@@ -95,7 +95,7 @@ async function runSync(env, { onlyYear, sinceYear }) {
 				deal_id: d.id,
 				deal_name: p.dealname || null,
 				close_date: p.closedate ? String(p.closedate).slice(0, 10) : null,
-				amount_dkk: num(p.hs_projected_amount),
+				amount_dkk: num(p.amount_in_home_currency),
 				amount_raw: num(p.amount),
 				currency: p.deal_currency_code || null,
 				pipeline: p.pipeline || null,
