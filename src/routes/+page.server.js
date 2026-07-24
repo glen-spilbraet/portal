@@ -55,6 +55,22 @@ function resolveRange(url, now) {
 	}
 
 	selected = url.searchParams.get('period') ?? 'qtd';
+
+	// Year-based options (dropdown): This Year to date / This Year / a full year.
+	if (selected === 'ytd' || selected === 'this-year' || /^\d{4}$/.test(selected)) {
+		const toDate = selected === 'ytd';
+		const y = selected === 'ytd' || selected === 'this-year' ? year : Number(selected);
+		cur = { start: `${y}-01-01`, end: toDate ? tomorrow : `${y + 1}-01-01` };
+		const prior = { start: `${y - 1}-01-01`, end: toDate ? minusYears(tomorrow, 1) : `${y}-01-01` };
+		return {
+			cur,
+			prior,
+			label: toDate ? `${y} to date` : `${y}`,
+			priorLabel: toDate ? `${y - 1} to date` : `${y - 1}`,
+			selected,
+		};
+	}
+
 	switch (selected) {
 		case 'quarter':
 			cur = { start: ymdMs(Date.UTC(year, q * 3, 1)), end: ymdMs(Date.UTC(year, q * 3 + 3, 1)) };
@@ -94,6 +110,7 @@ export async function load({ platform, url, cookies, parent }) {
 	const ownerFilter = isAdmin ? null : email;
 
 	const now = new Date();
+	const curYear = now.getUTCFullYear();
 	const periods = [
 		{ key: 'qtd', label: 'This Quarter to date' },
 		{ key: 'quarter', label: 'This Quarter' },
@@ -101,11 +118,17 @@ export async function load({ platform, url, cookies, parent }) {
 		{ key: 'month', label: 'This Month' },
 		{ key: 'last-month', label: 'Last Month' },
 	];
+	const yearOptions = [
+		{ key: 'ytd', label: 'This Year to date' },
+		{ key: 'this-year', label: 'This Year' },
+		{ key: String(curYear - 1), label: String(curYear - 1) },
+		{ key: String(curYear - 2), label: String(curYear - 2) },
+	];
 	const { cur, prior, label, priorLabel, selected } = resolveRange(url, now);
 	const range = { start: cur.start, endInclusive: addDaysStr(cur.end, -1) };
 
 	if (!db) {
-		return { widgets: [], companies: [], periods, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin };
+		return { widgets: [], companies: [], periods, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin };
 	}
 
 	const [curTotals, priorTotals, curCompanies, priorCompanies, meta] = await Promise.all([
@@ -144,6 +167,7 @@ export async function load({ platform, url, cookies, parent }) {
 		widgets,
 		companies,
 		periods,
+		yearOptions,
 		selected,
 		range,
 		periodLabel: label,

@@ -1,7 +1,15 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
+	import { goto } from '$app/navigation';
 
 	let { data } = $props();
+
+	const isYearSelected = $derived((data.yearOptions ?? []).some((o) => o.key === data.selected));
+
+	function pickYear(e) {
+		const v = e.currentTarget.value;
+		if (v) goto(`?period=${v}`, { noScroll: true });
+	}
 
 	const dkkFmt = new Intl.NumberFormat('da-DK', { maximumFractionDigits: 0 });
 	const numFmt = new Intl.NumberFormat('da-DK');
@@ -74,12 +82,21 @@
 				{/each}
 			</div>
 
-			<form class="custom-range" method="GET" data-sveltekit-noscroll>
-				<input type="date" name="from" value={data.range.start} class="date-input" aria-label="From date" />
-				<span class="range-dash">–</span>
-				<input type="date" name="to" value={data.range.endInclusive} class="date-input" aria-label="To date" />
-				<button type="submit" class="apply-btn" class:active={data.selected === 'custom'}>Apply</button>
-			</form>
+			<div class="range-controls">
+				<select class="year-select" class:active={isYearSelected} aria-label="Year range" onchange={pickYear}>
+					<option value="" disabled selected={!isYearSelected}>Year…</option>
+					{#each data.yearOptions as o}
+						<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
+					{/each}
+				</select>
+
+				<form class="custom-range" method="GET" data-sveltekit-noscroll>
+					<input type="date" name="from" value={data.range.start} class="date-input" aria-label="From date" />
+					<span class="range-dash">–</span>
+					<input type="date" name="to" value={data.range.endInclusive} class="date-input" aria-label="To date" />
+					<button type="submit" class="apply-btn" class:active={data.selected === 'custom'}>Apply</button>
+				</form>
+			</div>
 		</div>
 	</header>
 
@@ -219,6 +236,34 @@
 	}
 	.period-btn:hover { background: #FFF5D2; color: #7B3803; }
 	.period-btn.active { background: #FFE6A5; color: #7B3803; }
+
+	.range-controls {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
+	}
+	.year-select {
+		font-family: inherit;
+		font-size: 13px;
+		font-weight: 700;
+		color: #524431;
+		background: #fff;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 7px 10px;
+		cursor: pointer;
+	}
+	.year-select:focus {
+		outline: none;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.15);
+	}
+	.year-select.active {
+		background: #FFE6A5;
+		color: #7B3803;
+		border-color: #F4CE7A;
+	}
 
 	.custom-range {
 		display: flex;
