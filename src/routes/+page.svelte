@@ -130,7 +130,7 @@
 		<section class="targets">
 			<div class="targets-head">
 				<h2>Quarterly Targets</h2>
-				<span class="t-sub">{data.periodLabel} · Index {data.tracker.index}</span>
+				<span class="t-sub">{data.periodLabel}</span>
 			</div>
 			<div class="tier-cards">
 				{#each data.tracker.targets as t (t.name)}

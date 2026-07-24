@@ -174,7 +174,7 @@ export async function load({ platform, url, cookies, parent }) {
 	const priorRev = priorTotals.total.dkk;
 	if (QUARTER_PERIODS.includes(selected) && priorRev > 0) {
 		const targetYear = Number(cur.start.slice(0, 4));
-		const rows = await listSalesTargetsForYear(platform.env.DB, targetYear);
+		const rows = await listSalesTargetsForYear(db, targetYear);
 		if (rows.length) {
 			const index = (curRev / priorRev) * 100;
 			const targets = rows.map((t) => {

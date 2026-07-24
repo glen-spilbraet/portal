@@ -5,7 +5,7 @@ export async function load({ parent, platform }) {
 	const { user } = await parent();
 	if (user?.role !== 'admin') error(403, 'Admins only');
 
-	const db = platform?.env?.DB;
+	const db = platform?.env?.SALES_DB;
 	if (!db) error(500, 'Database unavailable');
 
 	const targets = await listSalesTargets(db);
@@ -21,7 +21,7 @@ export async function load({ parent, platform }) {
 
 export const actions = {
 	create: async ({ request, platform }) => {
-		const db = platform?.env?.DB;
+		const db = platform?.env?.SALES_DB;
 		if (!db) return fail(500, { error: 'DB unavailable' });
 		const data = await request.formData();
 		const year = parseInt(data.get('year')?.toString() ?? '', 10);
@@ -35,7 +35,7 @@ export const actions = {
 	},
 
 	update: async ({ request, platform }) => {
-		const db = platform?.env?.DB;
+		const db = platform?.env?.SALES_DB;
 		if (!db) return fail(500, { error: 'DB unavailable' });
 		const data = await request.formData();
 		const id = data.get('id')?.toString();
@@ -49,7 +49,7 @@ export const actions = {
 	},
 
 	delete: async ({ request, platform }) => {
-		const db = platform?.env?.DB;
+		const db = platform?.env?.SALES_DB;
 		if (!db) return fail(500, { error: 'DB unavailable' });
 		const data = await request.formData();
 		const id = data.get('id')?.toString();
