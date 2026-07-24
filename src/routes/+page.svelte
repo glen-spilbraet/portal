@@ -54,7 +54,7 @@
 
 <main class="wrap">
 	<header class="page-head">
-		<div>
+		<div class="head-top">
 			<h1>Sales Stats</h1>
 			<p class="sub">
 				Revenue by market · <strong>{data.periodLabel}</strong>
@@ -62,15 +62,24 @@
 			</p>
 		</div>
 
-		<div class="periods">
-			{#each data.periods as pr}
-				<a
-					href="?period={pr.key}"
-					class="period-btn"
-					class:active={data.selected === pr.key}
-					data-sveltekit-noscroll
-				>{pr.label}</a>
-			{/each}
+		<div class="controls">
+			<div class="periods">
+				{#each data.periods as pr}
+					<a
+						href="?period={pr.key}"
+						class="period-btn"
+						class:active={data.selected === pr.key}
+						data-sveltekit-noscroll
+					>{pr.label}</a>
+				{/each}
+			</div>
+
+			<form class="custom-range" method="GET" data-sveltekit-noscroll>
+				<input type="date" name="from" value={data.range.start} class="date-input" aria-label="From date" />
+				<span class="range-dash">–</span>
+				<input type="date" name="to" value={data.range.endInclusive} class="date-input" aria-label="To date" />
+				<button type="submit" class="apply-btn" class:active={data.selected === 'custom'}>Apply</button>
+			</form>
 		</div>
 	</header>
 
@@ -164,11 +173,16 @@
 
 	.page-head {
 		display: flex;
-		align-items: flex-end;
-		justify-content: space-between;
-		gap: 20px;
-		flex-wrap: wrap;
+		flex-direction: column;
+		gap: 16px;
 		margin-bottom: 22px;
+	}
+	.controls {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px 20px;
+		flex-wrap: wrap;
 	}
 	h1 {
 		font-size: 24px;
@@ -205,6 +219,41 @@
 	}
 	.period-btn:hover { background: #FFF5D2; color: #7B3803; }
 	.period-btn.active { background: #FFE6A5; color: #7B3803; }
+
+	.custom-range {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.date-input {
+		font-family: inherit;
+		font-size: 13px;
+		font-weight: 600;
+		color: #524431;
+		background: #fff;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 6px 8px;
+	}
+	.date-input:focus {
+		outline: none;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.15);
+	}
+	.range-dash { color: #A88B52; font-weight: 700; }
+	.apply-btn {
+		font-family: inherit;
+		font-size: 13px;
+		font-weight: 700;
+		color: #fff;
+		background: var(--accent);
+		border: none;
+		border-radius: 8px;
+		padding: 7px 14px;
+		transition: background 0.15s;
+	}
+	.apply-btn:hover { background: var(--accent-hover); }
+	.apply-btn.active { box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.2); }
 
 	.grid {
 		display: grid;

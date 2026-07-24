@@ -1,39 +1,87 @@
 import { getMarketTotals, getCompanyTotals, getSyncMeta, MARKETS } from '$lib/salesStats.js';
 import { getEffectiveEmail } from '$lib/server/effectiveEmail.js';
 
-/** YYYY-MM-DD for a Date (UTC). */
-function ymd(d) {
-	return d.toISOString().slice(0, 10);
+const MONTHS = [
+	'January', 'February', 'March', 'April', 'May', 'June',
+	'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** YYYY-MM-DD (UTC) from an epoch-ms value. */
+function ymdMs(ms) {
+	return new Date(ms).toISOString().slice(0, 10);
 }
 /** Shift a YYYY-MM-DD string back by `n` whole years. */
 function minusYears(dateStr, n) {
 	const [y, m, d] = dateStr.split('-');
 	return `${Number(y) - n}-${m}-${d}`;
 }
+/** Shift a YYYY-MM-DD string by `n` days. */
+function addDaysStr(dateStr, n) {
+	const d = new Date(dateStr + 'T00:00:00Z');
+	d.setUTCDate(d.getUTCDate() + n);
+	return d.toISOString().slice(0, 10);
+}
+/** Human label for a period given its (current or prior) start date. */
+function labelFor(selected, startStr, isPrior) {
+	const [y, m] = startStr.split('-').map(Number);
+	const q = Math.floor((m - 1) / 3) + 1;
+	if (selected === 'month' || selected === 'last-month') return `${MONTHS[m - 1]} ${y}`;
+	if (selected === 'qtd') return `Q${q} ${y}${isPrior ? '' : ' to date'}`;
+	return `Q${q} ${y}`; // quarter / last-quarter
+}
 
 /**
- * Resolve the selected period into a current window + the same window one year
- * earlier (for the YoY index). `end` is exclusive.
+ * Resolve the requested range (quick period OR custom from/to) into a current
+ * window plus the same window one year earlier (for the YoY index). `end` is
+ * exclusive. Default period is This Quarter to date.
  */
-function resolvePeriod(period, now) {
-	const curYear = now.getUTCFullYear();
-	const tomorrow = new Date(now);
-	tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+function resolveRange(url, now) {
+	const year = now.getUTCFullYear();
+	const month = now.getUTCMonth();
+	const q = Math.floor(month / 3);
+	const tomorrow = ymdMs(Date.UTC(year, month, now.getUTCDate()) + 86400000);
 
-	let cur, label;
-	if (period === String(curYear - 1)) {
-		cur = { start: `${curYear - 1}-01-01`, end: `${curYear}-01-01` };
-		label = `${curYear - 1}`;
-	} else if (period === String(curYear - 2)) {
-		cur = { start: `${curYear - 2}-01-01`, end: `${curYear - 1}-01-01` };
-		label = `${curYear - 2}`;
-	} else {
-		// default: year-to-date
-		cur = { start: `${curYear}-01-01`, end: ymd(tomorrow) };
-		label = `${curYear} YTD`;
+	const from = url.searchParams.get('from');
+	const to = url.searchParams.get('to');
+
+	let cur, label, priorLabel, selected;
+	if (from && to) {
+		selected = 'custom';
+		cur = { start: from, end: addDaysStr(to, 1) };
+		const prior = { start: minusYears(cur.start, 1), end: minusYears(cur.end, 1) };
+		label = `${from} – ${to}`;
+		priorLabel = `${prior.start} – ${addDaysStr(prior.end, -1)}`;
+		return { cur, prior, label, priorLabel, selected };
+	}
+
+	selected = url.searchParams.get('period') ?? 'qtd';
+	switch (selected) {
+		case 'quarter':
+			cur = { start: ymdMs(Date.UTC(year, q * 3, 1)), end: ymdMs(Date.UTC(year, q * 3 + 3, 1)) };
+			break;
+		case 'last-quarter':
+			cur = { start: ymdMs(Date.UTC(year, (q - 1) * 3, 1)), end: ymdMs(Date.UTC(year, q * 3, 1)) };
+			break;
+		case 'month':
+			cur = { start: ymdMs(Date.UTC(year, month, 1)), end: ymdMs(Date.UTC(year, month + 1, 1)) };
+			break;
+		case 'last-month':
+			cur = { start: ymdMs(Date.UTC(year, month - 1, 1)), end: ymdMs(Date.UTC(year, month, 1)) };
+			break;
+		case 'qtd':
+		default:
+			selected = 'qtd';
+			cur = { start: ymdMs(Date.UTC(year, q * 3, 1)), end: tomorrow };
+			break;
 	}
 	const prior = { start: minusYears(cur.start, 1), end: minusYears(cur.end, 1) };
-	return { cur, prior, label };
+	return {
+		cur,
+		prior,
+		label: labelFor(selected, cur.start, false),
+		priorLabel: labelFor(selected, prior.start, true),
+		selected,
+	};
 }
 
 export async function load({ platform, url, cookies, parent }) {
@@ -46,17 +94,18 @@ export async function load({ platform, url, cookies, parent }) {
 	const ownerFilter = isAdmin ? null : email;
 
 	const now = new Date();
-	const curYear = now.getUTCFullYear();
 	const periods = [
-		{ key: 'ytd', label: `${curYear} YTD` },
-		{ key: String(curYear - 1), label: `${curYear - 1}` },
-		{ key: String(curYear - 2), label: `${curYear - 2}` },
+		{ key: 'qtd', label: 'This Quarter to date' },
+		{ key: 'quarter', label: 'This Quarter' },
+		{ key: 'last-quarter', label: 'Last Quarter' },
+		{ key: 'month', label: 'This Month' },
+		{ key: 'last-month', label: 'Last Month' },
 	];
-	const selected = url.searchParams.get('period') ?? 'ytd';
-	const { cur, prior, label } = resolvePeriod(selected, now);
+	const { cur, prior, label, priorLabel, selected } = resolveRange(url, now);
+	const range = { start: cur.start, endInclusive: addDaysStr(cur.end, -1) };
 
 	if (!db) {
-		return { widgets: [], companies: [], periods, selected, periodLabel: label, meta: null, isAdmin };
+		return { widgets: [], companies: [], periods, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin };
 	}
 
 	const [curTotals, priorTotals, curCompanies, priorCompanies, meta] = await Promise.all([
@@ -96,8 +145,9 @@ export async function load({ platform, url, cookies, parent }) {
 		companies,
 		periods,
 		selected,
+		range,
 		periodLabel: label,
-		priorLabel: minusYears(cur.start, 1).slice(0, 4),
+		priorLabel,
 		meta,
 		isAdmin,
 	};
