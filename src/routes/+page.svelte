@@ -76,7 +76,13 @@
 		return `${sign}${Math.abs(pct).toFixed(1)}%`;
 	}
 	// ── Quarterly target tracker (milestone track) ───────────────────────────
-	const trackMax = $derived(data.tracker ? Math.max(100, ...data.tracker.targets.map((t) => t.index)) : 100);
+	// Scale runs from 100 (last year) to a bit above the highest target so the
+	// top flag sits inside the box rather than on the edge.
+	const trackMax = $derived.by(() => {
+		if (!data.tracker) return 110;
+		const highest = Math.max(100, ...data.tracker.targets.map((t) => t.index));
+		return highest + Math.max(5, Math.round((highest - 100) * 0.15));
+	});
 	const nextTarget = $derived(data.tracker ? (data.tracker.targets.find((t) => t.next) ?? null) : null);
 	function trackPos(v) {
 		const span = trackMax - 100;
@@ -203,37 +209,38 @@
 
 	{#if data.tracker}
 		<section class="targets">
-			<div class="targets-head">
-				<h2>Quarterly Targets</h2>
-			</div>
 			<div class="track-card">
-				<div class="track-top">
-					<div class="track-index">
-						<div class="ti-num">Index {data.tracker.index}</div>
-						<div class="ti-cap">{data.periodLabel} · vs {data.priorLabel}</div>
-					</div>
-					{#if nextTarget}
-						<div class="next-callout">
-							<span class="nc-dot"></span>
-							Next: <strong>{nextTarget.name}</strong> (Index {nextTarget.index}) — <strong>{formatDkk(nextTarget.gap)}</strong>&nbsp;to go
-						</div>
-					{:else}
-						<div class="next-callout done">🎉 All targets reached — great work!</div>
-					{/if}
+				<div class="tc-head">
+					<h2>Quarterly Targets</h2>
 				</div>
+				<div class="tc-body">
+					<div class="callout-row">
+						{#if nextTarget}
+							<div class="next-callout">
+								<span class="nc-dot"></span>
+								Next: <strong>{nextTarget.name}</strong> (Index {nextTarget.index}) — <strong>{formatDkk(nextTarget.gap)}</strong>&nbsp;to go
+							</div>
+						{:else}
+							<div class="next-callout done">🎉 All targets reached — great work!</div>
+						{/if}
+					</div>
 
-				<div class="track">
-					<div class="track-base"></div>
-					<div class="track-fill" style="width:{trackPos(data.tracker.index)}%"></div>
-					{#each data.tracker.targets as t (t.name)}
-						<div class="flag" class:reached={t.reached} class:next={t.next} style="left:{trackPos(t.index)}%">
-							<span class="flabel">{t.name} · {t.index}{t.reached ? ' ✓' : ''}</span>
+					<div class="track">
+						<div class="track-base"></div>
+						<div class="track-fill" style="width:{trackPos(data.tracker.index)}%"></div>
+						<div class="flag baseline" style="left:0%">
+							<span class="flabel">Last year · 100</span>
 							<span class="fdot"></span>
 						</div>
-					{/each}
-					<div class="you" style="left:{trackPos(data.tracker.index)}%"><span class="ydot"></span></div>
+						{#each data.tracker.targets as t (t.name)}
+							<div class="flag" class:reached={t.reached} class:next={t.next} style="left:{trackPos(t.index)}%">
+								<span class="flabel">{t.name} · {t.index}{t.reached ? ' ✓' : ''}</span>
+								<span class="fdot"></span>
+							</div>
+						{/each}
+						<div class="you" style="left:{trackPos(data.tracker.index)}%"><span class="ydot"></span></div>
+					</div>
 				</div>
-				<div class="scale"><span>Last year (100)</span><span>{trackMax}</span></div>
 			</div>
 		</section>
 	{/if}
@@ -480,33 +487,28 @@
 
 	/* ── Quarterly target tracker ────────────────────────────────────────────── */
 	.targets { margin-top: 26px; }
-	.targets-head {
-		display: flex;
-		align-items: baseline;
-		gap: 10px;
-		margin-bottom: 12px;
-	}
-	.targets-head h2 {
-		font-size: 15px;
-		font-weight: 800;
-		color: #18181B;
-		margin: 0;
-		letter-spacing: -0.2px;
-	}
 
 	.track-card {
 		background: #fff;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow);
-		padding: 22px 26px 18px;
+		overflow: hidden;
 	}
-	.track-top {
-		display: flex; justify-content: space-between; align-items: flex-start;
-		gap: 16px; flex-wrap: wrap; margin-bottom: 34px;
+	.tc-head {
+		padding: 16px 20px;
+		border-bottom: 1px solid var(--border);
 	}
-	.ti-num { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; color: #18181B; }
-	.ti-cap { font-size: 12px; color: #8A7550; margin-top: 2px; }
+	.tc-head h2 {
+		font-size: 15px;
+		font-weight: 800;
+		color: #18181B;
+		margin: 0;
+		letter-spacing: -0.2px;
+	}
+	.tc-body { padding: 18px 26px 20px; }
+
+	.callout-row { display: flex; justify-content: flex-end; }
 	.next-callout {
 		background: #FFE6A5; color: #7B3803;
 		font-size: 13px; font-weight: 700; padding: 9px 15px; border-radius: 100px;
@@ -515,13 +517,14 @@
 	.next-callout .nc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 	.next-callout.done { background: #E7F6EC; color: #16794C; }
 
-	.track { position: relative; height: 8px; margin: 42px 6px 12px; }
+	.track { position: relative; height: 8px; margin: 44px 24px 14px; }
 	.track-base { position: absolute; inset: 0; background: #F3E7C4; border-radius: 100px; }
 	.track-fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); border-radius: 100px; }
 	.flag { position: absolute; top: 50%; transform: translate(-50%, -50%); }
 	.fdot { display: block; width: 14px; height: 14px; border-radius: 50%; background: #F3E7C4; border: 2px solid #B79B5E; }
 	.flag.reached .fdot { background: #16794C; border-color: #16794C; }
 	.flag.next .fdot { background: var(--accent); border-color: var(--accent); }
+	.flag.baseline .fdot { background: #fff; border-color: #B79B5E; }
 	.flabel {
 		position: absolute; top: -26px; left: 50%; transform: translateX(-50%);
 		white-space: nowrap; font-size: 11px; font-weight: 800; color: #8A7550;
@@ -533,7 +536,6 @@
 		display: block; width: 20px; height: 20px; border-radius: 50%;
 		background: var(--accent); border: 3px solid #fff; box-shadow: 0 0 0 2px var(--accent);
 	}
-	.scale { display: flex; justify-content: space-between; font-size: 11px; color: #8A7550; font-weight: 600; }
 
 	/* ── Companies table ─────────────────────────────────────────────────────── */
 	.table-wrap {
