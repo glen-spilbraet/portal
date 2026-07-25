@@ -76,17 +76,20 @@
 		return `${sign}${Math.abs(pct).toFixed(1)}%`;
 	}
 	// ── Quarterly target tracker (milestone track) ───────────────────────────
-	// Scale runs from 100 (last year) to a bit above the highest target so the
-	// top flag sits inside the box rather than on the edge.
-	const trackMax = $derived.by(() => {
-		if (!data.tracker) return 110;
+	// Adaptive scale with a 10-point margin each side: lower = min(index,100)−10
+	// (keeps last-year 100 visible), upper = max(index, highest target)+10.
+	const trackRange = $derived.by(() => {
+		if (!data.tracker) return { min: 90, max: 155 };
+		const idx = data.tracker.index;
 		const highest = Math.max(100, ...data.tracker.targets.map((t) => t.index));
-		return highest + Math.max(5, Math.round((highest - 100) * 0.15));
+		return { min: Math.min(idx, 100) - 10, max: Math.max(idx, highest) + 10 };
 	});
 	const nextTarget = $derived(data.tracker ? (data.tracker.targets.find((t) => t.next) ?? null) : null);
 	function trackPos(v) {
-		if (trackMax <= 0) return 0;
-		return Math.max(0, Math.min(100, (v / trackMax) * 100));
+		const { min, max } = trackRange;
+		const span = max - min;
+		if (span <= 0) return 0;
+		return Math.max(0, Math.min(100, ((v - min) / span) * 100));
 	}
 
 	/** Index chip colour: ≤95 red, 96–99 orange, 100+ green. */
