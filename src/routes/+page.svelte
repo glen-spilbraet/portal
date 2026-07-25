@@ -227,7 +227,7 @@
 					<div class="track">
 						<div class="track-base"></div>
 						<div class="track-fill" style="width:{trackPos(data.tracker.index)}%"></div>
-						<div class="flag baseline" style="left:{trackPos(100)}%">
+						<div class="flag baseline" class:reached={data.tracker.index >= 100} style="left:{trackPos(100)}%">
 							<span class="flabel">Last year · 100</span>
 							<span class="fdot"></span>
 						</div>
@@ -524,10 +524,9 @@
 	.track-base { position: absolute; inset: 0; background: #F3E7C4; border-radius: 100px; }
 	.track-fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); border-radius: 100px; }
 	.flag { position: absolute; top: 50%; transform: translate(-50%, -50%); }
-	.fdot { display: block; width: 14px; height: 14px; border-radius: 50%; background: #F3E7C4; border: 2px solid #B79B5E; }
-	.flag.reached .fdot { background: #16794C; border-color: #16794C; }
-	.flag.next .fdot { background: var(--accent); border-color: var(--accent); }
-	.flag.baseline .fdot { background: #fff; border-color: #B79B5E; }
+	/* Dots: white = not reached, orange with white border = reached. */
+	.fdot { display: block; width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid #B79B5E; }
+	.flag.reached .fdot { background: var(--accent); border-color: #fff; box-shadow: 0 0 0 1.5px var(--accent); }
 	.flabel {
 		position: absolute; top: -26px; left: 50%; transform: translateX(-50%);
 		white-space: nowrap; font-size: 11px; font-weight: 800; color: #8A7550;
