@@ -75,6 +75,14 @@
 		const sign = pct >= 0 ? '+' : '−';
 		return `${sign}${Math.abs(pct).toFixed(1)}%`;
 	}
+	/** Index chip colour: ≤95 red, 96–99 orange, 100+ green. */
+	function indexClass(idx) {
+		if (idx === null || idx === undefined) return 'none';
+		if (idx <= 95) return 'red';
+		if (idx <= 99) return 'orange';
+		return 'green';
+	}
+
 	function dataAsOf(meta) {
 		if (!meta?.last_run) return null;
 		const d = new Date(meta.last_run);
@@ -177,7 +185,9 @@
 			<div class="card" class:total={w.key === 'total'}>
 				<div class="card-label">{w.label}</div>
 				<div class="card-value">{formatDkk(w.dkk)}</div>
-				<div class="index-line">{w.index !== null ? `Index ${w.index}` : 'Index —'}</div>
+				<div class="index-row">
+					<span class="index-chip {indexClass(w.index)}">{w.index !== null ? `Index ${w.index}` : 'Index —'}</span>
+				</div>
 			</div>
 		{/each}
 	</section>
@@ -434,13 +444,19 @@
 	}
 	.card.total .card-value { color: #7B3803; }
 
-	.index-line {
-		font-size: 13px;
-		font-weight: 700;
-		color: #8A7550;
-		margin-top: 2px;
+	.index-row { margin-top: 3px; }
+	.index-chip {
+		display: inline-flex;
+		align-items: center;
+		font-size: 12px;
+		font-weight: 800;
+		padding: 3px 10px;
+		border-radius: 100px;
 	}
-	.card.total .index-line { color: #B15A12; }
+	.index-chip.green  { background: #E7F6EC; color: #16794C; }
+	.index-chip.orange { background: #FDEBD2; color: #B4611A; }
+	.index-chip.red    { background: #FDECEC; color: #C4381B; }
+	.index-chip.none   { background: #F1EEE6; color: #A88B52; }
 
 	/* ── Quarterly target tracker ────────────────────────────────────────────── */
 	.targets { margin-top: 26px; }
