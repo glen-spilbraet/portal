@@ -85,9 +85,8 @@
 	});
 	const nextTarget = $derived(data.tracker ? (data.tracker.targets.find((t) => t.next) ?? null) : null);
 	function trackPos(v) {
-		const span = trackMax - 100;
-		if (span <= 0) return 100;
-		return Math.max(0, Math.min(100, ((v - 100) / span) * 100));
+		if (trackMax <= 0) return 0;
+		return Math.max(0, Math.min(100, (v / trackMax) * 100));
 	}
 
 	/** Index chip colour: ≤95 red, 96–99 orange, 100+ green. */
@@ -212,23 +211,20 @@
 			<div class="track-card">
 				<div class="tc-head">
 					<h2>Quarterly Targets</h2>
+					{#if nextTarget}
+						<div class="next-callout">
+							<span class="nc-dot"></span>
+							Next: <strong>{nextTarget.name}</strong> (Index {nextTarget.index}) — <strong>{formatDkk(nextTarget.gap)}</strong>&nbsp;to go
+						</div>
+					{:else}
+						<div class="next-callout done">🎉 All targets reached — great work!</div>
+					{/if}
 				</div>
 				<div class="tc-body">
-					<div class="callout-row">
-						{#if nextTarget}
-							<div class="next-callout">
-								<span class="nc-dot"></span>
-								Next: <strong>{nextTarget.name}</strong> (Index {nextTarget.index}) — <strong>{formatDkk(nextTarget.gap)}</strong>&nbsp;to go
-							</div>
-						{:else}
-							<div class="next-callout done">🎉 All targets reached — great work!</div>
-						{/if}
-					</div>
-
 					<div class="track">
 						<div class="track-base"></div>
 						<div class="track-fill" style="width:{trackPos(data.tracker.index)}%"></div>
-						<div class="flag baseline" style="left:0%">
+						<div class="flag baseline" style="left:{trackPos(100)}%">
 							<span class="flabel">Last year · 100</span>
 							<span class="fdot"></span>
 						</div>
@@ -496,7 +492,12 @@
 		overflow: hidden;
 	}
 	.tc-head {
-		padding: 16px 20px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 14px;
+		flex-wrap: wrap;
+		padding: 11px 16px 11px 20px;
 		border-bottom: 1px solid var(--border);
 	}
 	.tc-head h2 {
@@ -506,18 +507,17 @@
 		margin: 0;
 		letter-spacing: -0.2px;
 	}
-	.tc-body { padding: 18px 26px 20px; }
+	.tc-body { padding: 16px 26px 24px; }
 
-	.callout-row { display: flex; justify-content: flex-end; }
 	.next-callout {
 		background: #FFE6A5; color: #7B3803;
-		font-size: 13px; font-weight: 700; padding: 9px 15px; border-radius: 100px;
+		font-size: 13px; font-weight: 700; padding: 7px 14px; border-radius: 100px;
 		display: flex; align-items: center; gap: 8px;
 	}
 	.next-callout .nc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 	.next-callout.done { background: #E7F6EC; color: #16794C; }
 
-	.track { position: relative; height: 8px; margin: 44px 24px 14px; }
+	.track { position: relative; height: 8px; margin: 34px 24px 10px; }
 	.track-base { position: absolute; inset: 0; background: #F3E7C4; border-radius: 100px; }
 	.track-fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); border-radius: 100px; }
 	.flag { position: absolute; top: 50%; transform: translate(-50%, -50%); }
