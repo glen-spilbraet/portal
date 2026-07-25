@@ -228,12 +228,18 @@
 						<div class="track-base"></div>
 						<div class="track-fill" style="width:{trackPos(data.tracker.index)}%"></div>
 						<div class="flag baseline" class:reached={data.tracker.index >= 100} style="left:{trackPos(100)}%">
-							<span class="flabel">Last year · 100</span>
+							<span class="flabel">
+								<span class="fl-name">Last year</span>
+								<span class="fl-idx">100</span>
+							</span>
 							<span class="fdot"></span>
 						</div>
 						{#each data.tracker.targets as t (t.name)}
 							<div class="flag" class:reached={t.reached} class:next={t.next} style="left:{trackPos(t.index)}%">
-								<span class="flabel">{t.name} · {t.index}{t.reached ? ' ✓' : ''}</span>
+								<span class="flabel">
+									<span class="fl-name">{t.name}</span>
+									<span class="fl-idx">{t.index}{t.reached ? ' ✓' : ''}</span>
+								</span>
 								<span class="fdot"></span>
 							</div>
 						{/each}
@@ -520,7 +526,7 @@
 	.next-callout .nc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 	.next-callout.done { background: #E7F6EC; color: #16794C; }
 
-	.track { position: relative; height: 8px; margin: 34px 24px 10px; }
+	.track { position: relative; height: 8px; margin: 48px 24px 10px; }
 	.track-base { position: absolute; inset: 0; background: #F3E7C4; border-radius: 100px; }
 	.track-fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); border-radius: 100px; }
 	.flag { position: absolute; top: 50%; transform: translate(-50%, -50%); }
@@ -528,9 +534,12 @@
 	.fdot { display: block; width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid #B79B5E; }
 	.flag.reached .fdot { background: var(--accent); border-color: #fff; box-shadow: 0 0 0 1.5px var(--accent); }
 	.flabel {
-		position: absolute; top: -26px; left: 50%; transform: translateX(-50%);
-		white-space: nowrap; font-size: 11px; font-weight: 800; color: #8A7550;
+		position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+		display: flex; flex-direction: column; align-items: center; gap: 0;
+		line-height: 1.2; white-space: nowrap; text-align: center;
+		font-size: 11px; font-weight: 800; color: #8A7550;
 	}
+	.fl-idx { font-weight: 700; }
 	.flag.reached .flabel { color: #16794C; }
 	.flag.next .flabel { color: #7B3803; }
 	.you { position: absolute; top: 50%; transform: translate(-50%, -50%); z-index: 2; }
