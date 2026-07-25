@@ -75,6 +75,15 @@
 		const sign = pct >= 0 ? '+' : '−';
 		return `${sign}${Math.abs(pct).toFixed(1)}%`;
 	}
+	// ── Quarterly target tracker (milestone track) ───────────────────────────
+	const trackMax = $derived(data.tracker ? Math.max(100, ...data.tracker.targets.map((t) => t.index)) : 100);
+	const nextTarget = $derived(data.tracker ? (data.tracker.targets.find((t) => t.next) ?? null) : null);
+	function trackPos(v) {
+		const span = trackMax - 100;
+		if (span <= 0) return 100;
+		return Math.max(0, Math.min(100, ((v - 100) / span) * 100));
+	}
+
 	/** Index chip colour: ≤95 red, 96–99 orange, 100+ green. */
 	function indexClass(idx) {
 		if (idx === null || idx === undefined) return 'none';
@@ -196,25 +205,36 @@
 		<section class="targets">
 			<div class="targets-head">
 				<h2>Quarterly Targets</h2>
-				<span class="t-sub">{data.periodLabel}</span>
 			</div>
-			<div class="tier-cards">
-				{#each data.tracker.targets as t (t.name)}
-					<div class="tier" class:done={t.reached} class:next={t.next}>
-						{#if t.next}<div class="tflag">NEXT</div>{/if}
-						<div class="tname">{t.name}</div>
-						<div class="tindex">Index {t.index}</div>
-						{#if t.reached}
-							<div class="tstate reached">✓ Reached</div>
-						{:else}
-							<div class="tstate gap" class:muted={!t.next}>{formatDkk(t.gap)} to go</div>
-						{/if}
+			<div class="track-card">
+				<div class="track-top">
+					<div class="track-index">
+						<div class="ti-num">Index {data.tracker.index}</div>
+						<div class="ti-cap">{data.periodLabel} · vs {data.priorLabel}</div>
 					</div>
-				{/each}
+					{#if nextTarget}
+						<div class="next-callout">
+							<span class="nc-dot"></span>
+							Next: <strong>{nextTarget.name}</strong> (Index {nextTarget.index}) — <strong>{formatDkk(nextTarget.gap)}</strong>&nbsp;to go
+						</div>
+					{:else}
+						<div class="next-callout done">🎉 All targets reached — great work!</div>
+					{/if}
+				</div>
+
+				<div class="track">
+					<div class="track-base"></div>
+					<div class="track-fill" style="width:{trackPos(data.tracker.index)}%"></div>
+					{#each data.tracker.targets as t (t.name)}
+						<div class="flag" class:reached={t.reached} class:next={t.next} style="left:{trackPos(t.index)}%">
+							<span class="flabel">{t.name} · {t.index}{t.reached ? ' ✓' : ''}</span>
+							<span class="fdot"></span>
+						</div>
+					{/each}
+					<div class="you" style="left:{trackPos(data.tracker.index)}%"><span class="ydot"></span></div>
+				</div>
+				<div class="scale"><span>Last year (100)</span><span>{trackMax}</span></div>
 			</div>
-			{#if data.tracker.allReached}
-				<p class="all-reached">🎉 All targets reached — great work!</p>
-			{/if}
 		</section>
 	{/if}
 
@@ -473,36 +493,47 @@
 		margin: 0;
 		letter-spacing: -0.2px;
 	}
-	.t-sub { font-size: 13px; color: #8A7550; font-weight: 600; }
 
-	.tier-cards {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-		gap: 14px;
-	}
-	.tier {
-		position: relative;
+	.track-card {
 		background: #fff;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow);
-		padding: 18px;
+		padding: 22px 26px 18px;
 	}
-	.tier.done { background: #E7F6EC; border-color: transparent; }
-	.tier.next { border-color: var(--accent); border-width: 2px; box-shadow: 0 4px 14px rgba(245,120,50,0.18); }
-	.tflag {
-		position: absolute; top: -9px; left: 16px;
-		background: var(--accent); color: #fff;
-		font-size: 10px; font-weight: 800; letter-spacing: 0.5px;
-		padding: 2px 9px; border-radius: 100px;
+	.track-top {
+		display: flex; justify-content: space-between; align-items: flex-start;
+		gap: 16px; flex-wrap: wrap; margin-bottom: 34px;
 	}
-	.tname { font-size: 15px; font-weight: 800; color: #18181B; }
-	.tindex { font-size: 12px; color: #8A7550; font-weight: 600; margin: 3px 0 12px; }
-	.tstate { font-size: 14px; font-weight: 800; }
-	.tstate.reached { color: #16794C; }
-	.tstate.gap { color: #7B3803; }
-	.tstate.gap.muted { color: #A88B52; font-weight: 700; }
-	.all-reached { margin-top: 12px; font-size: 14px; font-weight: 700; color: #16794C; }
+	.ti-num { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; color: #18181B; }
+	.ti-cap { font-size: 12px; color: #8A7550; margin-top: 2px; }
+	.next-callout {
+		background: #FFE6A5; color: #7B3803;
+		font-size: 13px; font-weight: 700; padding: 9px 15px; border-radius: 100px;
+		display: flex; align-items: center; gap: 8px;
+	}
+	.next-callout .nc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+	.next-callout.done { background: #E7F6EC; color: #16794C; }
+
+	.track { position: relative; height: 8px; margin: 42px 6px 12px; }
+	.track-base { position: absolute; inset: 0; background: #F3E7C4; border-radius: 100px; }
+	.track-fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); border-radius: 100px; }
+	.flag { position: absolute; top: 50%; transform: translate(-50%, -50%); }
+	.fdot { display: block; width: 14px; height: 14px; border-radius: 50%; background: #F3E7C4; border: 2px solid #B79B5E; }
+	.flag.reached .fdot { background: #16794C; border-color: #16794C; }
+	.flag.next .fdot { background: var(--accent); border-color: var(--accent); }
+	.flabel {
+		position: absolute; top: -26px; left: 50%; transform: translateX(-50%);
+		white-space: nowrap; font-size: 11px; font-weight: 800; color: #8A7550;
+	}
+	.flag.reached .flabel { color: #16794C; }
+	.flag.next .flabel { color: #7B3803; }
+	.you { position: absolute; top: 50%; transform: translate(-50%, -50%); z-index: 2; }
+	.ydot {
+		display: block; width: 20px; height: 20px; border-radius: 50%;
+		background: var(--accent); border: 3px solid #fff; box-shadow: 0 0 0 2px var(--accent);
+	}
+	.scale { display: flex; justify-content: space-between; font-size: 11px; color: #8A7550; font-weight: 600; }
 
 	/* ── Companies table ─────────────────────────────────────────────────────── */
 	.table-wrap {
