@@ -177,22 +177,7 @@
 			<div class="card" class:total={w.key === 'total'}>
 				<div class="card-label">{w.label}</div>
 				<div class="card-value">{formatDkk(w.dkk)}</div>
-				<div class="card-foot">
-					<span class="deals">{numFmt.format(w.deals)} deals</span>
-					{#if w.pct !== null}
-						<span class="yoy" class:up={w.pct >= 0} class:down={w.pct < 0}>
-							<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-								{#if w.pct >= 0}<polyline points="6 15 12 9 18 15" />{:else}<polyline points="6 9 12 15 18 9" />{/if}
-							</svg>
-							{formatPct(w.pct)}
-						</span>
-					{:else}
-						<span class="yoy flat">— no prior</span>
-					{/if}
-				</div>
-				{#if w.index !== null}
-					<div class="index-line">Index {w.index} <span class="vs">vs {data.priorLabel}</span></div>
-				{/if}
+				<div class="index-line">{w.index !== null ? `Index ${w.index}` : 'Index —'}</div>
 			</div>
 		{/each}
 	</section>
@@ -449,34 +434,13 @@
 	}
 	.card.total .card-value { color: #7B3803; }
 
-	.card-foot {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 8px;
-		margin-top: 2px;
-	}
-	.deals { font-size: 12px; color: #A1A1AA; font-weight: 600; }
-
-	.yoy {
-		display: inline-flex;
-		align-items: center;
-		gap: 2px;
-		font-size: 12px;
-		font-weight: 800;
-		padding: 2px 7px 2px 5px;
-		border-radius: 100px;
-	}
-	.yoy.up   { background: #E7F6EC; color: #16794C; }
-	.yoy.down { background: #FDECEC; color: #C4381B; }
-	.yoy.flat { background: #F4F4F5; color: #A1A1AA; font-weight: 700; padding: 2px 8px; }
-
 	.index-line {
-		font-size: 11px;
+		font-size: 13px;
 		font-weight: 700;
 		color: #8A7550;
+		margin-top: 2px;
 	}
-	.index-line .vs { color: #C0AC7C; font-weight: 600; }
+	.card.total .index-line { color: #B15A12; }
 
 	/* ── Quarterly target tracker ────────────────────────────────────────────── */
 	.targets { margin-top: 26px; }
