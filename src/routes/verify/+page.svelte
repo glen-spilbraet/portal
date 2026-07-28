@@ -196,16 +196,16 @@
 						<tr>
 							<td class="cust-cell">
 								<div class="cust">{r.company_name ?? '—'}</div>
-								<a class="deal" href={dealUrl(r.deal_id)} target="_blank" rel="noopener">{r.deal_name} ↗</a>
+								<div class="idlinks">
+									<a class="idl" href={dealUrl(r.deal_id)} target="_blank" rel="noopener">Hubspot: {r.rackbeat_id}&nbsp;↗</a>
+									{#if r.invoice_number}<a class="idl" href={rbUrl(r.invoice_number)} target="_blank" rel="noopener">Rackbeat: {String(r.invoice_number).split(',')[0]}&nbsp;↗</a>{/if}
+								</div>
 							</td>
 							<td class="owner">{r.owner_name ?? '—'}</td>
 							<td><span class="badge {r.issue}">{r.issue.replace('_', ' ')}</span></td>
 							<td class="cell">
 								<div class="ln"><span class="k">HS</span>{fmt(r.amount_raw)} {r.currency ?? ''}</div>
-								<div class="ln rb" class:bad={!r.amount_match && r.issue !== 'not_found'}>
-									<span class="k">RB</span>{r.rb_subtotal == null ? '—' : `${fmt(r.rb_subtotal)} ${r.currency ?? ''}`}
-									{#if r.invoice_number}<a class="inv" href={rbUrl(r.invoice_number)} target="_blank" rel="noopener" title="Open invoice {r.invoice_number} in Rackbeat">#{String(r.invoice_number).split(',')[0]} ↗</a>{/if}
-								</div>
+								<div class="ln rb" class:bad={!r.amount_match && r.issue !== 'not_found'}><span class="k">RB</span>{r.rb_subtotal == null ? '—' : `${fmt(r.rb_subtotal)} ${r.currency ?? ''}`}</div>
 							</td>
 							<td class="cell">
 								<div class="ln"><span class="k">HS</span>{r.close_date ?? '—'}</div>
@@ -272,8 +272,9 @@
 
 	.cust-cell { overflow: hidden; }
 	.cust { font-weight: 800; color: #18181B; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.deal { font-size: 12px; color: var(--accent); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-	.deal:hover { text-decoration: underline; }
+	.idlinks { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 2px; }
+	.idl { font-size: 12px; font-weight: 700; color: var(--accent); text-decoration: none; white-space: nowrap; }
+	.idl:hover { text-decoration: underline; }
 	.owner { color: #6b5e4e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 	.cell { font-variant-numeric: tabular-nums; }
