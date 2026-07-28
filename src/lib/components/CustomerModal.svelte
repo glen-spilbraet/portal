@@ -40,6 +40,9 @@
 
 	const revPct = $derived(detail ? pct(detail.tiles.curRevenue, detail.tiles.priorRevenue) : null);
 	const ordPct = $derived(detail ? pct(detail.tiles.curOrders, detail.tiles.priorOrders) : null);
+	const aovCur = $derived(detail && detail.tiles.curOrders > 0 ? detail.tiles.curRevenue / detail.tiles.curOrders : 0);
+	const aovPrior = $derived(detail && detail.tiles.priorOrders > 0 ? detail.tiles.priorRevenue / detail.tiles.priorOrders : 0);
+	const aovPct = $derived(detail ? pct(aovCur, aovPrior) : null);
 
 	function onKey(e) { if (e.key === 'Escape') onClose(); }
 </script>
@@ -81,6 +84,13 @@
 				<div class="t-value">{dkk.format(detail.tiles.curOrders)}</div>
 				<div class="t-delta" class:up={ordPct >= 0} class:down={ordPct != null && ordPct < 0}>
 					{fpct(ordPct)} <span>vs {dkk.format(detail.tiles.priorOrders)} last period</span>
+				</div>
+			</div>
+			<div class="tile">
+				<div class="t-label">Avg. order value · {periodLabel}</div>
+				<div class="t-value">{fdkk(aovCur)}</div>
+				<div class="t-delta" class:up={aovPct >= 0} class:down={aovPct != null && aovPct < 0}>
+					{fpct(aovPct)} <span>vs {priorLabel}</span>
 				</div>
 			</div>
 		</div>
@@ -143,7 +153,7 @@
 	.state { padding: 40px; text-align: center; color: #8A7550; font-weight: 600; }
 	.state.err { color: var(--danger); }
 
-	.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 18px 22px; border-bottom: 1px solid var(--border); }
+	.tiles { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; padding: 18px 22px; border-bottom: 1px solid var(--border); }
 	.tile { background: #FFFBEF; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
 	.t-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: #A88B52; }
 	.t-value { font-size: 23px; font-weight: 800; letter-spacing: -0.5px; margin: 5px 0 6px; color: #18181B; }
