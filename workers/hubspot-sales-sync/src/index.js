@@ -254,12 +254,10 @@ async function fetchAllInvoices(env, invFrom, invTo) {
 		}
 	};
 
-	const t0 = Date.now();
 	const first = await rbFetchJson(`${RB}${base}&page=1`);
 	if (!first) throw new Error('Rackbeat invoices page 1 failed');
 	const totalPages = first.pages || 1;
 	for (const inv of first.customer_invoices || []) add(inv);
-	console.log(`invoices: totalPages=${totalPages}`);
 
 	const BATCH = 6;
 	for (let start = 2; start <= totalPages; start += BATCH) {
@@ -267,7 +265,6 @@ async function fetchAllInvoices(env, invFrom, invTo) {
 		for (let p = start; p < Math.min(start + BATCH, totalPages + 1); p++) pages.push(p);
 		const results = await Promise.all(pages.map(getPage));
 		for (const arr of results) for (const inv of arr) add(inv);
-		console.log(`invoices: through page ${Math.min(start + BATCH - 1, totalPages)} · indexed ${byNumber.size} · ${Date.now() - t0}ms`);
 	}
 	return { byNumber, byOrder, invoiceCount: byNumber.size };
 }
@@ -291,10 +288,8 @@ async function runVerification(env, range) {
 		.bind(range.dealFrom, range.dealTo)
 		.all();
 	const deals = dealsRes.results || [];
-	console.log(`verify: read ${deals.length} deals (${range.label}) in ${Date.now() - tStart}ms`);
-
 	const { byNumber, byOrder, invoiceCount } = await fetchAllInvoices(env, range.invFrom, range.invTo);
-	console.log(`verify: invoices indexed ${invoiceCount}; matching ${deals.length} deals`);
+	console.log(`verify ${range.label}: ${deals.length} deals, ${invoiceCount} invoices in ${Date.now() - tStart}ms`);
 
 	const issues = [];
 	let ok = 0, amountMis = 0, dateMis = 0, notFound = 0, multiple = 0;
@@ -344,7 +339,6 @@ async function runVerification(env, range) {
 	for (const batch of chunks(issues, 50)) {
 		await env.DB.batch(batch.map((r) => env.DB.prepare(sql).bind(...cols.map((c) => r[c] ?? null))));
 	}
-	console.log(`verify: writing ${issues.length} issues (ok=${ok}, amount=${amountMis}, date=${dateMis}, notFound=${notFound})`);
 	const finished = new Date().toISOString();
 	await env.DB
 		.prepare(
