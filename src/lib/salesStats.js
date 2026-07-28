@@ -80,6 +80,43 @@ export async function getCompanyTotals(db, startIncl, endExcl, filters = {}) {
 }
 
 /**
+ * Every known company (all-time), regardless of the selected date range, so
+ * the Companies table can show customers with zero revenue in the window.
+ * Honours the same filters (level/group/country/owner) but ignores dates.
+ * @param {App.Platform['env']['SALES_DB']} db
+ */
+export async function getCompanyUniverse(db, filters = {}) {
+	const where = [];
+	const binds = [];
+	if (filters.ownerEmail) {
+		where.push('owner_email = ?');
+		binds.push(filters.ownerEmail);
+	}
+	for (const [col, key] of [
+		['customer_level', 'levels'],
+		['customer_group', 'groups'],
+		['country', 'countries'],
+	]) {
+		const vals = filters[key];
+		if (vals && vals.length) {
+			where.push(`${col} IN (${vals.map(() => '?').join(',')})`);
+			binds.push(...vals);
+		}
+	}
+	const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+	const rows = await db
+		.prepare(
+			`SELECT COALESCE(company_id, 'none') AS cid,
+			        COALESCE(company_name, '(No company)') AS name,
+			        MAX(owner_name) AS owner_name
+			 FROM sales_deals ${clause} GROUP BY cid`
+		)
+		.bind(...binds)
+		.all();
+	return rows.results ?? [];
+}
+
+/**
  * Distinct values for the filter bar (Customer Level / Group / Country).
  * Scoped to an owner when provided (so reps only see their own domain).
  */

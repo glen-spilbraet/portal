@@ -1,4 +1,4 @@
-import { getMarketTotals, getCompanyTotals, getFilterOptions, getReps, getSyncMeta, MARKETS } from '$lib/salesStats.js';
+import { getMarketTotals, getCompanyTotals, getCompanyUniverse, getFilterOptions, getReps, getSyncMeta, MARKETS } from '$lib/salesStats.js';
 import { getEffectiveEmail } from '$lib/server/effectiveEmail.js';
 import { listSalesTargetsForYear } from '$lib/db.js';
 
@@ -174,23 +174,27 @@ export async function load({ platform, url, cookies, parent }) {
 		return { widgets: [], companies: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
 	}
 
-	const [curTotals, priorTotals, curCompanies, priorCompanies, meta, filterOptions, reps] = await Promise.all([
+	const [curTotals, priorTotals, curCompanies, priorCompanies, universe, meta, filterOptions, reps] = await Promise.all([
 		getMarketTotals(db, cur.start, cur.end, filters),
 		getMarketTotals(db, prior.start, prior.end, filters),
 		getCompanyTotals(db, cur.start, cur.end, filters),
 		getCompanyTotals(db, prior.start, prior.end, filters),
+		getCompanyUniverse(db, filters),
 		getSyncMeta(db),
 		getFilterOptions(db, isAdmin ? null : email),
 		isAdmin ? getReps(db) : Promise.resolve([]),
 	]);
 
-	// Per-company YoY: match current companies to their prior-year revenue.
+	// Show every known company; overlay this period's revenue + YoY (0 when idle).
+	const curByCompany = new Map(curCompanies.map((r) => [r.cid, r]));
 	const priorByCompany = new Map(priorCompanies.map((r) => [r.cid, r.revenue]));
-	const companies = curCompanies
-		.map((r) => {
-			const priorRev = priorByCompany.get(r.cid) ?? 0;
-			const pct = priorRev > 0 ? (r.revenue / priorRev - 1) * 100 : null;
-			return { cid: r.cid, name: r.name, owner: r.owner_name, revenue: r.revenue, deals: r.deals, pct };
+	const companies = universe
+		.map((u) => {
+			const cur = curByCompany.get(u.cid);
+			const revenue = cur?.revenue ?? 0;
+			const priorRev = priorByCompany.get(u.cid) ?? 0;
+			const pct = priorRev > 0 ? (revenue / priorRev - 1) * 100 : null;
+			return { cid: u.cid, name: u.name, owner: u.owner_name, revenue, deals: cur?.deals ?? 0, pct };
 		})
 		.sort((a, b) => b.revenue - a.revenue);
 
