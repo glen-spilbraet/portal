@@ -31,7 +31,38 @@
 		return true;
 	}
 	const filtered = $derived((data.issues ?? []).filter((r) => matches(r, filter)));
-	const setFilter = (f) => (filter = filter === f ? null : f);
+	function setFilter(f) {
+		filter = filter === f ? null : f;
+		if (filter !== 'date') dateSeg = null;
+	}
+
+	// Date sub-segments (only meaningful for date issues).
+	let dateSeg = $state(null); // 'diffQ' | '1' | '2-7' | '8-20' | '20+' | null
+	const toggleSeg = (s) => (dateSeg = dateSeg === s ? null : s);
+	const qtrIndex = (s) => { const [y, m] = s.split('-').map(Number); return y * 4 + Math.floor((m - 1) / 3); };
+	const diffQof = (r) => (r.rb_date && r.close_date ? qtrIndex(r.close_date) !== qtrIndex(String(r.rb_date).split(',')[0]) : false);
+	function bucketOf(r) {
+		const d = dateDiffDays(r);
+		if (d == null) return null;
+		if (d <= 1) return '1';
+		if (d <= 7) return '2-7';
+		if (d <= 20) return '8-20';
+		return '20+';
+	}
+	const segMatch = (r, seg) => (seg === 'diffQ' ? diffQof(r) : bucketOf(r) === seg);
+	const dateRows = $derived((data.issues ?? []).filter((r) => matches(r, 'date')));
+	const segCounts = $derived.by(() => {
+		const c = { diffQ: 0, '1': 0, '2-7': 0, '8-20': 0, '20+': 0 };
+		for (const r of dateRows) { const b = bucketOf(r); if (b) c[b]++; if (diffQof(r)) c.diffQ++; }
+		return c;
+	});
+	const segLabels = [
+		['diffQ', 'Different quarter'],
+		['1', '1 day'],
+		['2-7', '2–7 days'],
+		['8-20', '8–20 days'],
+		['20+', '20+ days'],
+	];
 
 	// Sorting by size of the difference.
 	let sortKey = $state(null); // 'amount' | 'date' | null
@@ -47,8 +78,9 @@
 		if (sortKey === k) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
 		else { sortKey = k; sortDir = 'desc'; }
 	}
+	const segFiltered = $derived(filter === 'date' && dateSeg ? filtered.filter((r) => segMatch(r, dateSeg)) : filtered);
 	const shown = $derived.by(() => {
-		const arr = [...filtered];
+		const arr = [...segFiltered];
 		if (!sortKey) return arr;
 		const val = sortKey === 'amount' ? amtDiff : dateDiffDays;
 		return arr.sort((x, y) => {
@@ -136,6 +168,15 @@
 		<p class="freshness">No verification run yet — pick a period and click “Run check”.</p>
 	{/if}
 
+	{#if filter === 'date'}
+		<div class="segs">
+			<span class="seg-lbl">Date segments</span>
+			{#each segLabels as [key, label]}
+				<button class="seg" class:on={dateSeg === key} onclick={() => toggleSeg(key)}>{label} <span class="seg-n">{segCounts[key]}</span></button>
+			{/each}
+		</div>
+	{/if}
+
 	<section class="table-wrap">
 		<div class="table-scroll">
 			<table>
@@ -205,6 +246,14 @@
 	.freshness { font-size: 12px; color: #A1A1AA; margin: 8px 0 18px; }
 	.clear { background: none; border: none; font-family: inherit; font-size: 12px; font-weight: 700; color: #B15A12; cursor: pointer; padding: 0; }
 	.clear:hover { text-decoration: underline; }
+
+	.segs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -6px 0 18px; }
+	.seg-lbl { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: #A88B52; margin-right: 2px; }
+	.seg { font-family: inherit; font-size: 13px; font-weight: 700; color: #7B3803; background: #fff; border: 1px solid var(--border); border-radius: 100px; padding: 6px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+	.seg:hover { background: #FFF5D2; }
+	.seg.on { background: #FFE6A5; border-color: #F4CE7A; }
+	.seg-n { font-size: 11px; font-weight: 800; color: #B4611A; background: #FDECEC; border-radius: 100px; padding: 1px 7px; }
+	.seg.on .seg-n { background: #fff; }
 
 	.table-wrap { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); overflow: hidden; }
 	.table-scroll { max-height: 660px; overflow: auto; }
