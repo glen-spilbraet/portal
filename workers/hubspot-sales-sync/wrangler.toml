@@ -5,9 +5,11 @@ compatibility_date = "2025-04-25"
 [observability]
 enabled = true
 
-# Daily at 04:30 UTC. Refreshes the sales_deals mirror in portal-db.
+# Daily 04:30 UTC: refresh current+previous year, then incremental sweep of
+# deals modified since the last run (corrections to older deals).
+# Monthly (1st, 03:00 UTC): full reconcile of all years (catches deletions/un-wins).
 [triggers]
-crons = ["30 4 * * *"]
+crons = ["30 4 * * *", "0 3 1 * *"]
 
 # Writes into the shared production portal-db.
 [[d1_databases]]

@@ -7,12 +7,20 @@
  * READ-ONLY against HubSpot. The only writes are to our own D1 table.
  *
  * Triggers:
- *   - cron (see wrangler.toml) -> scheduled()
+ *   - daily cron   -> refresh current+previous year, then incremental sweep of
+ *                     anything edited since the last run (catches corrections to
+ *                     older deals: changed amount / close date).
+ *   - monthly cron -> full reconcile of all years (also catches deletions /
+ *                     un-wins of old deals).
  *   - HTTP GET/POST with `Authorization: Bearer <SYNC_SECRET>` -> manual run
- *       ?year=2024   run a single year only (handy for testing)
+ *       ?year=2024        single year (handy for testing / backfill)
+ *       ?since=2025       full refresh from that year onward
+ *       ?incremental=1    sweep deals modified since last run (?modifiedSince=ISO to override)
+ *       ?reconcile=1      full re-sync of all years
  */
 
 const HS = 'https://api.hubapi.com';
+const MONTHLY_CRON = '0 3 1 * *';
 
 // Deal properties we pull from HubSpot.
 const DEAL_PROPS = [
@@ -30,12 +38,8 @@ const DEAL_PROPS = [
 const COMPANY_PROPS = ['name', 'country', 'customer_group', 'customer_color', 'hubspot_owner_id'];
 
 export default {
-	async scheduled(_event, env, ctx) {
-		// Daily refresh syncs only the current + previous year. Older years are
-		// closed-won (immutable) and are loaded once via manual `?year=` runs;
-		// re-syncing everything daily would blow the per-invocation subrequest cap.
-		const currentYear = new Date().getUTCFullYear();
-		ctx.waitUntil(runSync(env, { sinceYear: currentYear - 1 }));
+	async scheduled(event, env, ctx) {
+		ctx.waitUntil(handleScheduled(event, env));
 	},
 
 	async fetch(request, env) {
@@ -45,21 +49,41 @@ export default {
 			return json({ error: 'Unauthorized' }, 401);
 		}
 		const url = new URL(request.url);
-		const yearParam = url.searchParams.get('year');
-		const sinceParam = url.searchParams.get('since');
-		const opts = yearParam
-			? { onlyYear: parseInt(yearParam, 10) }
-			: sinceParam
-			? { sinceYear: parseInt(sinceParam, 10) }
-			: {};
 		try {
-			const summary = await runSync(env, opts);
+			let summary;
+			if (url.searchParams.get('reconcile') === '1') {
+				summary = await runSync(env, {});
+			} else if (url.searchParams.get('incremental') === '1') {
+				const since = url.searchParams.get('modifiedSince') || (await getMeta(env.DB))?.last_run || null;
+				summary = await incrementalSync(env, since);
+			} else {
+				const yearParam = url.searchParams.get('year');
+				const sinceParam = url.searchParams.get('since');
+				const opts = yearParam
+					? { onlyYear: parseInt(yearParam, 10) }
+					: sinceParam
+					? { sinceYear: parseInt(sinceParam, 10) }
+					: {};
+				summary = await runSync(env, opts);
+			}
 			return json({ ok: true, ...summary });
 		} catch (e) {
 			return json({ ok: false, error: e?.message ?? String(e) }, 500);
 		}
 	},
 };
+
+async function handleScheduled(event, env) {
+	const currentYear = new Date().getUTCFullYear();
+	if (event?.cron === MONTHLY_CRON) {
+		await runSync(env, {}); // monthly full reconcile (catches deletions / un-wins)
+		return;
+	}
+	// Daily: refresh the active window, then sweep anything edited since last run.
+	const prev = (await getMeta(env.DB))?.last_run || null;
+	await runSync(env, { sinceYear: currentYear - 1 });
+	await incrementalSync(env, prev);
+}
 
 async function runSync(env, { onlyYear, sinceYear }) {
 	const started = new Date().toISOString();
@@ -69,9 +93,6 @@ async function runSync(env, { onlyYear, sinceYear }) {
 		const startYear = onlyYear ?? sinceYear ?? parseInt(env.START_YEAR || '2024', 10);
 		const endYear = onlyYear ?? new Date().getUTCFullYear();
 
-		// Owner id -> {email, name}. Fetched once, reused for every company.
-		const owners = await fetchOwners(env);
-
 		// Gather deals year-by-year to stay under HubSpot Search's 10k-per-query cap.
 		const deals = [];
 		for (let year = startYear; year <= endYear; year++) {
@@ -79,39 +100,7 @@ async function runSync(env, { onlyYear, sinceYear }) {
 			deals.push(...yearDeals);
 		}
 
-		// Resolve each deal's primary associated company, then batch-read companies.
-		const dealCompany = await fetchDealCompanyAssociations(env, deals.map((d) => d.id));
-		const companyIds = [...new Set(Object.values(dealCompany).filter(Boolean))];
-		const companies = await fetchCompanies(env, companyIds);
-
-		// Build the rows.
-		const rows = deals.map((d) => {
-			const p = d.properties || {};
-			const companyId = dealCompany[d.id] || null;
-			const c = (companyId && companies[companyId]) || {};
-			const owner = c.hubspot_owner_id ? owners[c.hubspot_owner_id] : null;
-			const country = c.country || '';
-			return {
-				deal_id: d.id,
-				deal_name: p.dealname || null,
-				close_date: p.closedate ? String(p.closedate).slice(0, 10) : null,
-				amount_dkk: num(p.amount_in_home_currency),
-				amount_raw: num(p.amount),
-				currency: p.deal_currency_code || null,
-				pipeline: p.pipeline || null,
-				dealstage: p.dealstage || null,
-				company_id: companyId,
-				company_name: c.name || null,
-				owner_email: owner?.email || null,
-				owner_name: owner?.name || null,
-				country: country || null,
-				market: marketFromCountry(country),
-				customer_group: c.customer_group || null,
-				customer_level: c.customer_color || null,
-				updated_at: p.hs_lastmodifieddate ? String(p.hs_lastmodifieddate) : null,
-			};
-		});
-
+		const { rows, companyCount } = await enrichDeals(env, deals);
 		await writeRows(env.DB, rows, { onlyYear, sinceYear });
 
 		const finished = new Date().toISOString();
@@ -121,11 +110,78 @@ async function runSync(env, { onlyYear, sinceYear }) {
 			deal_count: rows.length,
 			message: onlyYear ? `synced year ${onlyYear}: ${rows.length} deals` : `synced ${rows.length} deals`,
 		});
-		return { deals: rows.length, companies: companyIds.length, years: `${startYear}-${endYear}` };
+		return { deals: rows.length, companies: companyCount, years: `${startYear}-${endYear}` };
 	} catch (e) {
 		await setMeta(env.DB, { status: 'error', message: e?.message ?? String(e) });
 		throw e;
 	}
+}
+
+/**
+ * Incremental sweep: upsert every Closed-Won + auto_imported deal modified since
+ * `sinceIso` (previous run), regardless of year — so corrections to older deals
+ * (amount / close date) land in the mirror. Upsert-only, never deletes.
+ */
+async function incrementalSync(env, sinceIso) {
+	// Watermark = previous run minus a 2h overlap buffer (fallback: 2 days back).
+	const base = sinceIso ? Date.parse(sinceIso) : Date.now() - 2 * 86400000;
+	const sinceMs = (Number.isFinite(base) ? base : Date.now() - 2 * 86400000) - 2 * 3600 * 1000;
+
+	try {
+		const deals = await fetchModifiedDeals(env, sinceMs);
+		if (!deals.length) {
+			const finished = new Date().toISOString();
+			await setMeta(env.DB, { status: 'ok', last_run: finished, message: `incremental: no changes since ${new Date(sinceMs).toISOString()}` });
+			return { incremental: true, changed: 0, since: new Date(sinceMs).toISOString() };
+		}
+		const { rows } = await enrichDeals(env, deals);
+		await insertRows(env.DB, rows);
+		const finished = new Date().toISOString();
+		await setMeta(env.DB, { status: 'ok', last_run: finished, message: `incremental: upserted ${rows.length} changed deals` });
+		return { incremental: true, changed: rows.length, since: new Date(sinceMs).toISOString() };
+	} catch (e) {
+		await setMeta(env.DB, { status: 'error', message: `incremental failed: ${e?.message ?? String(e)}` });
+		throw e;
+	}
+}
+
+/**
+ * Resolve owners + primary company for a set of deals and build D1 rows.
+ * @returns {{ rows: object[], companyCount: number }}
+ */
+async function enrichDeals(env, deals) {
+	if (!deals.length) return { rows: [], companyCount: 0 };
+	const owners = await fetchOwners(env);
+	const dealCompany = await fetchDealCompanyAssociations(env, deals.map((d) => d.id));
+	const companyIds = [...new Set(Object.values(dealCompany).filter(Boolean))];
+	const companies = await fetchCompanies(env, companyIds);
+	const rows = deals.map((d) => {
+		const p = d.properties || {};
+		const companyId = dealCompany[d.id] || null;
+		const c = (companyId && companies[companyId]) || {};
+		const owner = c.hubspot_owner_id ? owners[c.hubspot_owner_id] : null;
+		const country = c.country || '';
+		return {
+			deal_id: d.id,
+			deal_name: p.dealname || null,
+			close_date: p.closedate ? String(p.closedate).slice(0, 10) : null,
+			amount_dkk: num(p.amount_in_home_currency),
+			amount_raw: num(p.amount),
+			currency: p.deal_currency_code || null,
+			pipeline: p.pipeline || null,
+			dealstage: p.dealstage || null,
+			company_id: companyId,
+			company_name: c.name || null,
+			owner_email: owner?.email || null,
+			owner_name: owner?.name || null,
+			country: country || null,
+			market: marketFromCountry(country),
+			customer_group: c.customer_group || null,
+			customer_level: c.customer_color || null,
+			updated_at: p.hs_lastmodifieddate ? String(p.hs_lastmodifieddate) : null,
+		};
+	});
+	return { rows, companyCount: companyIds.length };
 }
 
 // ---- HubSpot fetch helpers --------------------------------------------------
@@ -181,6 +237,33 @@ async function fetchDealsForYear(env, year) {
 			after = data.paging?.next?.after;
 		} while (after);
 	}
+	return results;
+}
+
+async function fetchModifiedDeals(env, sinceMs) {
+	// `hs_lastmodifieddate` is a datetime property → filter value in epoch millis.
+	const results = [];
+	let after;
+	do {
+		const body = {
+			filterGroups: [
+				{
+					filters: [
+						{ propertyName: 'hs_is_closed_won', operator: 'EQ', value: 'true' },
+						{ propertyName: 'auto_imported', operator: 'EQ', value: 'true' },
+						{ propertyName: 'hs_lastmodifieddate', operator: 'GTE', value: String(sinceMs) },
+					],
+				},
+			],
+			properties: DEAL_PROPS,
+			sorts: [{ propertyName: 'hs_lastmodifieddate', direction: 'ASCENDING' }],
+			limit: 100,
+			...(after ? { after } : {}),
+		};
+		const data = await hsPost(env, `${HS}/crm/v3/objects/deals/search`, body);
+		results.push(...(data.results || []));
+		after = data.paging?.next?.after;
+	} while (after);
 	return results;
 }
 
@@ -245,6 +328,22 @@ async function hsRequest(env, url, init, attempt = 0) {
 
 // ---- D1 write ---------------------------------------------------------------
 
+const ROW_COLS = [
+	'deal_id', 'deal_name', 'close_date', 'amount_dkk', 'amount_raw', 'currency',
+	'pipeline', 'dealstage', 'company_id', 'company_name', 'owner_email', 'owner_name',
+	'country', 'market', 'customer_group', 'customer_level', 'updated_at',
+];
+
+/** INSERT OR REPLACE rows by deal_id (no deletes). Used by both paths. */
+async function insertRows(db, rows) {
+	const placeholders = `(${ROW_COLS.map(() => '?').join(',')})`;
+	const insertSql = `INSERT OR REPLACE INTO sales_deals (${ROW_COLS.join(',')}) VALUES ${placeholders}`;
+	for (const batch of chunks(rows, 50)) {
+		const stmts = batch.map((r) => db.prepare(insertSql).bind(...ROW_COLS.map((c) => r[c] ?? null)));
+		await db.batch(stmts);
+	}
+}
+
 async function writeRows(db, rows, { onlyYear, sinceYear }) {
 	// Replace exactly the window we just re-fetched: a single year, everything
 	// from `sinceYear` onward (daily cron), or the whole table (full rebuild).
@@ -258,19 +357,11 @@ async function writeRows(db, rows, { onlyYear, sinceYear }) {
 	} else {
 		await db.prepare('DELETE FROM sales_deals').run();
 	}
+	await insertRows(db, rows);
+}
 
-	const cols = [
-		'deal_id', 'deal_name', 'close_date', 'amount_dkk', 'amount_raw', 'currency',
-		'pipeline', 'dealstage', 'company_id', 'company_name', 'owner_email', 'owner_name',
-		'country', 'market', 'customer_group', 'customer_level', 'updated_at',
-	];
-	const placeholders = `(${cols.map(() => '?').join(',')})`;
-	const insertSql = `INSERT OR REPLACE INTO sales_deals (${cols.join(',')}) VALUES ${placeholders}`;
-
-	for (const batch of chunks(rows, 50)) {
-		const stmts = batch.map((r) => db.prepare(insertSql).bind(...cols.map((c) => r[c] ?? null)));
-		await db.batch(stmts);
-	}
+async function getMeta(db) {
+	return db.prepare('SELECT * FROM sales_sync_meta WHERE id = 1').first().catch(() => null);
 }
 
 async function setMeta(db, fields) {
