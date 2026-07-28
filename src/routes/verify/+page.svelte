@@ -30,8 +30,36 @@
 		if (f === 'multiple') return r.issue === 'multiple';
 		return true;
 	}
-	const shown = $derived((data.issues ?? []).filter((r) => matches(r, filter)));
+	const filtered = $derived((data.issues ?? []).filter((r) => matches(r, filter)));
 	const setFilter = (f) => (filter = filter === f ? null : f);
+
+	// Sorting by size of the difference.
+	let sortKey = $state(null); // 'amount' | 'date' | null
+	let sortDir = $state('desc');
+	const amtDiff = (r) => (r.rb_subtotal == null ? null : Math.abs((r.amount_raw ?? 0) - (r.rb_subtotal ?? 0)));
+	const dateDiffDays = (r) => {
+		if (!r.rb_date || !r.close_date) return null;
+		const a = Date.parse(r.close_date);
+		const b = Date.parse(String(r.rb_date).split(',')[0]);
+		return isNaN(a) || isNaN(b) ? null : Math.abs(a - b) / 86400000;
+	};
+	function setSort(k) {
+		if (sortKey === k) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+		else { sortKey = k; sortDir = 'desc'; }
+	}
+	const shown = $derived.by(() => {
+		const arr = [...filtered];
+		if (!sortKey) return arr;
+		const val = sortKey === 'amount' ? amtDiff : dateDiffDays;
+		return arr.sort((x, y) => {
+			const xv = val(x), yv = val(y);
+			if (xv == null && yv == null) return 0;
+			if (xv == null) return 1; // no-invoice rows sort last
+			if (yv == null) return -1;
+			return sortDir === 'desc' ? yv - xv : xv - yv;
+		});
+	});
+	const caret = (k) => (sortKey === k ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '');
 
 	async function rerun() {
 		running = true;
@@ -113,7 +141,13 @@
 			<table>
 				<colgroup><col /><col style="width:160px" /><col style="width:110px" /><col style="width:170px" /><col style="width:170px" /></colgroup>
 				<thead>
-					<tr><th>Customer / Deal</th><th>Owner</th><th>Issue</th><th>Amount</th><th>Date</th></tr>
+					<tr>
+						<th>Customer / Deal</th>
+						<th>Owner</th>
+						<th>Issue</th>
+						<th class="th-sort" class:sorted={sortKey === 'amount'} onclick={() => setSort('amount')}>Amount{caret('amount')}</th>
+						<th class="th-sort" class:sorted={sortKey === 'date'} onclick={() => setSort('date')}>Date{caret('date')}</th>
+					</tr>
 				</thead>
 				<tbody>
 					{#each shown as r (r.deal_id)}
@@ -176,6 +210,9 @@
 	.table-scroll { max-height: 660px; overflow: auto; }
 	table { width: 100%; border-collapse: collapse; font-size: 13.5px; table-layout: fixed; }
 	thead th { position: sticky; top: 0; z-index: 1; background: #FBEFCB; color: #7B3803; font-weight: 800; text-align: left; padding: 11px 16px; white-space: nowrap; border-bottom: 1px solid var(--border); }
+	.th-sort { cursor: pointer; user-select: none; }
+	.th-sort:hover { background: #F8E6B0; }
+	.th-sort.sorted { color: #B15A12; }
 	tbody td { padding: 10px 16px; border-bottom: 1px solid #F5EDD8; vertical-align: middle; }
 	tbody tr:nth-child(even) td { background: #FFFBEF; }
 	tbody tr:hover td { background: #FFF5D2; }
