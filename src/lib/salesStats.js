@@ -155,6 +155,101 @@ export async function getReps(db) {
 	return rows.results ?? [];
 }
 
+/**
+ * Per-company revenue + order counts for the selected window and the same
+ * window last year, plus the all-time last order date. Filter-aware (no date
+ * in the filter — the windows live in the CASE expressions). Only companies
+ * with prior-year history are returned.
+ * @param {App.Platform['env']['SALES_DB']} db
+ */
+export async function getAttentionData(db, cur, prior, filters = {}) {
+	const where = [];
+	const binds = [];
+	if (filters.ownerEmail) {
+		where.push('owner_email = ?');
+		binds.push(filters.ownerEmail);
+	}
+	for (const [col, key] of [
+		['customer_level', 'levels'],
+		['customer_group', 'groups'],
+		['country', 'countries'],
+	]) {
+		const vals = filters[key];
+		if (vals && vals.length) {
+			where.push(`${col} IN (${vals.map(() => '?').join(',')})`);
+			binds.push(...vals);
+		}
+	}
+	const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+	const dateBinds = [cur.start, cur.end, cur.start, cur.end, prior.start, prior.end, prior.start, prior.end];
+	const rows = await db
+		.prepare(
+			`SELECT COALESCE(company_id, 'none') AS cid,
+			        COALESCE(company_name, '(No company)') AS name,
+			        MAX(owner_name) AS owner,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS cur_rev,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN 1 ELSE 0 END) AS cur_ord,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS prior_rev,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN 1 ELSE 0 END) AS prior_ord,
+			        MAX(close_date) AS last_order
+			 FROM sales_deals ${clause}
+			 GROUP BY cid HAVING prior_rev > 0`
+		)
+		.bind(...dateBinds, ...binds)
+		.all();
+	return rows.results ?? [];
+}
+
+function percentile(sortedAsc, p) {
+	if (!sortedAsc.length) return 0;
+	const idx = Math.floor(p * (sortedAsc.length - 1));
+	return sortedAsc[idx];
+}
+
+/**
+ * Score "customers needing attention" (0–100), money-led:
+ *   amount behind 40 (vs peer set) · recency 25 · fewer orders 20 · lower AOV 15.
+ * Candidates = companies behind on revenue this window. Recency uses the true
+ * last order date vs `todayStr`. Returns rows sorted by score desc.
+ */
+export function scoreAttention(rows, todayStr) {
+	const today = Date.parse(todayStr + 'T00:00:00Z');
+	const cand = rows.filter((r) => r.prior_rev > 0 && r.prior_rev > r.cur_rev);
+	const gaps = cand.map((r) => r.prior_rev - r.cur_rev).sort((a, b) => a - b);
+	const gapRef = Math.max(percentile(gaps, 0.9), 1);
+
+	return cand
+		.map((r) => {
+			const krBehind = r.prior_rev - r.cur_rev;
+			const daysSince = r.last_order
+				? Math.floor((today - Date.parse(r.last_order + 'T00:00:00Z')) / 86400000)
+				: null;
+			const freqDrop = r.prior_ord > 0 ? Math.max(0, (r.prior_ord - r.cur_ord) / r.prior_ord) : 0;
+			const aovCur = r.cur_ord > 0 ? r.cur_rev / r.cur_ord : 0;
+			const aovPrior = r.prior_ord > 0 ? r.prior_rev / r.prior_ord : 0;
+			const aovDrop = r.cur_ord > 0 && aovPrior > 0 ? Math.max(0, (aovPrior - aovCur) / aovPrior) : 0;
+
+			const gapPts = Math.min(40, (40 * krBehind) / gapRef);
+			const recPts = daysSince != null && daysSince > 15 ? Math.min(25, ((daysSince - 15) / 60) * 25) : 0;
+			const ordPts = Math.min(20, freqDrop * 20);
+			const aovPts = Math.min(15, aovDrop * 15);
+			const score = Math.round(gapPts + recPts + ordPts + aovPts);
+
+			return {
+				cid: r.cid,
+				name: r.name,
+				owner: r.owner,
+				krBehind,
+				yoyPct: r.prior_rev > 0 ? Math.round((r.cur_rev / r.prior_rev - 1) * 100) : null,
+				daysSince,
+				freqDropPct: Math.round(freqDrop * 100),
+				aovDropPct: Math.round(aovDrop * 100),
+				score,
+			};
+		})
+		.sort((a, b) => b.score - a.score);
+}
+
 /** Latest sync metadata (for a "data as of …" line). */
 export async function getSyncMeta(db) {
 	return db.prepare('SELECT last_run, status, deal_count FROM sales_sync_meta WHERE id = 1').first();

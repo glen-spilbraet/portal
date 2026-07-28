@@ -95,6 +95,9 @@
 		return Math.max(0, Math.min(100, ((v - min) / span) * 100));
 	}
 
+	/** Attention priority pill colour. */
+	function attnClass(s) { return s >= 60 ? 'hi' : s >= 35 ? 'mid' : 'lo'; }
+
 	/** Index chip colour: ≤95 red, 96–99 orange, 100+ green. */
 	function indexClass(idx) {
 		if (idx === null || idx === undefined) return 'none';
@@ -249,6 +252,32 @@
 						<div class="you" style="left:{trackPos(data.tracker.index)}%"><span class="ydot"></span></div>
 					</div>
 				</div>
+			</div>
+		</section>
+	{/if}
+
+	{#if data.attention.length}
+		<section class="attn">
+			<div class="attn-head">
+				<h2>Customers Needing Attention</h2>
+				<span class="count">{numFmt.format(data.attention.length)}</span>
+			</div>
+			<div class="attn-scroll">
+				<div class="attn-rowh">
+					<span>Priority</span><span>Customer</span><span class="anum">kr behind</span><span>Why it needs attention</span>
+				</div>
+				{#each data.attention as a (a.cid)}
+					<button class="attn-row" onclick={() => (openCompany = { cid: a.cid, name: a.name, owner: a.owner })}>
+						<span class="pri {attnClass(a.score)}">{a.score}</span>
+						<span class="acust">{a.name}<span class="aowner">{a.owner ?? '—'}</span></span>
+						<span class="abehind">{formatDkk(a.krBehind)}<span class="ayoy">{a.yoyPct}% YoY</span></span>
+						<span class="whys">
+							{#if a.daysSince != null && a.daysSince > 15}<span class="b quiet">Quiet {a.daysSince}d</span>{/if}
+							{#if a.freqDropPct > 0}<span class="b ord">Orders −{a.freqDropPct}%</span>{/if}
+							{#if a.aovDropPct > 0}<span class="b aov">AOV −{a.aovDropPct}%</span>{/if}
+						</span>
+					</button>
+				{/each}
 			</div>
 		</section>
 	{/if}
@@ -567,6 +596,54 @@
 		display: block; width: 20px; height: 20px; border-radius: 50%;
 		background: var(--accent); border: 3px solid #fff; box-shadow: 0 0 0 2px var(--accent);
 	}
+
+	/* ── Customers needing attention ─────────────────────────────────────────── */
+	.attn {
+		margin-top: 26px;
+		background: #fff;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow);
+		overflow: hidden;
+	}
+	.attn-head {
+		display: flex; align-items: center; gap: 10px;
+		padding: 16px 20px; border-bottom: 1px solid var(--border);
+	}
+	.attn-head h2 { font-size: 15px; font-weight: 800; color: #18181B; margin: 0; letter-spacing: -0.2px; }
+	.attn-scroll { max-height: 560px; overflow-y: auto; }
+	.attn-rowh, .attn-row {
+		display: grid;
+		grid-template-columns: 60px 1fr 150px 1.5fr;
+		gap: 14px; align-items: center; padding: 10px 20px;
+	}
+	.attn-rowh {
+		position: sticky; top: 0; z-index: 1; background: #FBEFCB; color: #7B3803;
+		font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+		border-bottom: 1px solid var(--border);
+	}
+	.attn-rowh .anum { text-align: right; }
+	.attn-row {
+		width: 100%; border: none; background: none; font-family: inherit; text-align: left; cursor: pointer;
+		border-bottom: 1px solid #F5EDD8; font-size: 13.5px;
+	}
+	.attn-row:hover { background: #FFF5D2; }
+	.pri {
+		display: inline-flex; align-items: center; justify-content: center;
+		width: 38px; height: 38px; border-radius: 10px; font-size: 15px; font-weight: 900;
+	}
+	.pri.hi { background: #FDECEC; color: #C4381B; }
+	.pri.mid { background: #FDEBD2; color: #B4611A; }
+	.pri.lo { background: #F1EEE6; color: #8A7550; }
+	.acust { font-weight: 800; color: #18181B; min-width: 0; }
+	.acust .aowner { display: block; font-size: 12px; font-weight: 600; color: #8A7550; margin-top: 1px; }
+	.abehind { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; color: #C4381B; }
+	.abehind .ayoy { display: block; font-size: 11px; font-weight: 600; color: #8A7550; }
+	.whys { display: flex; flex-wrap: wrap; gap: 5px; }
+	.b { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 100px; white-space: nowrap; }
+	.b.quiet { background: #FDECEC; color: #C4381B; }
+	.b.ord { background: #FDEBD2; color: #B4611A; }
+	.b.aov { background: #EEF1F5; color: #3E5060; }
 
 	/* ── Companies table ─────────────────────────────────────────────────────── */
 	.table-wrap {

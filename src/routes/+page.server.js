@@ -1,4 +1,4 @@
-import { getMarketTotals, getCompanyTotals, getCompanyUniverse, getFilterOptions, getReps, getSyncMeta, MARKETS } from '$lib/salesStats.js';
+import { getMarketTotals, getCompanyTotals, getCompanyUniverse, getAttentionData, scoreAttention, getFilterOptions, getReps, getSyncMeta, MARKETS } from '$lib/salesStats.js';
 import { getEffectiveEmail } from '$lib/server/effectiveEmail.js';
 import { listSalesTargetsForYear } from '$lib/db.js';
 
@@ -171,19 +171,22 @@ export async function load({ platform, url, cookies, parent }) {
 
 	const emptyOptions = { levels: [], groups: [], countries: [] };
 	if (!db) {
-		return { widgets: [], companies: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
+		return { widgets: [], companies: [], attention: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
 	}
 
-	const [curTotals, priorTotals, curCompanies, priorCompanies, universe, meta, filterOptions, reps] = await Promise.all([
+	const [curTotals, priorTotals, curCompanies, priorCompanies, universe, attentionRows, meta, filterOptions, reps] = await Promise.all([
 		getMarketTotals(db, cur.start, cur.end, filters),
 		getMarketTotals(db, prior.start, prior.end, filters),
 		getCompanyTotals(db, cur.start, cur.end, filters),
 		getCompanyTotals(db, prior.start, prior.end, filters),
 		getCompanyUniverse(db, filters),
+		getAttentionData(db, cur, prior, filters),
 		getSyncMeta(db),
 		getFilterOptions(db, isAdmin ? null : email),
 		isAdmin ? getReps(db) : Promise.resolve([]),
 	]);
+
+	const attention = scoreAttention(attentionRows, now.toISOString().slice(0, 10));
 
 	// Show every known company; overlay this period's revenue + YoY (0 when idle).
 	const curByCompany = new Map(curCompanies.map((r) => [r.cid, r]));
@@ -244,6 +247,7 @@ export async function load({ platform, url, cookies, parent }) {
 	return {
 		widgets,
 		companies,
+		attention,
 		tracker,
 		quarterOptions,
 		monthOptions,
