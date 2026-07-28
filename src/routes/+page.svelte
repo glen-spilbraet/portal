@@ -325,7 +325,7 @@
 					</colgroup>
 					<thead>
 						<tr>
-							<th>Priority</th>
+							<th>Prio</th>
 							<th>Customer</th>
 							<th>Owner Name</th>
 							<th>Why attention</th>
