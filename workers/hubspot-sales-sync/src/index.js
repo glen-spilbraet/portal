@@ -32,6 +32,7 @@ const DEAL_PROPS = [
 	'pipeline',
 	'dealstage',
 	'hs_lastmodifieddate',
+	'rackbeat_id', // links the deal to its Rackbeat order/invoice/credit note
 ];
 
 // Company properties (the "customer level" data).
@@ -50,6 +51,9 @@ export default {
 		}
 		const url = new URL(request.url);
 		try {
+			if (url.searchParams.get('verifyProbe') === '1') {
+				return json(await verifyProbe(env), 200);
+			}
 			let summary;
 			if (url.searchParams.get('reconcile') === '1') {
 				summary = await runSync(env, {});
@@ -178,10 +182,68 @@ async function enrichDeals(env, deals) {
 			market: marketFromCountry(country),
 			customer_group: c.customer_group || null,
 			customer_level: c.customer_color || null,
+			rackbeat_id: p.rackbeat_id || null,
 			updated_at: p.hs_lastmodifieddate ? String(p.hs_lastmodifieddate) : null,
 		};
 	});
 	return { rows, companyCount: companyIds.length };
+}
+
+// ---- Rackbeat verification probe (temporary) --------------------------------
+
+const RB = 'https://app.rackbeat.com/api';
+
+/**
+ * TEMPORARY: dumps the raw Rackbeat invoice for a few sample deals of each
+ * rackbeat_id shape (plain order / IN- / CN-), to confirm the field mapping
+ * before building the verification report. Remove once confirmed.
+ */
+async function verifyProbe(env) {
+	if (!env.RACKBEAT_API_KEY) return { error: 'No RACKBEAT_API_KEY on worker' };
+
+	async function sample(where) {
+		const r = await env.DB
+			.prepare(
+				`SELECT deal_name, rackbeat_id, close_date, amount_raw, amount_dkk, currency
+				 FROM sales_deals WHERE ${where} AND rackbeat_id IS NOT NULL AND rackbeat_id != '' AND close_date >= '2026-01-01' LIMIT 2`
+			)
+			.all();
+		return r.results || [];
+	}
+	const deals = [
+		...(await sample("rackbeat_id NOT LIKE 'IN-%' AND rackbeat_id NOT LIKE 'CN-%'")),
+		...(await sample("rackbeat_id LIKE 'IN-%'")),
+		...(await sample("rackbeat_id LIKE 'CN-%'")),
+	];
+
+	async function rbGet(path) {
+		const res = await fetch(`${RB}${path}`, {
+			headers: { Authorization: `Bearer ${env.RACKBEAT_API_KEY}`, Accept: 'application/json' },
+		});
+		const text = await res.text();
+		let body;
+		try { body = JSON.parse(text); } catch { body = text.slice(0, 400); }
+		return { status: res.status, body };
+	}
+
+	const out = [];
+	for (const d of deals) {
+		const rid = d.rackbeat_id;
+		let query;
+		if (rid.startsWith('CN-')) query = `/invoices?is_creditnote=true&search=${encodeURIComponent(rid.slice(3))}`;
+		else if (rid.startsWith('IN-')) query = `/invoices?search=${encodeURIComponent(rid.slice(3))}`;
+		else query = `/invoices?order_number=${encodeURIComponent(rid)}`;
+		const rb = await rbGet(query);
+		const list = Array.isArray(rb.body) ? rb.body : rb.body?.invoices ?? rb.body?.data ?? null;
+		out.push({
+			deal: d,
+			query,
+			rbStatus: rb.status,
+			resultCount: Array.isArray(list) ? list.length : null,
+			firstResult: Array.isArray(list) ? list[0] ?? null : rb.body,
+		});
+	}
+	return { probe: out };
 }
 
 // ---- HubSpot fetch helpers --------------------------------------------------
@@ -331,7 +393,7 @@ async function hsRequest(env, url, init, attempt = 0) {
 const ROW_COLS = [
 	'deal_id', 'deal_name', 'close_date', 'amount_dkk', 'amount_raw', 'currency',
 	'pipeline', 'dealstage', 'company_id', 'company_name', 'owner_email', 'owner_name',
-	'country', 'market', 'customer_group', 'customer_level', 'updated_at',
+	'country', 'market', 'customer_group', 'customer_level', 'rackbeat_id', 'updated_at',
 ];
 
 /** INSERT OR REPLACE rows by deal_id (no deletes). Used by both paths. */
