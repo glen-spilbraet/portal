@@ -279,12 +279,14 @@
 							<tr>
 								<td><span class="pri {attnClass(a.score)}">{a.score}</span></td>
 								<td class="name">
-									<span class="cname">{a.name}</span>
-									<button class="detail-btn" onclick={() => (openCompany = { cid: a.cid, name: a.name, owner: a.owner })} aria-label="Open customer details" title="Open details">
-										<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-											<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-										</svg>
-									</button>
+									<div class="name-cell">
+										<span class="cname">{a.name}</span>
+										<button class="detail-btn" onclick={() => (openCompany = { cid: a.cid, name: a.name, owner: a.owner })} aria-label="Open customer details" title="Open details">
+											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+												<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+											</svg>
+										</button>
+									</div>
 								</td>
 								<td class="owner">{a.owner ?? '—'}</td>
 								<td>
@@ -331,12 +333,14 @@
 					{#each sortedCompanies as c (c.cid)}
 						<tr>
 							<td class="name">
-								<span class="cname">{c.name}</span>
-								<button class="detail-btn" onclick={() => (openCompany = c)} aria-label="Open customer details" title="Open details">
-									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-										<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-									</svg>
-								</button>
+								<div class="name-cell">
+									<span class="cname">{c.name}</span>
+									<button class="detail-btn" onclick={() => (openCompany = c)} aria-label="Open customer details" title="Open details">
+										<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+											<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+										</svg>
+									</button>
+								</div>
 							</td>
 							<td class="owner">{c.owner ?? '—'}</td>
 							<td class="num">{numFmt.format(Math.round(c.revenue))}</td>
@@ -700,11 +704,12 @@
 		padding: 11px 20px;
 		border-bottom: 1px solid #F5EDD8;
 		color: #3f3a33;
+		vertical-align: middle;
 	}
 	tbody tr:nth-child(even) td { background: #FFFBEF; }
 	tbody tr:hover td { background: #FFF5D2; }
 	td.name { font-weight: 700; color: #18181B; }
-	td.name { display: flex; align-items: center; gap: 8px; }
+	.name-cell { display: flex; align-items: center; gap: 8px; }
 	.detail-btn {
 		flex-shrink: 0;
 		display: inline-flex; align-items: center; justify-content: center;
