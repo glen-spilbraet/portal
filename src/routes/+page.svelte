@@ -335,7 +335,7 @@
 					</thead>
 					<tbody>
 						{#each data.attention as a (a.cid)}
-							<tr>
+							<tr class:menu-open={menuFor === a.cid}>
 								<td><span class="pri {attnClass(a.score)}">{a.score}</span></td>
 								<td class="name">
 									<div class="name-cell">
@@ -838,6 +838,8 @@
 		cursor: pointer; opacity: 0; transition: opacity 0.12s, background 0.12s, color 0.12s;
 	}
 	tbody tr:hover .detail-btn { opacity: 1; }
+	tbody tr.menu-open .detail-btn { opacity: 1; }
+	tbody tr.menu-open td { background: #FFF5D2; }
 	.detail-btn:hover { background: #FFE6A5; color: #7B3803; }
 	@media (hover: none) { .detail-btn { opacity: 1; } }
 	td.owner { color: #6b5e4e; }
