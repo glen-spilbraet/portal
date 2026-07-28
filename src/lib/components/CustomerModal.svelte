@@ -1,4 +1,6 @@
 <script>
+	import OrderList from '$lib/components/OrderList.svelte';
+
 	let { company, ranges, periodLabel, priorLabel, onClose } = $props();
 
 	const PORTAL = '145052209';
@@ -34,7 +36,6 @@
 
 	const chartMax = $derived(detail ? Math.max(1, ...detail.monthly.flatMap((m) => [m.cur, m.prev])) : 1);
 	const barH = (v) => Math.max(v > 0 ? 3 : 0, (v / chartMax) * 150);
-	const dealUrl = (id) => `https://app.hubspot.com/contacts/${PORTAL}/record/0-3/${id}`;
 	const companyUrl = (id) => `https://app.hubspot.com/contacts/${PORTAL}/record/0-2/${id}`;
 
 	const revPct = $derived(detail ? pct(detail.tiles.curRevenue, detail.tiles.priorRevenue) : null);
@@ -108,31 +109,11 @@
 		<div class="cm-section orders-wrap">
 			<div class="ocol">
 				<div class="cm-section-head"><span class="cm-title">Orders · {periodLabel}</span><span class="cm-count">{detail.ordersCur.length}</span></div>
-				<div class="orders">
-					{#each detail.ordersCur as o (o.id)}
-						<div class="orow">
-							<span class="odate">{o.date}</span>
-							<span class="orev" class:neg={o.dkk < 0}>{fdkk(o.dkk)}</span>
-							<a class="olink" href={dealUrl(o.id)} target="_blank" rel="noopener" title="Open deal in HubSpot">↗</a>
-						</div>
-					{:else}
-						<div class="empty">No orders</div>
-					{/each}
-				</div>
+				<OrderList orders={detail.ordersCur} portal={PORTAL} />
 			</div>
 			<div class="ocol">
 				<div class="cm-section-head"><span class="cm-title">Orders · {priorLabel}</span><span class="cm-count">{detail.ordersPrev.length}</span></div>
-				<div class="orders">
-					{#each detail.ordersPrev as o (o.id)}
-						<div class="orow">
-							<span class="odate">{o.date}</span>
-							<span class="orev" class:neg={o.dkk < 0}>{fdkk(o.dkk)}</span>
-							<a class="olink" href={dealUrl(o.id)} target="_blank" rel="noopener" title="Open deal in HubSpot">↗</a>
-						</div>
-					{:else}
-						<div class="empty">No orders</div>
-					{/each}
-				</div>
+				<OrderList orders={detail.ordersPrev} portal={PORTAL} />
 			</div>
 		</div>
 	{/if}
@@ -191,15 +172,6 @@
 	.mlabel { font-size: 10px; font-weight: 700; color: #A88B52; }
 
 	.orders-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
-	.orders { display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; }
-	.orow { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid #F5EDD8; font-size: 13px; }
-	.orow:hover { background: #FFFBEF; }
-	.odate { color: #8A7550; font-weight: 600; width: 92px; }
-	.orev { flex: 1; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; color: #18181B; }
-	.orev.neg { color: #C4381B; }
-	.olink { color: var(--accent); text-decoration: none; font-weight: 800; padding: 2px 7px; border-radius: 6px; }
-	.olink:hover { background: #FFF5D2; }
-	.empty { padding: 16px 4px; color: #A1A1AA; font-size: 13px; }
 
 	@media (max-width: 620px) { .tiles, .orders-wrap { grid-template-columns: 1fr; } }
 </style>
