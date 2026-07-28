@@ -58,6 +58,15 @@ export default {
 		}
 		const url = new URL(request.url);
 		try {
+			if (url.searchParams.get('fix') === '1') {
+				const body = await request.json().catch(() => ({}));
+				const dealIds = Array.isArray(body.dealIds) ? body.dealIds.map(String) : [];
+				const field = body.field;
+				if (!dealIds.length || !['date', 'amount', 'both'].includes(field)) {
+					return json({ ok: false, error: 'dealIds[] and field (date|amount|both) required' }, 400);
+				}
+				return json({ ok: true, ...(await runFix(env, dealIds, field)) });
+			}
 			if (url.searchParams.get('verify') === '1') {
 				const from = url.searchParams.get('from'); // deal close_date >= (YYYY-MM-DD)
 				const to = url.searchParams.get('to'); //   deal close_date <  (YYYY-MM-DD, exclusive)
@@ -354,6 +363,82 @@ async function runVerification(env, range) {
 	return { scope: range.label, checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, not_found: notFound, multiple, invoiceCount, issues: issues.length };
 }
 
+/**
+ * Fix selected deals by writing Rackbeat's values into HubSpot, then syncing
+ * our DB. field = 'date' | 'amount' | 'both'. Source of truth = the stored
+ * verification_issues row (rb_date / rb_subtotal).
+ */
+async function runFix(env, dealIds, field) {
+	if (!env.HUBSPOT_TOKEN) throw new Error('No HUBSPOT_TOKEN');
+	const wantDate = field === 'date' || field === 'both';
+	const wantAmount = field === 'amount' || field === 'both';
+	let fixed = 0, failed = 0;
+	const errors = [];
+
+	for (const id of dealIds) {
+		try {
+			const row = await env.DB.prepare('SELECT * FROM verification_issues WHERE deal_id = ?').bind(id).first();
+			if (!row) { failed++; errors.push({ id, error: 'not in issues list' }); continue; }
+
+			const props = {};
+			if (wantDate && row.rb_date && !String(row.rb_date).includes(',')) {
+				props.closedate = Date.parse(`${row.rb_date}T00:00:00Z`); // epoch ms, midnight UTC
+			}
+			if (wantAmount && row.rb_subtotal != null) {
+				props.amount = String(row.rb_subtotal);
+			}
+			if (!Object.keys(props).length) { failed++; errors.push({ id, error: 'nothing fixable (no invoice)' }); continue; }
+
+			// Write to HubSpot, then read the deal back for accurate mirror values.
+			await hsPatch(env, `${HS}/crm/v3/objects/deals/${id}`, { properties: props });
+			const back = await hsGet(env, `${HS}/crm/v3/objects/deals/${id}?properties=amount,amount_in_home_currency,closedate`);
+			const p = back.properties || {};
+			const newClose = p.closedate ? String(p.closedate).slice(0, 10) : row.close_date;
+			const newRaw = num(p.amount);
+			const newDkk = num(p.amount_in_home_currency);
+			await env.DB.prepare('UPDATE sales_deals SET close_date = ?, amount_raw = ?, amount_dkk = ? WHERE deal_id = ?')
+				.bind(newClose, newRaw, newDkk, id).run();
+
+			// Re-evaluate against Rackbeat; drop the row if it now matches.
+			const amtOk = row.rb_subtotal == null ? row.amount_match : Math.abs((newRaw || 0) - row.rb_subtotal) <= 0.5 ? 1 : 0;
+			const dateOk = !row.rb_date || String(row.rb_date).includes(',') ? row.date_match : newClose === row.rb_date ? 1 : 0;
+			if (amtOk && dateOk) {
+				await env.DB.prepare('DELETE FROM verification_issues WHERE deal_id = ?').bind(id).run();
+			} else {
+				const issue = !amtOk && !dateOk ? 'amount+date' : !amtOk ? 'amount' : 'date';
+				await env.DB.prepare('UPDATE verification_issues SET close_date = ?, amount_raw = ?, amount_match = ?, date_match = ?, issue = ? WHERE deal_id = ?')
+					.bind(newClose, newRaw, amtOk, dateOk, issue, id).run();
+			}
+			fixed++;
+		} catch (e) {
+			failed++;
+			errors.push({ id, error: (e?.message ?? String(e)).slice(0, 200) });
+		}
+	}
+
+	await recomputeVerifyMeta(env.DB);
+	return { fixed, failed, errors: errors.slice(0, 25) };
+}
+
+async function recomputeVerifyMeta(db) {
+	const c = await db
+		.prepare(
+			`SELECT COUNT(*) total,
+			        SUM(CASE WHEN amount_match=0 AND issue!='not_found' THEN 1 ELSE 0 END) amt,
+			        SUM(CASE WHEN date_match=0 AND issue!='not_found' THEN 1 ELSE 0 END) dt,
+			        SUM(CASE WHEN issue='not_found' THEN 1 ELSE 0 END) nf,
+			        SUM(CASE WHEN issue='multiple' THEN 1 ELSE 0 END) mu
+			 FROM verification_issues`
+		)
+		.first();
+	const meta = await db.prepare('SELECT checked FROM verification_meta WHERE id = 1').first();
+	const checked = meta?.checked ?? 0;
+	await db
+		.prepare('UPDATE verification_meta SET amount_mismatch=?, date_mismatch=?, not_found=?, multiple=?, ok=? WHERE id=1')
+		.bind(c?.amt || 0, c?.dt || 0, c?.nf || 0, c?.mu || 0, Math.max(0, checked - (c?.total || 0)))
+		.run();
+}
+
 /** Set verification run status ('running'|'ok'|'error') without touching counts. */
 async function setVerifyStatus(db, status, message) {
 	await db
@@ -482,6 +567,14 @@ async function hsGet(env, url) {
 async function hsPost(env, url, body) {
 	return hsRequest(env, url, {
 		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+}
+
+async function hsPatch(env, url, body) {
+	return hsRequest(env, url, {
+		method: 'PATCH',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(body),
 	});

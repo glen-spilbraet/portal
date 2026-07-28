@@ -113,6 +113,50 @@
 		}
 	}
 
+	// ── Fixing (write Rackbeat values back to HubSpot) ───────────────────────
+	const isFixable = (r) => r.issue === 'amount' || r.issue === 'date' || r.issue === 'amount+date';
+	let selected = $state(new Set());
+	let fixField = $state('both');
+	let fixing = $state(false);
+	let fixMsg = $state('');
+
+	const fixableShown = $derived(shown.filter(isFixable));
+	const allSelected = $derived(fixableShown.length > 0 && fixableShown.every((r) => selected.has(r.deal_id)));
+
+	function toggle(id) {
+		selected.has(id) ? selected.delete(id) : selected.add(id);
+		selected = new Set(selected);
+	}
+	function toggleAll() {
+		if (allSelected) selected = new Set();
+		else selected = new Set(fixableShown.map((r) => r.deal_id));
+	}
+
+	async function applyFix() {
+		const ids = [...selected];
+		if (!ids.length) return;
+		const label = { date: 'close dates', amount: 'amounts', both: 'dates & amounts' }[fixField];
+		if (!confirm(`Update ${ids.length} deal(s) in HubSpot — set their ${label} to the Rackbeat values?\n\n⚠️ This changes LIVE HubSpot data.`)) return;
+		fixing = true;
+		fixMsg = '';
+		try {
+			const res = await fetch('/api/stats/fix', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ dealIds: ids, field: fixField }),
+			});
+			const b = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(b?.message ?? `Failed (${res.status})`);
+			fixMsg = `Fixed ${b.fixed}${b.failed ? ` · ${b.failed} failed` : ''}.`;
+			selected = new Set();
+			await invalidateAll();
+		} catch (e) {
+			fixMsg = `Error: ${e.message}`;
+		} finally {
+			fixing = false;
+		}
+	}
+
 	function asOf(s) {
 		if (!s) return null;
 		const d = new Date(s);
@@ -181,9 +225,10 @@
 	<section class="table-wrap">
 		<div class="table-scroll">
 			<table>
-				<colgroup><col /><col style="width:160px" /><col style="width:110px" /><col style="width:170px" /><col style="width:170px" /></colgroup>
+				<colgroup><col style="width:38px" /><col /><col style="width:160px" /><col style="width:110px" /><col style="width:170px" /><col style="width:170px" /></colgroup>
 				<thead>
 					<tr>
+						<th class="chk"><input type="checkbox" checked={allSelected} onchange={toggleAll} aria-label="Select all fixable" /></th>
 						<th>Customer / Deal</th>
 						<th>Owner</th>
 						<th>Issue</th>
@@ -193,7 +238,10 @@
 				</thead>
 				<tbody>
 					{#each shown as r (r.deal_id)}
-						<tr>
+						<tr class:sel={selected.has(r.deal_id)}>
+							<td class="chk">
+								{#if isFixable(r)}<input type="checkbox" checked={selected.has(r.deal_id)} onchange={() => toggle(r.deal_id)} aria-label="Select row" />{/if}
+							</td>
 							<td class="cust-cell">
 								<div class="cust">{r.company_name ?? '—'}</div>
 								<div class="idlinks">
@@ -213,13 +261,27 @@
 							</td>
 						</tr>
 					{:else}
-						<tr><td colspan="5" class="empty">{data.issues.length ? 'No rows for this filter.' : 'No discrepancies 🎉'}</td></tr>
+						<tr><td colspan="6" class="empty">{data.issues.length ? 'No rows for this filter.' : 'No discrepancies 🎉'}</td></tr>
 					{/each}
 				</tbody>
 			</table>
 		</div>
 	</section>
 </main>
+
+{#if selected.size > 0}
+	<div class="fixbar">
+		<span class="fx-count">{selected.size} selected</span>
+		<select class="fx-sel" bind:value={fixField} disabled={fixing}>
+			<option value="both">Fix dates &amp; amounts</option>
+			<option value="date">Fix dates</option>
+			<option value="amount">Fix amounts</option>
+		</select>
+		<button class="fx-apply" onclick={applyFix} disabled={fixing}>{fixing ? 'Fixing…' : 'Apply to HubSpot'}</button>
+		<button class="fx-cancel" onclick={() => (selected = new Set())} disabled={fixing}>Cancel</button>
+		{#if fixMsg}<span class="fx-msg">{fixMsg}</span>{/if}
+	</div>
+{/if}
 
 <style>
 	.wrap { max-width: 1140px; margin: 0 auto; padding: 28px; }
@@ -288,4 +350,23 @@
 	.badge.amount, .badge.date, .badge { background: #FDECEC; color: #C4381B; }
 	.badge.multiple { background: #EEF1F5; color: #3E5060; }
 	.empty { text-align: center; color: #A1A1AA; padding: 28px; }
+
+	.chk { text-align: center; padding-left: 12px; padding-right: 4px; }
+	.chk input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
+	tbody tr.sel td { background: #FFE6A5 !important; }
+
+	.fixbar {
+		position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 200;
+		display: flex; align-items: center; gap: 12px;
+		background: #18181B; color: #fff; padding: 10px 14px; border-radius: 12px;
+		box-shadow: 0 12px 34px rgba(0, 0, 0, 0.3);
+	}
+	.fx-count { font-size: 13px; font-weight: 800; }
+	.fx-sel { font-family: inherit; font-size: 13px; font-weight: 700; border: none; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+	.fx-apply { font-family: inherit; font-size: 13px; font-weight: 800; color: #fff; background: var(--accent); border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; }
+	.fx-apply:hover { background: var(--accent-hover); }
+	.fx-apply:disabled { opacity: 0.6; cursor: default; }
+	.fx-cancel { font-family: inherit; font-size: 13px; font-weight: 700; color: #d4d4d8; background: none; border: none; cursor: pointer; }
+	.fx-cancel:hover { color: #fff; }
+	.fx-msg { font-size: 12px; color: #E7F6EC; font-weight: 700; }
 </style>
