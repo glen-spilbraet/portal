@@ -265,7 +265,7 @@
 			<div class="table-scroll">
 				<table class="attn-table">
 					<colgroup>
-						<col style="width:78px" />
+						<col style="width:64px" />
 						<col />
 						<col style="width:160px" />
 						<col style="width:300px" />
@@ -636,7 +636,9 @@
 	.attn-table { table-layout: fixed; }
 	/* Keep every column on one line; truncate names/owner with ellipsis. */
 	.attn-table .name-cell { min-width: 0; }
-	.attn-table .cname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.attn-table .cname { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* Trim the priority column's padding so the narrower column still fits. */
+	.attn-table th:first-child, .attn-table td:first-child { padding-right: 6px; }
 	.attn-table td.owner { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.attn-table .whys { flex-wrap: nowrap; }
 	.pri {
