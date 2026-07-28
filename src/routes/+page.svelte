@@ -321,7 +321,7 @@
 						<col style="width:160px" />
 						<col style="width:300px" />
 						<col style="width:64px" />
-						<col style="width:112px" />
+						<col style="width:150px" />
 					</colgroup>
 					<thead>
 						<tr>
@@ -330,7 +330,7 @@
 							<th>Owner Name</th>
 							<th>Why attention</th>
 							<th class="num">Index</th>
-							<th class="num">kr behind</th>
+							<th class="num">Behind</th>
 						</tr>
 					</thead>
 					<tbody>
