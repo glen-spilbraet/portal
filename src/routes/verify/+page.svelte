@@ -8,6 +8,7 @@
 	const dkk = new Intl.NumberFormat('da-DK', { maximumFractionDigits: 2 });
 	const num = new Intl.NumberFormat('da-DK');
 	const dealUrl = (id) => `https://app.hubspot.com/contacts/${PORTAL}/record/0-3/${id}`;
+	const rbUrl = (number) => `https://app.rackbeat.com/sales/customer-invoices/${String(number).split(',')[0]}`;
 	const fmt = (n) => (n == null ? '—' : dkk.format(n));
 
 	let running = $state(false);
@@ -201,7 +202,10 @@
 							<td><span class="badge {r.issue}">{r.issue.replace('_', ' ')}</span></td>
 							<td class="cell">
 								<div class="ln"><span class="k">HS</span>{fmt(r.amount_raw)} {r.currency ?? ''}</div>
-								<div class="ln rb" class:bad={!r.amount_match && r.issue !== 'not_found'}><span class="k">RB</span>{r.rb_subtotal == null ? '—' : `${fmt(r.rb_subtotal)} ${r.currency ?? ''}`}</div>
+								<div class="ln rb" class:bad={!r.amount_match && r.issue !== 'not_found'}>
+									<span class="k">RB</span>{r.rb_subtotal == null ? '—' : `${fmt(r.rb_subtotal)} ${r.currency ?? ''}`}
+									{#if r.invoice_number}<a class="inv" href={rbUrl(r.invoice_number)} target="_blank" rel="noopener" title="Open invoice {r.invoice_number} in Rackbeat">#{String(r.invoice_number).split(',')[0]} ↗</a>{/if}
+								</div>
 							</td>
 							<td class="cell">
 								<div class="ln"><span class="k">HS</span>{r.close_date ?? '—'}</div>
@@ -277,6 +281,8 @@
 	.ln .k { display: inline-block; width: 20px; font-size: 10px; font-weight: 800; color: #A1A1AA; text-transform: uppercase; padding-top: 1px; }
 	.ln.rb { color: #8A7550; }
 	.ln.rb.bad { color: #C4381B; font-weight: 800; }
+	.inv { color: var(--accent); text-decoration: none; font-weight: 700; font-size: 11px; }
+	.inv:hover { text-decoration: underline; }
 
 	.badge { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 100px; white-space: nowrap; text-transform: capitalize; }
 	.badge.not_found { background: #FDEBD2; color: #B4611A; }
