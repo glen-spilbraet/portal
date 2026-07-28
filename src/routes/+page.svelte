@@ -263,7 +263,15 @@
 				<span class="count">{numFmt.format(data.attention.length)}</span>
 			</div>
 			<div class="table-scroll">
-				<table>
+				<table class="attn-table">
+					<colgroup>
+						<col style="width:78px" />
+						<col />
+						<col style="width:160px" />
+						<col style="width:300px" />
+						<col style="width:64px" />
+						<col style="width:112px" />
+					</colgroup>
 					<thead>
 						<tr>
 							<th>Priority</th>
@@ -625,6 +633,12 @@
 
 	/* ── Customers needing attention (reuses .table-wrap styles) ─────────────── */
 	.attn-wrap { margin-top: 26px; }
+	.attn-table { table-layout: fixed; }
+	/* Keep every column on one line; truncate names/owner with ellipsis. */
+	.attn-table .name-cell { min-width: 0; }
+	.attn-table .cname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.attn-table td.owner { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.attn-table .whys { flex-wrap: nowrap; }
 	.pri {
 		display: inline-flex; align-items: center; justify-content: center;
 		min-width: 30px; height: 22px; padding: 0 7px; border-radius: 7px;
