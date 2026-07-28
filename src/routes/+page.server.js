@@ -257,5 +257,12 @@ export async function load({ platform, url, cookies, parent }) {
 		filterOptions,
 		reps,
 		activeFilters,
+		ranges: {
+			curStart: cur.start,
+			curEnd: cur.end,
+			priorStart: prior.start,
+			priorEnd: prior.end,
+			year: Number(cur.start.slice(0, 4)),
+		},
 	};
 }

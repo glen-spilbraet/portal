@@ -1,9 +1,12 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
 	import MultiFilter from '$lib/components/MultiFilter.svelte';
+	import CustomerModal from '$lib/components/CustomerModal.svelte';
 	import { goto } from '$app/navigation';
 
 	let { data } = $props();
+
+	let openCompany = $state(null);
 
 	const isQuickSelected = $derived(data.selected !== 'custom');
 
@@ -276,7 +279,14 @@
 				<tbody>
 					{#each sortedCompanies as c (c.cid)}
 						<tr>
-							<td class="name">{c.name}</td>
+							<td class="name">
+								<span class="cname">{c.name}</span>
+								<button class="detail-btn" onclick={() => (openCompany = c)} aria-label="Open customer details" title="Open details">
+									<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+									</svg>
+								</button>
+							</td>
 							<td class="owner">{c.owner ?? '—'}</td>
 							<td class="num">{numFmt.format(Math.round(c.revenue))}</td>
 							<td class="num">
@@ -305,6 +315,16 @@
 		<p class="freshness">Data synced from HubSpot · last updated {dataAsOf(data.meta)}</p>
 	{/if}
 </main>
+
+{#if openCompany}
+	<CustomerModal
+		company={openCompany}
+		ranges={data.ranges}
+		periodLabel={data.periodLabel}
+		priorLabel={data.priorLabel}
+		onClose={() => (openCompany = null)}
+	/>
+{/if}
 
 <style>
 	.wrap {
@@ -616,6 +636,17 @@
 	tbody tr:nth-child(even) td { background: #FFFBEF; }
 	tbody tr:hover td { background: #FFF5D2; }
 	td.name { font-weight: 700; color: #18181B; }
+	td.name { display: flex; align-items: center; gap: 8px; }
+	.detail-btn {
+		flex-shrink: 0;
+		display: inline-flex; align-items: center; justify-content: center;
+		width: 24px; height: 24px; border-radius: 6px;
+		border: 1px solid var(--border); background: #fff; color: #A88B52;
+		cursor: pointer; opacity: 0; transition: opacity 0.12s, background 0.12s, color 0.12s;
+	}
+	tbody tr:hover .detail-btn { opacity: 1; }
+	.detail-btn:hover { background: #FFE6A5; color: #7B3803; }
+	@media (hover: none) { .detail-btn { opacity: 1; } }
 	td.owner { color: #6b5e4e; }
 	td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
 
