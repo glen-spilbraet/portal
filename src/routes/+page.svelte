@@ -257,27 +257,49 @@
 	{/if}
 
 	{#if data.attention.length}
-		<section class="attn">
-			<div class="attn-head">
+		<section class="table-wrap attn-wrap">
+			<div class="table-head">
 				<h2>Customers Needing Attention</h2>
 				<span class="count">{numFmt.format(data.attention.length)}</span>
 			</div>
-			<div class="attn-scroll">
-				<div class="attn-rowh">
-					<span>Priority</span><span>Customer</span><span class="anum">kr behind</span><span>Why it needs attention</span>
-				</div>
-				{#each data.attention as a (a.cid)}
-					<button class="attn-row" onclick={() => (openCompany = { cid: a.cid, name: a.name, owner: a.owner })}>
-						<span class="pri {attnClass(a.score)}">{a.score}</span>
-						<span class="acust">{a.name}<span class="aowner">{a.owner ?? '—'}</span></span>
-						<span class="abehind">{formatDkk(a.krBehind)}<span class="ayoy">{a.yoyPct}% YoY</span></span>
-						<span class="whys">
-							{#if a.daysSince != null && a.daysSince > 15}<span class="b quiet">Quiet {a.daysSince}d</span>{/if}
-							{#if a.freqDropPct > 0}<span class="b ord">Orders −{a.freqDropPct}%</span>{/if}
-							{#if a.aovDropPct > 0}<span class="b aov">AOV −{a.aovDropPct}%</span>{/if}
-						</span>
-					</button>
-				{/each}
+			<div class="table-scroll">
+				<table>
+					<thead>
+						<tr>
+							<th>Priority</th>
+							<th>Customer</th>
+							<th>Owner Name</th>
+							<th>Why attention</th>
+							<th class="num">Index</th>
+							<th class="num">kr behind</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each data.attention as a (a.cid)}
+							<tr>
+								<td><span class="pri {attnClass(a.score)}">{a.score}</span></td>
+								<td class="name">
+									<span class="cname">{a.name}</span>
+									<button class="detail-btn" onclick={() => (openCompany = { cid: a.cid, name: a.name, owner: a.owner })} aria-label="Open customer details" title="Open details">
+										<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+											<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+										</svg>
+									</button>
+								</td>
+								<td class="owner">{a.owner ?? '—'}</td>
+								<td>
+									<span class="whys">
+										{#if a.daysSince != null && a.daysSince > 15}<span class="b quiet">Quiet {a.daysSince}d</span>{/if}
+										{#if a.freqDropPct > 0}<span class="b ord">Orders −{a.freqDropPct}%</span>{/if}
+										{#if a.aovDropPct > 0}<span class="b aov">AOV −{a.aovDropPct}%</span>{/if}
+									</span>
+								</td>
+								<td class="num"><span class="index-chip {indexClass(a.index)}">{a.index ?? '—'}</span></td>
+								<td class="num behind-cell">{formatDkk(a.krBehind)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
 			</div>
 		</section>
 	{/if}
@@ -597,48 +619,17 @@
 		background: var(--accent); border: 3px solid #fff; box-shadow: 0 0 0 2px var(--accent);
 	}
 
-	/* ── Customers needing attention ─────────────────────────────────────────── */
-	.attn {
-		margin-top: 26px;
-		background: #fff;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		box-shadow: var(--shadow);
-		overflow: hidden;
-	}
-	.attn-head {
-		display: flex; align-items: center; gap: 10px;
-		padding: 16px 20px; border-bottom: 1px solid var(--border);
-	}
-	.attn-head h2 { font-size: 15px; font-weight: 800; color: #18181B; margin: 0; letter-spacing: -0.2px; }
-	.attn-scroll { max-height: 560px; overflow-y: auto; }
-	.attn-rowh, .attn-row {
-		display: grid;
-		grid-template-columns: 60px 1fr 150px 1.5fr;
-		gap: 14px; align-items: center; padding: 10px 20px;
-	}
-	.attn-rowh {
-		position: sticky; top: 0; z-index: 1; background: #FBEFCB; color: #7B3803;
-		font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
-		border-bottom: 1px solid var(--border);
-	}
-	.attn-rowh .anum { text-align: right; }
-	.attn-row {
-		width: 100%; border: none; background: none; font-family: inherit; text-align: left; cursor: pointer;
-		border-bottom: 1px solid #F5EDD8; font-size: 13.5px;
-	}
-	.attn-row:hover { background: #FFF5D2; }
+	/* ── Customers needing attention (reuses .table-wrap styles) ─────────────── */
+	.attn-wrap { margin-top: 26px; }
 	.pri {
 		display: inline-flex; align-items: center; justify-content: center;
-		width: 38px; height: 38px; border-radius: 10px; font-size: 15px; font-weight: 900;
+		min-width: 30px; height: 22px; padding: 0 7px; border-radius: 7px;
+		font-size: 12.5px; font-weight: 900;
 	}
 	.pri.hi { background: #FDECEC; color: #C4381B; }
 	.pri.mid { background: #FDEBD2; color: #B4611A; }
 	.pri.lo { background: #F1EEE6; color: #8A7550; }
-	.acust { font-weight: 800; color: #18181B; min-width: 0; }
-	.acust .aowner { display: block; font-size: 12px; font-weight: 600; color: #8A7550; margin-top: 1px; }
-	.abehind { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; color: #C4381B; }
-	.abehind .ayoy { display: block; font-size: 11px; font-weight: 600; color: #8A7550; }
+	.behind-cell { color: #C4381B; }
 	.whys { display: flex; flex-wrap: wrap; gap: 5px; }
 	.b { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 100px; white-space: nowrap; }
 	.b.quiet { background: #FDECEC; color: #C4381B; }

@@ -240,6 +240,7 @@ export function scoreAttention(rows, todayStr) {
 				name: r.name,
 				owner: r.owner,
 				krBehind,
+				index: r.prior_rev > 0 ? Math.round((r.cur_rev / r.prior_rev) * 100) : null,
 				yoyPct: r.prior_rev > 0 ? Math.round((r.cur_rev / r.prior_rev - 1) * 100) : null,
 				daysSince,
 				freqDropPct: Math.round(freqDrop * 100),
