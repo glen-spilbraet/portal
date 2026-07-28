@@ -200,23 +200,17 @@ export async function getAttentionData(db, cur, prior, filters = {}) {
 	return rows.results ?? [];
 }
 
-function percentile(sortedAsc, p) {
-	if (!sortedAsc.length) return 0;
-	const idx = Math.floor(p * (sortedAsc.length - 1));
-	return sortedAsc[idx];
-}
-
 /**
  * Score "customers needing attention" (0–100), money-led:
- *   amount behind 40 (vs peer set) · recency 25 · fewer orders 20 · lower AOV 15.
- * Candidates = companies behind on revenue this window. Recency uses the true
- * last order date vs `todayStr`. Returns rows sorted by score desc.
+ *   amount behind 55 (vs the largest gap in the set) · recency 20 · fewer
+ *   orders 15 · lower AOV 10. Amount behind dominates so big shortfalls always
+ *   outrank small dead accounts. Candidates = companies behind on revenue this
+ *   window. Recency uses the true last order date vs `todayStr`.
  */
 export function scoreAttention(rows, todayStr) {
 	const today = Date.parse(todayStr + 'T00:00:00Z');
 	const cand = rows.filter((r) => r.prior_rev > 0 && r.prior_rev > r.cur_rev);
-	const gaps = cand.map((r) => r.prior_rev - r.cur_rev).sort((a, b) => a - b);
-	const gapRef = Math.max(percentile(gaps, 0.9), 1);
+	const gapRef = Math.max(...cand.map((r) => r.prior_rev - r.cur_rev), 1);
 
 	return cand
 		.map((r) => {
@@ -229,10 +223,10 @@ export function scoreAttention(rows, todayStr) {
 			const aovPrior = r.prior_ord > 0 ? r.prior_rev / r.prior_ord : 0;
 			const aovDrop = r.cur_ord > 0 && aovPrior > 0 ? Math.max(0, (aovPrior - aovCur) / aovPrior) : 0;
 
-			const gapPts = Math.min(40, (40 * krBehind) / gapRef);
-			const recPts = daysSince != null && daysSince > 15 ? Math.min(25, ((daysSince - 15) / 60) * 25) : 0;
-			const ordPts = Math.min(20, freqDrop * 20);
-			const aovPts = Math.min(15, aovDrop * 15);
+			const gapPts = Math.min(55, (55 * krBehind) / gapRef);
+			const recPts = daysSince != null && daysSince > 15 ? Math.min(20, ((daysSince - 15) / 60) * 20) : 0;
+			const ordPts = Math.min(15, freqDrop * 15);
+			const aovPts = Math.min(10, aovDrop * 10);
 			const score = Math.round(gapPts + recPts + ordPts + aovPts);
 
 			return {
