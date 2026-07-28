@@ -2,11 +2,43 @@
 	import AppNav from '$lib/components/AppNav.svelte';
 	import MultiFilter from '$lib/components/MultiFilter.svelte';
 	import CustomerModal from '$lib/components/CustomerModal.svelte';
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 
 	let { data } = $props();
 
 	let openCompany = $state(null);
+
+	// ── Attention snooze/dismiss menu ────────────────────────────────────────
+	let menuFor = $state(null);
+	let menuX = $state(0);
+	let menuY = $state(0);
+	let showSnoozed = $state(false);
+
+	function openMenu(e, cid) {
+		e.stopPropagation();
+		const r = e.currentTarget.getBoundingClientRect();
+		menuX = Math.min(r.left, window.innerWidth - 210);
+		menuY = r.bottom + 4;
+		menuFor = cid;
+	}
+	function todayPlus(days) {
+		const d = new Date();
+		d.setDate(d.getDate() + days);
+		return d.toISOString().slice(0, 10);
+	}
+	async function postHide(companyId, op, until) {
+		menuFor = null;
+		try {
+			await fetch('/api/stats/attention', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ companyId, op, until }),
+			});
+			await invalidateAll();
+		} catch (e) {
+			/* ignore */
+		}
+	}
 
 	const isQuickSelected = $derived(data.selected !== 'custom');
 
@@ -261,7 +293,26 @@
 			<div class="table-head">
 				<h2>Customers Needing Attention</h2>
 				<span class="count">{numFmt.format(data.attention.length)}</span>
+				{#if data.snoozed.length}
+					<button class="snz-toggle" onclick={() => (showSnoozed = !showSnoozed)}>
+						{showSnoozed ? 'Hide' : 'Show'} snoozed ({data.snoozed.length})
+					</button>
+				{/if}
 			</div>
+
+			{#if showSnoozed && data.snoozed.length}
+				<div class="snoozed-list">
+					{#each data.snoozed as s (s.cid)}
+						<div class="snz-row">
+							<span class="snz-name">{s.name}</span>
+							<span class="snz-meta">{s.until ? `snoozed until ${s.until}` : s.scope === 'global' ? 'dismissed (everyone)' : 'dismissed'}</span>
+							<span class="snz-behind">{formatDkk(s.krBehind)}</span>
+							<button class="snz-restore" onclick={() => postHide(s.cid, 'restore')}>Restore</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
 			<div class="table-scroll">
 				<table class="attn-table">
 					<colgroup>
@@ -292,6 +343,11 @@
 										<button class="detail-btn" onclick={() => (openCompany = { cid: a.cid, name: a.name, owner: a.owner })} aria-label="Open customer details" title="Open details">
 											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
 												<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+											</svg>
+										</button>
+										<button class="detail-btn" onclick={(e) => openMenu(e, a.cid)} aria-label="Snooze or dismiss" title="Snooze / dismiss">
+											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+												<circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
 											</svg>
 										</button>
 									</div>
@@ -387,6 +443,18 @@
 		priorLabel={data.priorLabel}
 		onClose={() => (openCompany = null)}
 	/>
+{/if}
+
+{#if menuFor}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="menu-backdrop" onclick={() => (menuFor = null)}></div>
+	<div class="snz-menu" style="top:{menuY}px; left:{menuX}px;">
+		<button onclick={() => postHide(menuFor, 'snooze', todayPlus(30))}>Snooze 30 days</button>
+		<button onclick={() => postHide(menuFor, 'snooze', todayPlus(90))}>Snooze 90 days</button>
+		<label class="snz-custom">Until <input type="date" onchange={(e) => e.currentTarget.value && postHide(menuFor, 'snooze', e.currentTarget.value)} /></label>
+		<div class="snz-div"></div>
+		<button class="snz-dismiss" onclick={() => postHide(menuFor, 'dismiss')}>Dismiss{data.isAdmin ? ' (everyone)' : ''}</button>
+	</div>
 {/if}
 
 <style>
@@ -650,6 +718,42 @@
 	.pri.mid { background: #FDEBD2; color: #B4611A; }
 	.pri.lo { background: #F1EEE6; color: #8A7550; }
 	.behind-cell { color: #C4381B; }
+
+	/* snooze/dismiss menu + snoozed list */
+	.snz-toggle {
+		margin-left: auto; background: none; border: none; font-family: inherit;
+		font-size: 12.5px; font-weight: 700; color: #B15A12; cursor: pointer;
+		padding: 4px 8px; border-radius: 7px;
+	}
+	.snz-toggle:hover { background: #FFF5D2; }
+	.snoozed-list { background: #FFFBEF; border-bottom: 1px solid var(--border); padding: 4px 20px; }
+	.snz-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; font-size: 13px; border-bottom: 1px solid #F5EDD8; }
+	.snz-row:last-child { border-bottom: none; }
+	.snz-name { font-weight: 700; color: #18181B; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.snz-meta { color: #8A7550; font-weight: 600; white-space: nowrap; }
+	.snz-behind { color: #C4381B; font-weight: 700; font-variant-numeric: tabular-nums; width: 96px; text-align: right; }
+	.snz-restore { background: #FFE6A5; color: #7B3803; border: none; border-radius: 7px; font-family: inherit; font-size: 12px; font-weight: 700; padding: 6px 12px; cursor: pointer; flex-shrink: 0; }
+	.snz-restore:hover { background: #F8D97F; }
+
+	.menu-backdrop { position: fixed; inset: 0; z-index: 250; }
+	.snz-menu {
+		position: fixed; z-index: 251; min-width: 190px;
+		background: #fff; border: 1px solid var(--border); border-radius: 10px;
+		box-shadow: 0 10px 30px rgba(100, 60, 0, 0.16); padding: 5px;
+		display: flex; flex-direction: column;
+	}
+	.snz-menu button, .snz-custom {
+		text-align: left; background: none; border: none; font-family: inherit;
+		font-size: 13px; font-weight: 600; color: #3f3a33; padding: 8px 10px;
+		border-radius: 7px; cursor: pointer; white-space: nowrap;
+		display: flex; align-items: center; gap: 6px;
+	}
+	.snz-menu button:hover { background: #FFF5D2; color: #7B3803; }
+	.snz-custom { justify-content: space-between; }
+	.snz-custom input { border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 12px; padding: 3px 5px; }
+	.snz-div { height: 1px; background: var(--border); margin: 4px 6px; }
+	.snz-dismiss { color: #C4381B; }
+	.snz-dismiss:hover { background: #FEF2F2 !important; color: #C4381B !important; }
 	.whys { display: flex; flex-wrap: wrap; gap: 5px; }
 	.b { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 100px; white-space: nowrap; }
 	.b.quiet { background: #FDECEC; color: #C4381B; }

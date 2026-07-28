@@ -245,6 +245,45 @@ export function scoreAttention(rows, todayStr) {
 		.sort((a, b) => b.score - a.score);
 }
 
+// ── Attention snooze / dismiss ──────────────────────────────────────────────
+
+/** Active hides visible to `userEmail`: global dismisses + that user's own. */
+export async function getActiveHides(db, userEmail, todayStr) {
+	const rows = await db
+		.prepare(
+			`SELECT company_id, scope, until_date FROM attention_hides
+			 WHERE (until_date IS NULL OR until_date > ?)
+			   AND (scope = 'global' OR (scope = 'user' AND user_email = ?))`
+		)
+		.bind(todayStr, userEmail)
+		.all();
+	return rows.results ?? [];
+}
+
+/** Upsert a hide (snooze = untilDate set; dismiss = untilDate null). */
+export async function addHide(db, { scope, userEmail, createdBy, companyId, untilDate }) {
+	await db
+		.prepare(
+			`INSERT INTO attention_hides (id, scope, user_email, created_by, company_id, until_date)
+			 VALUES (?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(scope, user_email, company_id)
+			 DO UPDATE SET until_date = excluded.until_date, created_by = excluded.created_by, created_at = unixepoch()`
+		)
+		.bind(crypto.randomUUID(), scope, userEmail, createdBy ?? null, companyId, untilDate ?? null)
+		.run();
+}
+
+/** Remove the viewing user's own hide for a company; admins also clear global. */
+export async function removeHide(db, { companyId, userEmail, isAdmin }) {
+	await db
+		.prepare(`DELETE FROM attention_hides WHERE company_id = ? AND scope = 'user' AND user_email = ?`)
+		.bind(companyId, userEmail)
+		.run();
+	if (isAdmin) {
+		await db.prepare(`DELETE FROM attention_hides WHERE company_id = ? AND scope = 'global'`).bind(companyId).run();
+	}
+}
+
 /** Latest sync metadata (for a "data as of …" line). */
 export async function getSyncMeta(db) {
 	return db.prepare('SELECT last_run, status, deal_count FROM sales_sync_meta WHERE id = 1').first();
