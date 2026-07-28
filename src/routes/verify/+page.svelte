@@ -282,8 +282,6 @@
 	.ln .k { display: inline-block; width: 20px; font-size: 10px; font-weight: 800; color: #A1A1AA; text-transform: uppercase; padding-top: 1px; }
 	.ln.rb { color: #8A7550; }
 	.ln.rb.bad { color: #C4381B; font-weight: 800; }
-	.inv { color: var(--accent); text-decoration: none; font-weight: 700; font-size: 11px; }
-	.inv:hover { text-decoration: underline; }
 
 	.badge { font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 100px; white-space: nowrap; text-transform: capitalize; }
 	.badge.not_found { background: #FDEBD2; color: #B4611A; }
