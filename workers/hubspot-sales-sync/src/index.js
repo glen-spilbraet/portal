@@ -51,8 +51,8 @@ export default {
 		}
 		const url = new URL(request.url);
 		try {
-			if (url.searchParams.get('verifyProbe') === '1') {
-				return json(await verifyProbe(env), 200);
+			if (url.searchParams.get('verify') === '1') {
+				return json({ ok: true, ...(await runVerification(env)) });
 			}
 			let summary;
 			if (url.searchParams.get('reconcile') === '1') {
@@ -189,61 +189,137 @@ async function enrichDeals(env, deals) {
 	return { rows, companyCount: companyIds.length };
 }
 
-// ---- Rackbeat verification probe (temporary) --------------------------------
+// ---- Rackbeat verification (amount & close date vs Rackbeat invoices) --------
 
 const RB = 'https://app.rackbeat.com/api';
+const AMOUNT_TOLERANCE = 0.5; // kr, absorbs rounding
 
 /**
- * TEMPORARY: dumps the raw Rackbeat invoice for a few sample deals of each
- * rackbeat_id shape (plain order / IN- / CN-), to confirm the field mapping
- * before building the verification report. Remove once confirmed.
+ * Bulk-fetch all customer invoices since 2023-12 and index them by invoice
+ * number and by linked order number. Pages fetched in parallel batches.
  */
-async function verifyProbe(env) {
-	if (!env.RACKBEAT_API_KEY) return { error: 'No RACKBEAT_API_KEY on worker' };
+async function fetchAllInvoices(env) {
+	const headers = { Authorization: `Bearer ${env.RACKBEAT_API_KEY}`, Accept: 'application/json' };
+	const base = `/customer-invoices?limit=100&date_from=${encodeURIComponent('2023-12-01 00:00:00')}`;
+	const getPage = async (p) => {
+		const res = await fetch(`${RB}${base}&page=${p}`, { headers });
+		if (!res.ok) return [];
+		const b = await res.json();
+		return b.customer_invoices || [];
+	};
 
-	async function sample(where) {
-		const r = await env.DB
-			.prepare(
-				`SELECT deal_name, rackbeat_id, close_date, amount_raw, amount_dkk, currency
-				 FROM sales_deals WHERE ${where} AND rackbeat_id IS NOT NULL AND rackbeat_id != '' AND close_date >= '2026-01-01' LIMIT 2`
-			)
-			.all();
-		return r.results || [];
+	const byNumber = new Map();
+	const byOrder = new Map();
+	const add = (inv) => {
+		const rec = {
+			number: inv.number,
+			invoice_date: inv.invoice_date,
+			total_subtotal: inv.total_subtotal,
+			currency: inv.currency,
+			is_creditnote: inv.is_creditnote,
+		};
+		byNumber.set(String(inv.number), rec);
+		for (const o of inv.orders || []) {
+			const k = String(o);
+			if (!byOrder.has(k)) byOrder.set(k, []);
+			byOrder.get(k).push(rec);
+		}
+	};
+
+	const firstRes = await fetch(`${RB}${base}&page=1`, { headers });
+	if (!firstRes.ok) throw new Error(`Rackbeat invoices ${firstRes.status}`);
+	const first = await firstRes.json();
+	const totalPages = first.pages || 1;
+	for (const inv of first.customer_invoices || []) add(inv);
+
+	const BATCH = 25;
+	for (let start = 2; start <= totalPages; start += BATCH) {
+		const pages = [];
+		for (let p = start; p < Math.min(start + BATCH, totalPages + 1); p++) pages.push(p);
+		const results = await Promise.all(pages.map(getPage));
+		for (const arr of results) for (const inv of arr) add(inv);
 	}
-	const deals = [
-		...(await sample("rackbeat_id NOT LIKE 'IN-%' AND rackbeat_id NOT LIKE 'CN-%'")),
-		...(await sample("rackbeat_id LIKE 'IN-%'")),
-		...(await sample("rackbeat_id LIKE 'CN-%'")),
-	];
+	return { byNumber, byOrder, invoiceCount: byNumber.size };
+}
 
-	async function rbGet(path) {
-		const res = await fetch(`${RB}${path}`, {
-			headers: { Authorization: `Bearer ${env.RACKBEAT_API_KEY}`, Accept: 'application/json' },
-		});
-		const text = await res.text();
-		let body;
-		try { body = JSON.parse(text); } catch { body = text.slice(0, 400); }
-		return { status: res.status, body };
-	}
+/**
+ * Verify every deal's amount + close date against its Rackbeat invoice.
+ * Match: IN-/CN- by invoice number; plain by linked order number.
+ * Amount = amount_raw vs invoice total_subtotal (own currency, ±0.5).
+ * Date = close_date vs invoice_date (exact). Stores only discrepancies.
+ */
+async function runVerification(env) {
+	if (!env.RACKBEAT_API_KEY) throw new Error('No RACKBEAT_API_KEY on worker');
 
-	const out = [];
+	const dealsRes = await env.DB
+		.prepare(
+			`SELECT deal_id, deal_name, rackbeat_id, close_date, amount_raw, currency, owner_name, company_name
+			 FROM sales_deals WHERE rackbeat_id IS NOT NULL AND rackbeat_id != ''`
+		)
+		.all();
+	const deals = dealsRes.results || [];
+
+	const { byNumber, byOrder, invoiceCount } = await fetchAllInvoices(env);
+
+	const issues = [];
+	let ok = 0, amountMis = 0, dateMis = 0, notFound = 0, multiple = 0;
+
 	for (const d of deals) {
 		const rid = d.rackbeat_id;
-		let query;
-		if (rid.startsWith('CN-')) query = `/invoices?is_creditnote=true&search=${encodeURIComponent(rid.slice(3))}`;
-		else if (rid.startsWith('IN-')) query = `/invoices?search=${encodeURIComponent(rid.slice(3))}`;
-		else query = `/invoices?order_number=${encodeURIComponent(rid)}`;
-		const rb = await rbGet(query);
-		const list = Array.isArray(rb.body) ? rb.body : rb.body?.invoices ?? rb.body?.data ?? null;
-		out.push({
-			deal: d,
-			query,
-			rbStatus: rb.status,
-			resultCount: Array.isArray(list) ? list.length : null,
-			firstResult: Array.isArray(list) ? list[0] ?? null : rb.body,
+		let invs;
+		if (rid.startsWith('IN-') || rid.startsWith('CN-')) {
+			const inv = byNumber.get(rid.slice(3));
+			invs = inv ? [inv] : [];
+		} else {
+			invs = byOrder.get(rid) || [];
+		}
+
+		if (!invs.length) {
+			notFound++;
+			issues.push({ ...d, invoice_number: null, rb_date: null, rb_subtotal: null, amount_match: 0, date_match: 0, issue: 'not_found' });
+			continue;
+		}
+
+		// Sum across invoices when an order has several (partial shipments).
+		const rbSubtotal = invs.reduce((s, i) => s + (i.total_subtotal || 0), 0);
+		const amount_match = Math.abs((d.amount_raw || 0) - rbSubtotal) <= AMOUNT_TOLERANCE ? 1 : 0;
+		const dates = invs.map((i) => i.invoice_date);
+		const date_match = dates.includes(d.close_date) ? 1 : 0;
+
+		if (amount_match && date_match) { ok++; continue; }
+		if (invs.length > 1) multiple++;
+		if (!amount_match) amountMis++;
+		if (!date_match) dateMis++;
+		const issue = invs.length > 1 ? 'multiple' : !amount_match && !date_match ? 'amount+date' : !amount_match ? 'amount' : 'date';
+		issues.push({
+			deal_id: d.deal_id, deal_name: d.deal_name, rackbeat_id: rid, owner_name: d.owner_name, company_name: d.company_name,
+			close_date: d.close_date, amount_raw: d.amount_raw, currency: d.currency,
+			invoice_number: invs.map((i) => i.number).join(','), rb_date: dates.join(','), rb_subtotal: rbSubtotal,
+			amount_match, date_match, issue,
 		});
 	}
-	return { probe: out };
+
+	// Persist: replace issues, update meta.
+	await env.DB.prepare('DELETE FROM verification_issues').run();
+	const cols = ['deal_id', 'deal_name', 'rackbeat_id', 'owner_name', 'company_name', 'close_date', 'amount_raw', 'currency', 'invoice_number', 'rb_date', 'rb_subtotal', 'amount_match', 'date_match', 'issue'];
+	const ph = `(${cols.map(() => '?').join(',')})`;
+	const sql = `INSERT OR REPLACE INTO verification_issues (${cols.join(',')}) VALUES ${ph}`;
+	for (const batch of chunks(issues, 50)) {
+		await env.DB.batch(batch.map((r) => env.DB.prepare(sql).bind(...cols.map((c) => r[c] ?? null))));
+	}
+	const finished = new Date().toISOString();
+	await env.DB
+		.prepare(
+			`INSERT INTO verification_meta (id, last_run, checked, ok, amount_mismatch, date_mismatch, not_found, multiple, status, message)
+			 VALUES (1, ?, ?, ?, ?, ?, ?, ?, 'ok', ?)
+			 ON CONFLICT(id) DO UPDATE SET last_run=excluded.last_run, checked=excluded.checked, ok=excluded.ok,
+			   amount_mismatch=excluded.amount_mismatch, date_mismatch=excluded.date_mismatch, not_found=excluded.not_found,
+			   multiple=excluded.multiple, status='ok', message=excluded.message`
+		)
+		.bind(finished, deals.length, ok, amountMis, dateMis, notFound, multiple, `invoices indexed: ${invoiceCount}`)
+		.run();
+
+	return { checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, not_found: notFound, multiple, invoiceCount, issues: issues.length };
 }
 
 // ---- HubSpot fetch helpers --------------------------------------------------
