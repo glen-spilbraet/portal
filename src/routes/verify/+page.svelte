@@ -13,21 +13,27 @@
 	let running = $state(false);
 	let err = $state('');
 
-	const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+	// Verification is scoped to a period (Rackbeat's API is too slow for all-at-once).
+	const periods = [];
+	for (const y of [2026, 2025, 2024]) {
+		periods.push({ label: `Q1 ${y}`, from: `${y}-01-01`, to: `${y}-04-01` });
+		periods.push({ label: `Q2 ${y}`, from: `${y}-04-01`, to: `${y}-07-01` });
+		periods.push({ label: `Q3 ${y}`, from: `${y}-07-01`, to: `${y}-10-01` });
+		periods.push({ label: `Q4 ${y}`, from: `${y}-10-01`, to: `${y + 1}-01-01` });
+	}
+	let sel = $state(periods.findIndex((p) => p.label === 'Q2 2026'));
 
 	async function rerun() {
 		running = true;
 		err = '';
 		try {
-			const res = await fetch('/api/stats/run-verification', { method: 'POST' });
+			const p = periods[sel];
+			const res = await fetch('/api/stats/run-verification', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ from: p.from, to: p.to }),
+			});
 			if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message ?? `Failed (${res.status})`);
-			// Run is async on the worker — poll until it finishes (~1–2 min).
-			for (let i = 0; i < 45; i++) {
-				await sleep(4000);
-				const s = await fetch('/api/stats/run-verification').then((r) => r.json()).catch(() => ({}));
-				if (s.status === 'ok') break;
-				if (s.status === 'error') throw new Error('Verification run failed on the worker');
-			}
 			await invalidateAll();
 		} catch (e) {
 			err = e.message;
@@ -54,7 +60,12 @@
 			<h1>Data Verification</h1>
 			<p class="sub">HubSpot deal <strong>amount</strong> &amp; <strong>close date</strong> vs Rackbeat invoices. Shows only discrepancies.</p>
 		</div>
-		<button class="run-btn" onclick={rerun} disabled={running}>{running ? 'Running…' : 'Re-run check'}</button>
+		<div class="run-controls">
+			<select class="period-sel" bind:value={sel} disabled={running}>
+				{#each periods as p, i}<option value={i}>{p.label}</option>{/each}
+			</select>
+			<button class="run-btn" onclick={rerun} disabled={running}>{running ? 'Running… (~2–4 min)' : 'Run check'}</button>
+		</div>
 	</header>
 
 	{#if err}<div class="err">{err}</div>{/if}
@@ -118,6 +129,8 @@
 	.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
 	h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.4px; margin: 0; }
 	.sub { font-size: 14px; color: #8A7550; margin: 4px 0 0; }
+	.run-controls { display: flex; align-items: center; gap: 8px; }
+	.period-sel { font-family: inherit; font-size: 14px; font-weight: 700; color: #524431; background: #fff; border: 1px solid var(--border); border-radius: 9px; padding: 9px 10px; cursor: pointer; }
 	.run-btn { font-family: inherit; font-size: 14px; font-weight: 700; color: #fff; background: var(--accent); border: none; border-radius: 9px; padding: 10px 18px; cursor: pointer; }
 	.run-btn:hover { background: var(--accent-hover); }
 	.run-btn:disabled { opacity: 0.6; cursor: default; }

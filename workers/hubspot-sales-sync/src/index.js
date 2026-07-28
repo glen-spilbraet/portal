@@ -22,6 +22,13 @@
 const HS = 'https://api.hubapi.com';
 const MONTHLY_CRON = '0 3 1 * *';
 
+/** Shift a YYYY-MM-DD string by n days (UTC). */
+function addDaysYmd(s, n) {
+	const d = new Date(s + 'T00:00:00Z');
+	d.setUTCDate(d.getUTCDate() + n);
+	return d.toISOString().slice(0, 10);
+}
+
 // Deal properties we pull from HubSpot.
 const DEAL_PROPS = [
 	'dealname',
@@ -52,13 +59,11 @@ export default {
 		const url = new URL(request.url);
 		try {
 			if (url.searchParams.get('verify') === '1') {
-				// Long-running: run in the background so a dropped client connection
-				// can't abort it. Poll verification_meta.last_run for completion.
-				await setVerifyStatus(env.DB, 'running');
-				ctx.waitUntil(
-					runVerification(env).catch((e) => setVerifyStatus(env.DB, 'error', e?.message ?? String(e)))
-				);
-				return json({ ok: true, started: true });
+				const from = url.searchParams.get('from'); // deal close_date >= (YYYY-MM-DD)
+				const to = url.searchParams.get('to'); //   deal close_date <  (YYYY-MM-DD, exclusive)
+				if (!from || !to) return json({ ok: false, error: 'from & to (YYYY-MM-DD) required' }, 400);
+				const range = { dealFrom: from, dealTo: to, invFrom: addDaysYmd(from, -15), invTo: addDaysYmd(to, 15), label: `${from} → ${to}` };
+				return json({ ok: true, ...(await runVerification(env, range)) });
 			}
 			let summary;
 			if (url.searchParams.get('reconcile') === '1') {
@@ -204,14 +209,31 @@ const AMOUNT_TOLERANCE = 0.5; // kr, absorbs rounding
  * Bulk-fetch all customer invoices since 2023-12 and index them by invoice
  * number and by linked order number. Pages fetched in parallel batches.
  */
-async function fetchAllInvoices(env) {
+async function fetchAllInvoices(env, invFrom, invTo) {
 	const headers = { Authorization: `Bearer ${env.RACKBEAT_API_KEY}`, Accept: 'application/json' };
-	const base = `/customer-invoices?limit=100&date_from=${encodeURIComponent('2023-12-01 00:00:00')}`;
+	const base = `/customer-invoices?limit=100&date_from=${encodeURIComponent(invFrom + ' 00:00:00')}&date_to=${encodeURIComponent(invTo + ' 23:59:59')}`;
+	// Timeout + retry each page; a hung request must not stall the whole run.
+	const rbFetchJson = async (url, tries = 4) => {
+		for (let a = 0; a < tries; a++) {
+			const ctrl = new AbortController();
+			const timer = setTimeout(() => ctrl.abort(), 20000);
+			try {
+				const res = await fetch(url, { headers, signal: ctrl.signal });
+				clearTimeout(timer);
+				if (res.status === 429) { await sleep(1000 * (a + 1)); continue; }
+				if (!res.ok) return null;
+				return await res.json();
+			} catch (_e) {
+				clearTimeout(timer);
+				await sleep(500 * (a + 1));
+			}
+		}
+		console.log(`invoices: page failed after retries: ${url}`);
+		return null;
+	};
 	const getPage = async (p) => {
-		const res = await fetch(`${RB}${base}&page=${p}`, { headers });
-		if (!res.ok) return [];
-		const b = await res.json();
-		return b.customer_invoices || [];
+		const b = await rbFetchJson(`${RB}${base}&page=${p}`);
+		return b?.customer_invoices || [];
 	};
 
 	const byNumber = new Map();
@@ -232,18 +254,20 @@ async function fetchAllInvoices(env) {
 		}
 	};
 
-	const firstRes = await fetch(`${RB}${base}&page=1`, { headers });
-	if (!firstRes.ok) throw new Error(`Rackbeat invoices ${firstRes.status}`);
-	const first = await firstRes.json();
+	const t0 = Date.now();
+	const first = await rbFetchJson(`${RB}${base}&page=1`);
+	if (!first) throw new Error('Rackbeat invoices page 1 failed');
 	const totalPages = first.pages || 1;
 	for (const inv of first.customer_invoices || []) add(inv);
+	console.log(`invoices: totalPages=${totalPages}`);
 
-	const BATCH = 25;
+	const BATCH = 6;
 	for (let start = 2; start <= totalPages; start += BATCH) {
 		const pages = [];
 		for (let p = start; p < Math.min(start + BATCH, totalPages + 1); p++) pages.push(p);
 		const results = await Promise.all(pages.map(getPage));
 		for (const arr of results) for (const inv of arr) add(inv);
+		console.log(`invoices: through page ${Math.min(start + BATCH - 1, totalPages)} · indexed ${byNumber.size} · ${Date.now() - t0}ms`);
 	}
 	return { byNumber, byOrder, invoiceCount: byNumber.size };
 }
@@ -254,18 +278,23 @@ async function fetchAllInvoices(env) {
  * Amount = amount_raw vs invoice total_subtotal (own currency, ±0.5).
  * Date = close_date vs invoice_date (exact). Stores only discrepancies.
  */
-async function runVerification(env) {
+async function runVerification(env, range) {
 	if (!env.RACKBEAT_API_KEY) throw new Error('No RACKBEAT_API_KEY on worker');
+	await setVerifyStatus(env.DB, 'running');
 
+	const tStart = Date.now();
 	const dealsRes = await env.DB
 		.prepare(
 			`SELECT deal_id, deal_name, rackbeat_id, close_date, amount_raw, currency, owner_name, company_name
-			 FROM sales_deals WHERE rackbeat_id IS NOT NULL AND rackbeat_id != ''`
+			 FROM sales_deals WHERE rackbeat_id IS NOT NULL AND rackbeat_id != '' AND close_date >= ? AND close_date < ?`
 		)
+		.bind(range.dealFrom, range.dealTo)
 		.all();
 	const deals = dealsRes.results || [];
+	console.log(`verify: read ${deals.length} deals (${range.label}) in ${Date.now() - tStart}ms`);
 
-	const { byNumber, byOrder, invoiceCount } = await fetchAllInvoices(env);
+	const { byNumber, byOrder, invoiceCount } = await fetchAllInvoices(env, range.invFrom, range.invTo);
+	console.log(`verify: invoices indexed ${invoiceCount}; matching ${deals.length} deals`);
 
 	const issues = [];
 	let ok = 0, amountMis = 0, dateMis = 0, notFound = 0, multiple = 0;
@@ -274,10 +303,12 @@ async function runVerification(env) {
 		const rid = d.rackbeat_id;
 		let invs;
 		if (rid.startsWith('IN-') || rid.startsWith('CN-')) {
+			// Exact document by number (IN- = invoice, CN- = credit note).
 			const inv = byNumber.get(rid.slice(3));
 			invs = inv ? [inv] : [];
 		} else {
-			invs = byOrder.get(rid) || [];
+			// Order: compare against its sales invoice(s); ignore linked credit notes.
+			invs = (byOrder.get(rid) || []).filter((i) => !i.is_creditnote);
 		}
 
 		if (!invs.length) {
@@ -313,6 +344,7 @@ async function runVerification(env) {
 	for (const batch of chunks(issues, 50)) {
 		await env.DB.batch(batch.map((r) => env.DB.prepare(sql).bind(...cols.map((c) => r[c] ?? null))));
 	}
+	console.log(`verify: writing ${issues.length} issues (ok=${ok}, amount=${amountMis}, date=${dateMis}, notFound=${notFound})`);
 	const finished = new Date().toISOString();
 	await env.DB
 		.prepare(
@@ -322,10 +354,10 @@ async function runVerification(env) {
 			   amount_mismatch=excluded.amount_mismatch, date_mismatch=excluded.date_mismatch, not_found=excluded.not_found,
 			   multiple=excluded.multiple, status='ok', message=excluded.message`
 		)
-		.bind(finished, deals.length, ok, amountMis, dateMis, notFound, multiple, `invoices indexed: ${invoiceCount}`)
+		.bind(finished, deals.length, ok, amountMis, dateMis, notFound, multiple, `${range.label} · invoices indexed ${invoiceCount}`)
 		.run();
 
-	return { checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, not_found: notFound, multiple, invoiceCount, issues: issues.length };
+	return { scope: range.label, checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, not_found: notFound, multiple, invoiceCount, issues: issues.length };
 }
 
 /** Set verification run status ('running'|'ok'|'error') without touching counts. */
