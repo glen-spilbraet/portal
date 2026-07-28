@@ -13,12 +13,21 @@
 	let running = $state(false);
 	let err = $state('');
 
+	const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 	async function rerun() {
 		running = true;
 		err = '';
 		try {
 			const res = await fetch('/api/stats/run-verification', { method: 'POST' });
 			if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message ?? `Failed (${res.status})`);
+			// Run is async on the worker — poll until it finishes (~1–2 min).
+			for (let i = 0; i < 45; i++) {
+				await sleep(4000);
+				const s = await fetch('/api/stats/run-verification').then((r) => r.json()).catch(() => ({}));
+				if (s.status === 'ok') break;
+				if (s.status === 'error') throw new Error('Verification run failed on the worker');
+			}
 			await invalidateAll();
 		} catch (e) {
 			err = e.message;

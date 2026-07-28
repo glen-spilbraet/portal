@@ -43,7 +43,7 @@ export default {
 		ctx.waitUntil(handleScheduled(event, env));
 	},
 
-	async fetch(request, env) {
+	async fetch(request, env, ctx) {
 		const auth = request.headers.get('Authorization') || '';
 		const token = auth.replace(/^Bearer\s+/i, '');
 		if (!env.SYNC_SECRET || token !== env.SYNC_SECRET) {
@@ -52,7 +52,13 @@ export default {
 		const url = new URL(request.url);
 		try {
 			if (url.searchParams.get('verify') === '1') {
-				return json({ ok: true, ...(await runVerification(env)) });
+				// Long-running: run in the background so a dropped client connection
+				// can't abort it. Poll verification_meta.last_run for completion.
+				await setVerifyStatus(env.DB, 'running');
+				ctx.waitUntil(
+					runVerification(env).catch((e) => setVerifyStatus(env.DB, 'error', e?.message ?? String(e)))
+				);
+				return json({ ok: true, started: true });
 			}
 			let summary;
 			if (url.searchParams.get('reconcile') === '1') {
@@ -320,6 +326,18 @@ async function runVerification(env) {
 		.run();
 
 	return { checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, not_found: notFound, multiple, invoiceCount, issues: issues.length };
+}
+
+/** Set verification run status ('running'|'ok'|'error') without touching counts. */
+async function setVerifyStatus(db, status, message) {
+	await db
+		.prepare(
+			`INSERT INTO verification_meta (id, status, message) VALUES (1, ?, ?)
+			 ON CONFLICT(id) DO UPDATE SET status = excluded.status,
+			   message = COALESCE(excluded.message, verification_meta.message)`
+		)
+		.bind(status, message ?? null)
+		.run();
 }
 
 // ---- HubSpot fetch helpers --------------------------------------------------
