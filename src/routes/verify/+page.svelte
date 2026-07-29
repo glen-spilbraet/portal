@@ -15,14 +15,18 @@
 	let err = $state('');
 	let filter = $state(null); // 'amount' | 'date' | 'not_found' | 'multiple' | null
 
-	const periods = [];
-	for (const y of [2026, 2025, 2024]) {
-		periods.push({ label: `Q1 ${y}`, from: `${y}-01-01`, to: `${y}-04-01` });
-		periods.push({ label: `Q2 ${y}`, from: `${y}-04-01`, to: `${y}-07-01` });
-		periods.push({ label: `Q3 ${y}`, from: `${y}-07-01`, to: `${y}-10-01` });
-		periods.push({ label: `Q4 ${y}`, from: `${y}-10-01`, to: `${y + 1}-01-01` });
+	const YEARS = [2026, 2025, 2024];
+	const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+	let year = $state(2026);
+	let period = $state('Q2'); // 'year' | 'Q1'..'Q4' | '1'..'12'
+	const ym = (y, monthIndex) => new Date(Date.UTC(y, monthIndex, 1)).toISOString().slice(0, 10);
+	function periodRange(y, p) {
+		if (p === 'year') return { from: ym(y, 0), to: ym(y + 1, 0), label: `${y}` };
+		if (p[0] === 'Q') { const q = +p[1]; return { from: ym(y, (q - 1) * 3), to: ym(y, q * 3), label: `Q${q} ${y}` }; }
+		const mo = +p - 1;
+		return { from: ym(y, mo), to: ym(y, mo + 1), label: `${MONTHS[mo]} ${y}` };
 	}
-	let sel = $state(Math.max(0, periods.findIndex((p) => p.label === 'Q2 2026')));
+	const range = $derived(periodRange(year, period));
 
 	function matches(r, f) {
 		if (f === 'amount') return r.amount_match === 0 && r.issue !== 'not_found';
@@ -98,11 +102,10 @@
 		running = true;
 		err = '';
 		try {
-			const p = periods[sel];
 			const res = await fetch('/api/stats/run-verification', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ from: p.from, to: p.to }),
+				body: JSON.stringify({ from: range.from, to: range.to }),
 			});
 			if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message ?? `Failed (${res.status})`);
 			await invalidateAll();
@@ -199,10 +202,21 @@
 			</p>
 		</div>
 		<div class="run-controls">
-			<select class="period-sel" bind:value={sel} disabled={running}>
-				{#each periods as p, i}<option value={i}>{p.label}</option>{/each}
+			<select class="period-sel" bind:value={year} disabled={running}>
+				{#each YEARS as y}<option value={y}>{y}</option>{/each}
 			</select>
-			<button class="run-btn" onclick={rerun} disabled={running}>{running ? 'Running… (~2–4 min)' : 'Run check'}</button>
+			<select class="period-sel" bind:value={period} disabled={running}>
+				<optgroup label="Quarter">
+					<option value="Q1">Q1 (Jan–Mar)</option>
+					<option value="Q2">Q2 (Apr–Jun)</option>
+					<option value="Q3">Q3 (Jul–Sep)</option>
+					<option value="Q4">Q4 (Oct–Dec)</option>
+				</optgroup>
+				<optgroup label="Month">
+					{#each MONTHS as mo, i}<option value={String(i + 1)}>{mo}</option>{/each}
+				</optgroup>
+			</select>
+			<button class="run-btn" onclick={rerun} disabled={running}>{running ? 'Running…' : 'Run check'}</button>
 		</div>
 	</header>
 
