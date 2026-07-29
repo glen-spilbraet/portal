@@ -131,6 +131,9 @@
 		if (allSelected) selected = new Set();
 		else selected = new Set(fixableShown.map((r) => r.deal_id));
 	}
+	function selectFirst(n) {
+		selected = new Set(fixableShown.slice(0, n).map((r) => r.deal_id));
+	}
 
 	async function applyFix() {
 		const ids = [...selected];
@@ -219,6 +222,15 @@
 			{#each segLabels as [key, label]}
 				<button class="seg" class:on={dateSeg === key} onclick={() => toggleSeg(key)}>{label} <span class="seg-n">{segCounts[key]}</span></button>
 			{/each}
+		</div>
+	{/if}
+
+	{#if fixableShown.length > 0}
+		<div class="sel-tools">
+			<span class="st-lbl">{fixableShown.length} fixable</span>
+			<button class="st-btn" onclick={() => selectFirst(50)}>Select first 50</button>
+			<button class="st-btn" onclick={() => selectFirst(25)}>Select first 25</button>
+			{#if selected.size > 0}<button class="st-btn ghost" onclick={() => (selected = new Set())}>Clear selection</button>{/if}
 		</div>
 	{/if}
 
@@ -350,6 +362,13 @@
 	.badge.amount, .badge.date, .badge { background: #FDECEC; color: #C4381B; }
 	.badge.multiple { background: #EEF1F5; color: #3E5060; }
 	.empty { text-align: center; color: #A1A1AA; padding: 28px; }
+
+	.sel-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+	.st-lbl { font-size: 12px; font-weight: 700; color: #A88B52; margin-right: 2px; }
+	.st-btn { font-family: inherit; font-size: 12.5px; font-weight: 700; color: #7B3803; background: #FFE6A5; border: 1px solid #F4CE7A; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+	.st-btn:hover { background: #F8D97F; }
+	.st-btn.ghost { background: #fff; border-color: var(--border); color: #8A7550; }
+	.st-btn.ghost:hover { background: #FFF5D2; }
 
 	.chk { text-align: center; padding-left: 12px; padding-right: 4px; }
 	.chk input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
