@@ -119,6 +119,8 @@
 	let fixField = $state('both');
 	let fixing = $state(false);
 	let fixMsg = $state('');
+	let queue = $state(null); // { total, done, fixed, failed, stop, field } while running
+	const QUEUE_BATCH = 30;
 
 	const fixableShown = $derived(shown.filter(isFixable));
 	const allSelected = $derived(fixableShown.length > 0 && fixableShown.every((r) => selected.has(r.deal_id)));
@@ -134,30 +136,45 @@
 	function selectFirst(n) {
 		selected = new Set(fixableShown.slice(0, n).map((r) => r.deal_id));
 	}
+	function selectAll() {
+		selected = new Set(fixableShown.map((r) => r.deal_id));
+	}
+
+	function stopQueue() {
+		if (queue) queue = { ...queue, stop: true };
+	}
 
 	async function applyFix() {
 		const ids = [...selected];
 		if (!ids.length) return;
 		const label = { date: 'close dates', amount: 'amounts', both: 'dates & amounts' }[fixField];
-		if (!confirm(`Update ${ids.length} deal(s) in HubSpot — set their ${label} to the Rackbeat values?\n\n⚠️ This changes LIVE HubSpot data.`)) return;
+		if (!confirm(`Update ${ids.length} deal(s) in HubSpot — set their ${label} to the Rackbeat values?\n\n⚠️ This changes LIVE HubSpot data. It runs in batches of ${QUEUE_BATCH}; you can stop between batches.`)) return;
+
 		fixing = true;
 		fixMsg = '';
-		try {
-			const res = await fetch('/api/stats/fix', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ dealIds: ids, field: fixField }),
-			});
-			const b = await res.json().catch(() => ({}));
-			if (!res.ok) throw new Error(b?.message ?? `Failed (${res.status})`);
-			fixMsg = `Fixed ${b.fixed}${b.failed ? ` · ${b.failed} failed` : ''}.`;
-			selected = new Set();
-			await invalidateAll();
-		} catch (e) {
-			fixMsg = `Error: ${e.message}`;
-		} finally {
-			fixing = false;
+		queue = { total: ids.length, done: 0, fixed: 0, failed: 0, stop: false, field: fixField };
+		for (let i = 0; i < ids.length; i += QUEUE_BATCH) {
+			if (queue.stop) break;
+			const chunk = ids.slice(i, i + QUEUE_BATCH);
+			try {
+				const res = await fetch('/api/stats/fix', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ dealIds: chunk, field: queue.field }),
+				});
+				const b = await res.json().catch(() => ({}));
+				if (!res.ok) throw new Error(b?.message ?? res.status);
+				queue = { ...queue, done: queue.done + chunk.length, fixed: queue.fixed + (b.fixed || 0), failed: queue.failed + (b.failed || 0) };
+			} catch (e) {
+				queue = { ...queue, done: queue.done + chunk.length, failed: queue.failed + chunk.length };
+			}
 		}
+		const stopped = queue.stop && queue.done < queue.total;
+		fixMsg = `${stopped ? 'Stopped' : 'Done'} — fixed ${queue.fixed}${queue.failed ? ` · ${queue.failed} failed` : ''} of ${queue.total}.`;
+		selected = new Set();
+		queue = null;
+		fixing = false;
+		await invalidateAll();
 	}
 
 	function asOf(s) {
@@ -229,7 +246,7 @@
 		<div class="sel-tools">
 			<span class="st-lbl">{fixableShown.length} fixable</span>
 			<button class="st-btn" onclick={() => selectFirst(50)}>Select first 50</button>
-			<button class="st-btn" onclick={() => selectFirst(25)}>Select first 25</button>
+			<button class="st-btn" onclick={selectAll}>Select all ({fixableShown.length})</button>
 			{#if selected.size > 0}<button class="st-btn ghost" onclick={() => (selected = new Set())}>Clear selection</button>{/if}
 		</div>
 	{/if}
@@ -281,7 +298,14 @@
 	</section>
 </main>
 
-{#if selected.size > 0}
+{#if queue}
+	<div class="fixbar">
+		<span class="fx-count">Fixing {queue.done}/{queue.total}</span>
+		<div class="q-bar"><div class="q-fill" style="width:{Math.round((queue.done / queue.total) * 100)}%"></div></div>
+		<span class="fx-msg">✓ {queue.fixed}{queue.failed ? ` · ✕ ${queue.failed}` : ''}</span>
+		<button class="fx-cancel" onclick={stopQueue} disabled={queue.stop}>{queue.stop ? 'Stopping…' : 'Stop'}</button>
+	</div>
+{:else if selected.size > 0}
 	<div class="fixbar">
 		<span class="fx-count">{selected.size} selected</span>
 		<select class="fx-sel" bind:value={fixField} disabled={fixing}>
@@ -289,10 +313,11 @@
 			<option value="date">Fix dates</option>
 			<option value="amount">Fix amounts</option>
 		</select>
-		<button class="fx-apply" onclick={applyFix} disabled={fixing}>{fixing ? 'Fixing…' : 'Apply to HubSpot'}</button>
+		<button class="fx-apply" onclick={applyFix} disabled={fixing}>Apply to HubSpot</button>
 		<button class="fx-cancel" onclick={() => (selected = new Set())} disabled={fixing}>Cancel</button>
-		{#if fixMsg}<span class="fx-msg">{fixMsg}</span>{/if}
 	</div>
+{:else if fixMsg}
+	<div class="fixbar done"><span class="fx-msg">{fixMsg}</span><button class="fx-cancel" onclick={() => (fixMsg = '')}>Dismiss</button></div>
 {/if}
 
 <style>
@@ -388,4 +413,7 @@
 	.fx-cancel { font-family: inherit; font-size: 13px; font-weight: 700; color: #d4d4d8; background: none; border: none; cursor: pointer; }
 	.fx-cancel:hover { color: #fff; }
 	.fx-msg { font-size: 12px; color: #E7F6EC; font-weight: 700; }
+	.q-bar { width: 200px; height: 8px; background: rgba(255,255,255,0.2); border-radius: 100px; overflow: hidden; }
+	.q-fill { height: 100%; background: var(--accent); border-radius: 100px; transition: width 0.2s; }
+	.fixbar.done { background: #16794C; }
 </style>
