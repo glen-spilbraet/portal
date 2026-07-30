@@ -1,4 +1,4 @@
-import { getMarketTotals, getCompanyTotals, getCompanyUniverse, getAttentionData, scoreAttention, getActiveHides, getFilterOptions, getReps, getSyncMeta, MARKETS } from '$lib/salesStats.js';
+import { getMarketTotals, getCompanyTotals, getCompanyUniverse, getDimensionBreakdown, getAttentionData, scoreAttention, getActiveHides, getFilterOptions, getReps, getSyncMeta, MARKETS } from '$lib/salesStats.js';
 import { getEffectiveEmail } from '$lib/server/effectiveEmail.js';
 import { listSalesTargetsForYear } from '$lib/db.js';
 
@@ -171,11 +171,11 @@ export async function load({ platform, url, cookies, parent }) {
 
 	const emptyOptions = { levels: [], groups: [], countries: [] };
 	if (!db) {
-		return { widgets: [], companies: [], attention: [], snoozed: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
+		return { widgets: [], companies: [], dims: { countries: [], groups: [], levels: [], owners: [] }, attention: [], snoozed: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
 	}
 
 	const todayStr = now.toISOString().slice(0, 10);
-	const [curTotals, priorTotals, curCompanies, priorCompanies, universe, attentionRows, hides, meta, filterOptions, reps] = await Promise.all([
+	const [curTotals, priorTotals, curCompanies, priorCompanies, universe, attentionRows, hides, meta, filterOptions, reps, dimCountries, dimGroups, dimLevels, dimOwners] = await Promise.all([
 		getMarketTotals(db, cur.start, cur.end, filters),
 		getMarketTotals(db, prior.start, prior.end, filters),
 		getCompanyTotals(db, cur.start, cur.end, filters),
@@ -186,7 +186,12 @@ export async function load({ platform, url, cookies, parent }) {
 		getSyncMeta(db),
 		getFilterOptions(db, isAdmin ? null : email),
 		isAdmin ? getReps(db) : Promise.resolve([]),
+		getDimensionBreakdown(db, cur, prior, 'country', filters),
+		getDimensionBreakdown(db, cur, prior, 'customer_group', filters),
+		getDimensionBreakdown(db, cur, prior, 'customer_level', filters),
+		isAdmin ? getDimensionBreakdown(db, cur, prior, 'owner_email', filters) : Promise.resolve([]),
 	]);
+	const dims = { countries: dimCountries, groups: dimGroups, levels: dimLevels, owners: dimOwners };
 
 	// Split hidden (snoozed/dismissed) out before scoring so they don't skew the
 	// gap scale; keep them for the "Show snoozed" list.
@@ -260,6 +265,7 @@ export async function load({ platform, url, cookies, parent }) {
 	return {
 		widgets,
 		companies,
+		dims,
 		attention,
 		snoozed,
 		tracker,

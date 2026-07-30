@@ -8,6 +8,19 @@
 
 	let openCompany = $state(null);
 
+	// Breakdown table dimension tabs.
+	const dimTabs = $derived([
+		{ key: 'customers', label: 'Customers' },
+		{ key: 'countries', label: 'Countries' },
+		{ key: 'groups', label: 'Customer Groups' },
+		{ key: 'levels', label: 'Customer Levels' },
+		...(data.isAdmin ? [{ key: 'owners', label: 'Owner' }] : []),
+	]);
+	let dimTab = $state('customers');
+	const dimTitle = { countries: 'Country', groups: 'Customer Group', levels: 'Customer Level', owners: 'Owner' };
+	const dimRows = $derived(dimTab === 'customers' ? [] : data.dims?.[dimTab] ?? []);
+	const tabCount = $derived(dimTab === 'customers' ? data.companies?.length ?? 0 : dimRows.length);
+
 	// ── Attention snooze/dismiss menu ────────────────────────────────────────
 	let menuFor = $state(null);
 	let menuX = $state(0);
@@ -370,63 +383,93 @@
 		</section>
 	{/if}
 
+	{#snippet deltaCell(pct)}
+		{#if pct !== null && pct !== undefined}
+			<span class="delta" class:up={pct >= 0} class:down={pct < 0}>
+				{pct >= 0 ? '' : '−'}{Math.abs(pct).toFixed(1)}%
+				<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+					{#if pct >= 0}<polyline points="6 15 12 9 18 15" />{:else}<polyline points="6 9 12 15 18 9" />{/if}
+				</svg>
+			</span>
+		{:else}
+			<span class="delta flat">–</span>
+		{/if}
+	{/snippet}
+
 	<section class="table-wrap">
 		<div class="table-head">
-			<h2>Companies</h2>
-			<span class="count">{numFmt.format(sortedCompanies.length)}</span>
+			<div class="dim-tabs" role="tablist">
+				{#each dimTabs as t}
+					<button class="dim-tab" class:on={dimTab === t.key} role="tab" aria-selected={dimTab === t.key} onclick={() => (dimTab = t.key)}>{t.label}</button>
+				{/each}
+			</div>
+			<span class="count">{numFmt.format(tabCount)}</span>
 		</div>
 		<div class="table-scroll">
-			<table>
-				<thead>
-					<tr>
-						<th class="th-sort" class:sorted={sortKey === 'name'} onclick={() => setSort('name')}>
-							Company name{#if sortKey === 'name'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
-						</th>
-						<th class="th-sort" class:sorted={sortKey === 'owner'} onclick={() => setSort('owner')}>
-							Owner Name{#if sortKey === 'owner'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
-						</th>
-						<th class="th-sort num" class:sorted={sortKey === 'revenue'} onclick={() => setSort('revenue')}>
-							Revenue{#if sortKey === 'revenue'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
-						</th>
-						<th class="th-sort num" class:sorted={sortKey === 'pct'} onclick={() => setSort('pct')}>
-							% Δ{#if sortKey === 'pct'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
-						</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each sortedCompanies as c (c.cid)}
+			{#if dimTab === 'customers'}
+				<table>
+					<thead>
 						<tr>
-							<td class="name">
-								<div class="name-cell">
-									<span class="cname">{c.name}</span>
-									<button class="detail-btn" onclick={() => (openCompany = c)} aria-label="Open customer details" title="Open details">
-										<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-											<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-										</svg>
-									</button>
-								</div>
-							</td>
-							<td class="owner">{c.owner ?? '—'}</td>
-							<td class="num">{numFmt.format(Math.round(c.revenue))}</td>
-							<td class="num">
-								{#if c.pct !== null}
-									<span class="delta" class:up={c.pct >= 0} class:down={c.pct < 0}>
-										{c.pct >= 0 ? '' : '−'}{Math.abs(c.pct).toFixed(1)}%
-										<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
-											{#if c.pct >= 0}<polyline points="6 15 12 9 18 15" />{:else}<polyline points="6 9 12 15 18 9" />{/if}
-										</svg>
-									</span>
-								{:else}
-									<span class="delta flat">–</span>
-								{/if}
-							</td>
+							<th class="th-sort" class:sorted={sortKey === 'name'} onclick={() => setSort('name')}>
+								Company name{#if sortKey === 'name'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+							</th>
+							<th class="th-sort" class:sorted={sortKey === 'owner'} onclick={() => setSort('owner')}>
+								Owner Name{#if sortKey === 'owner'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+							</th>
+							<th class="th-sort num" class:sorted={sortKey === 'revenue'} onclick={() => setSort('revenue')}>
+								Revenue{#if sortKey === 'revenue'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+							</th>
+							<th class="th-sort num" class:sorted={sortKey === 'pct'} onclick={() => setSort('pct')}>
+								% Δ{#if sortKey === 'pct'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+							</th>
 						</tr>
-					{/each}
-					{#if sortedCompanies.length === 0}
-						<tr><td colspan="4" class="empty">No companies in this period.</td></tr>
-					{/if}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						{#each sortedCompanies as c (c.cid)}
+							<tr>
+								<td class="name">
+									<div class="name-cell">
+										<span class="cname">{c.name}</span>
+										<button class="detail-btn" onclick={() => (openCompany = c)} aria-label="Open customer details" title="Open details">
+											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+												<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+											</svg>
+										</button>
+									</div>
+								</td>
+								<td class="owner">{c.owner ?? '—'}</td>
+								<td class="num">{numFmt.format(Math.round(c.revenue))}</td>
+								<td class="num">{@render deltaCell(c.pct)}</td>
+							</tr>
+						{/each}
+						{#if sortedCompanies.length === 0}
+							<tr><td colspan="4" class="empty">No companies in this period.</td></tr>
+						{/if}
+					</tbody>
+				</table>
+			{:else}
+				<table>
+					<thead>
+						<tr>
+							<th>{dimTitle[dimTab]}</th>
+							<th class="num">Revenue</th>
+							<th class="num">% Δ</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each dimRows as d (d.key)}
+							<tr>
+								<td class="name"><span class="cname">{d.label}</span></td>
+								<td class="num">{numFmt.format(Math.round(d.revenue))}</td>
+								<td class="num">{@render deltaCell(d.pct)}</td>
+							</tr>
+						{/each}
+						{#if dimRows.length === 0}
+							<tr><td colspan="3" class="empty">No data in this period.</td></tr>
+						{/if}
+					</tbody>
+				</table>
+			{/if}
 		</div>
 	</section>
 
@@ -791,6 +834,27 @@
 		padding: 2px 9px;
 		border-radius: 100px;
 	}
+	.dim-tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		flex: 1;
+		min-width: 0;
+	}
+	.dim-tab {
+		font-size: 13px;
+		font-weight: 700;
+		color: #6B7280;
+		background: transparent;
+		border: none;
+		padding: 6px 12px;
+		border-radius: 8px;
+		cursor: pointer;
+		white-space: nowrap;
+		transition: background 0.12s, color 0.12s;
+	}
+	.dim-tab:hover { background: #F4F4F5; color: #18181B; }
+	.dim-tab.on { background: #18181B; color: #fff; }
 
 	.table-scroll {
 		max-height: 620px;

@@ -80,6 +80,44 @@ export async function getCompanyTotals(db, startIncl, endExcl, filters = {}) {
 }
 
 /**
+ * Revenue + deals grouped by a dimension column (country / customer_group /
+ * customer_level / owner_email), with the current window and the same window a
+ * year earlier (for YoY) in one pass. Filter-aware. Every distinct value that
+ * exists in the data appears (0 when idle in the selected window).
+ * @param {App.Platform['env']['SALES_DB']} db
+ */
+export async function getDimensionBreakdown(db, cur, prior, col, filters = {}) {
+	const where = [];
+	const binds = [];
+	if (filters.ownerEmail) { where.push('owner_email = ?'); binds.push(filters.ownerEmail); }
+	for (const [c, key] of [['customer_level', 'levels'], ['customer_group', 'groups'], ['country', 'countries']]) {
+		const vals = filters[key];
+		if (vals && vals.length) { where.push(`${c} IN (${vals.map(() => '?').join(',')})`); binds.push(...vals); }
+	}
+	const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+	const label = col === 'owner_email' ? 'MAX(owner_name)' : `COALESCE(${col}, '—')`;
+	const rows = await db
+		.prepare(
+			`SELECT COALESCE(${col}, '—') AS key, ${label} AS label,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS cur_rev,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN 1 ELSE 0 END) AS cur_deals,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS prior_rev
+			 FROM sales_deals ${clause} GROUP BY key`
+		)
+		.bind(cur.start, cur.end, cur.start, cur.end, prior.start, prior.end, ...binds)
+		.all();
+	return (rows.results ?? [])
+		.map((r) => ({
+			key: r.key,
+			label: r.label ?? r.key,
+			revenue: r.cur_rev || 0,
+			deals: r.cur_deals || 0,
+			pct: r.prior_rev > 0 ? (r.cur_rev / r.prior_rev - 1) * 100 : null,
+		}))
+		.sort((a, b) => b.revenue - a.revenue);
+}
+
+/**
  * Every known company (all-time), regardless of the selected date range, so
  * the Companies table can show customers with zero revenue in the window.
  * Honours the same filters (level/group/country/owner) but ignores dates.
