@@ -208,7 +208,7 @@
 			<MultiFilter label="Country" options={countryOpts} selected={data.activeFilters.countries}
 				onApply={(v) => applyFilter('countries', v)} />
 			{#if data.isAdmin}
-				<MultiFilter label="Sales Rep" single options={repOpts}
+				<MultiFilter label="Owner" single options={repOpts}
 					selected={data.activeFilters.rep ? [data.activeFilters.rep] : []}
 					onApply={(v) => applyFilter('rep', v)} />
 			{/if}

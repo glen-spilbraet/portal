@@ -180,7 +180,7 @@ export async function getFilterOptions(db, ownerEmail = null) {
 	return { levels, groups, countries };
 }
 
-/** Distinct sales reps (company owners) for the admin rep filter. */
+/** Distinct owners (company owners) for the admin owner filter. */
 export async function getReps(db) {
 	const rows = await db
 		.prepare(
