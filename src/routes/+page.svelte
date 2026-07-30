@@ -301,88 +301,6 @@
 		</section>
 	{/if}
 
-	{#if data.attention.length}
-		<section class="table-wrap attn-wrap">
-			<div class="table-head">
-				<h2>Customers Needing Attention</h2>
-				<span class="count">{numFmt.format(data.attention.length)}</span>
-				{#if data.snoozed.length}
-					<button class="snz-toggle" onclick={() => (showSnoozed = !showSnoozed)}>
-						{showSnoozed ? 'Hide' : 'Show'} snoozed ({data.snoozed.length})
-					</button>
-				{/if}
-			</div>
-
-			{#if showSnoozed && data.snoozed.length}
-				<div class="snoozed-list">
-					{#each data.snoozed as s (s.cid)}
-						<div class="snz-row">
-							<span class="snz-name">{s.name}</span>
-							<span class="snz-meta">{s.until ? `snoozed until ${s.until}` : s.scope === 'global' ? 'dismissed (everyone)' : 'dismissed'}</span>
-							<span class="snz-behind">{formatDkk(s.krBehind)}</span>
-							<button class="snz-restore" onclick={() => postHide(s.cid, 'restore')}>Restore</button>
-						</div>
-					{/each}
-				</div>
-			{/if}
-
-			<div class="table-scroll">
-				<table class="attn-table">
-					<colgroup>
-						<col style="width:64px" />
-						<col />
-						<col style="width:160px" />
-						<col style="width:300px" />
-						<col style="width:64px" />
-						<col style="width:150px" />
-					</colgroup>
-					<thead>
-						<tr>
-							<th>Prio</th>
-							<th>Customer</th>
-							<th>Owner Name</th>
-							<th>Why attention</th>
-							<th class="num">Index</th>
-							<th class="num">Behind</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each data.attention as a (a.cid)}
-							<tr class:menu-open={menuFor === a.cid}>
-								<td><span class="pri {attnClass(a.score)}">{a.score}</span></td>
-								<td class="name">
-									<div class="name-cell">
-										<span class="cname">{a.name}</span>
-										<button class="detail-btn" onclick={() => (openCompany = { cid: a.cid, name: a.name, owner: a.owner })} aria-label="Open customer details" title="Open details">
-											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-												<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-											</svg>
-										</button>
-										<button class="detail-btn" onclick={(e) => openMenu(e, a.cid)} aria-label="Snooze or dismiss" title="Snooze / dismiss">
-											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-												<circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
-											</svg>
-										</button>
-									</div>
-								</td>
-								<td class="owner">{a.owner ?? '—'}</td>
-								<td>
-									<span class="whys">
-										{#if a.daysSince != null && a.daysSince > 15}<span class="b quiet">Quiet {a.daysSince}d</span>{/if}
-										{#if a.freqDropPct > 0}<span class="b ord">Orders −{a.freqDropPct}%</span>{/if}
-										{#if a.aovDropPct > 0}<span class="b aov">AOV −{a.aovDropPct}%</span>{/if}
-									</span>
-								</td>
-								<td class="num"><span class="index-chip {indexClass(a.index)}">{a.index ?? '—'}</span></td>
-								<td class="num behind-cell">{formatDkk(a.krBehind)}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		</section>
-	{/if}
-
 	{#snippet deltaCell(pct)}
 		{#if pct !== null && pct !== undefined}
 			<span class="delta" class:up={pct >= 0} class:down={pct < 0}>
@@ -472,6 +390,88 @@
 			{/if}
 		</div>
 	</section>
+
+	{#if data.attention.length}
+		<section class="table-wrap attn-wrap">
+			<div class="table-head">
+				<h2>Customers Needing Attention</h2>
+				<span class="count">{numFmt.format(data.attention.length)}</span>
+				{#if data.snoozed.length}
+					<button class="snz-toggle" onclick={() => (showSnoozed = !showSnoozed)}>
+						{showSnoozed ? 'Hide' : 'Show'} snoozed ({data.snoozed.length})
+					</button>
+				{/if}
+			</div>
+
+			{#if showSnoozed && data.snoozed.length}
+				<div class="snoozed-list">
+					{#each data.snoozed as s (s.cid)}
+						<div class="snz-row">
+							<span class="snz-name">{s.name}</span>
+							<span class="snz-meta">{s.until ? `snoozed until ${s.until}` : s.scope === 'global' ? 'dismissed (everyone)' : 'dismissed'}</span>
+							<span class="snz-behind">{formatDkk(s.krBehind)}</span>
+							<button class="snz-restore" onclick={() => postHide(s.cid, 'restore')}>Restore</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			<div class="table-scroll">
+				<table class="attn-table">
+					<colgroup>
+						<col style="width:64px" />
+						<col />
+						<col style="width:160px" />
+						<col style="width:300px" />
+						<col style="width:64px" />
+						<col style="width:150px" />
+					</colgroup>
+					<thead>
+						<tr>
+							<th>Prio</th>
+							<th>Customer</th>
+							<th>Owner Name</th>
+							<th>Why attention</th>
+							<th class="num">Index</th>
+							<th class="num">Behind</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each data.attention as a (a.cid)}
+							<tr class:menu-open={menuFor === a.cid}>
+								<td><span class="pri {attnClass(a.score)}">{a.score}</span></td>
+								<td class="name">
+									<div class="name-cell">
+										<span class="cname">{a.name}</span>
+										<button class="detail-btn" onclick={() => (openCompany = { cid: a.cid, name: a.name, owner: a.owner })} aria-label="Open customer details" title="Open details">
+											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+												<path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+											</svg>
+										</button>
+										<button class="detail-btn" onclick={(e) => openMenu(e, a.cid)} aria-label="Snooze or dismiss" title="Snooze / dismiss">
+											<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+												<circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+											</svg>
+										</button>
+									</div>
+								</td>
+								<td class="owner">{a.owner ?? '—'}</td>
+								<td>
+									<span class="whys">
+										{#if a.daysSince != null && a.daysSince > 15}<span class="b quiet">Quiet {a.daysSince}d</span>{/if}
+										{#if a.freqDropPct > 0}<span class="b ord">Orders −{a.freqDropPct}%</span>{/if}
+										{#if a.aovDropPct > 0}<span class="b aov">AOV −{a.aovDropPct}%</span>{/if}
+									</span>
+								</td>
+								<td class="num"><span class="index-chip {indexClass(a.index)}">{a.index ?? '—'}</span></td>
+								<td class="num behind-cell">{formatDkk(a.krBehind)}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		</section>
+	{/if}
 
 	{#if dataAsOf(data.meta)}
 		<p class="freshness">Data synced from HubSpot · last updated {dataAsOf(data.meta)}</p>
