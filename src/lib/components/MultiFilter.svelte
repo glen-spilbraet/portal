@@ -1,7 +1,7 @@
 <script>
 	// A compact filter dropdown. Multi-select (checkboxes + Apply) by default,
 	// or single-select (radio, applies immediately) when `single` is set.
-	let { label, options = [], selected = [], single = false, onApply } = $props();
+	let { label, options = [], selected = [], single = false, allLabel = 'All', onApply } = $props();
 
 	let open = $state(false);
 	let pending = $state([...selected]);
@@ -53,7 +53,7 @@
 			<div class="mf-list">
 				{#if single}
 					<button type="button" class="mf-opt" onclick={clear}>
-						<span class="mf-radio" class:on={selected.length === 0}></span>All reps
+						<span class="mf-radio" class:on={selected.length === 0}></span>{allLabel}
 					</button>
 				{/if}
 				{#each filtered as o (o.value)}
