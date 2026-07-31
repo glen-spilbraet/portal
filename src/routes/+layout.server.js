@@ -61,14 +61,16 @@ export async function load({ cookies, url, platform }) {
 		}
 	}
 
-	// The dashboard is the homepage but is gated by `stats`. Rather than 403 a
-	// user who lacks it, send them to the first section they can reach.
+	// The dashboard (Stats) is the homepage, but a user may not have it. In that
+	// case land them on the leftmost nav section they can reach — mirroring the
+	// nav order: Stats, Sales (sheets → price list), Orders, Data, Mail.
 	if (url.pathname === '/' && !effectivePermissions.stats) {
 		const fallback = [
 			['sheets', '/sheets'],
 			['catalogues', '/catalogues'],
 			['planograms', '/planograms'],
 			['price_lists', '/price-lists'],
+			['orders', '/orders'],
 			['data', '/data'],
 			['mail', '/mail/accounts'],
 		].find(([perm]) => effectivePermissions[perm]);
