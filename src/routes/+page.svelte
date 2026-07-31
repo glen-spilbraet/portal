@@ -20,7 +20,8 @@
 	let dimTab = $state('customers');
 	const dimTitle = { countries: 'Country', groups: 'Customer Group', levels: 'Customer Level', owners: 'Owner' };
 	const dimRows = $derived(dimTab === 'customers' ? [] : data.dims?.[dimTab] ?? []);
-	const tabCount = $derived(dimTab === 'customers' ? data.companies?.length ?? 0 : dimRows.length);
+	const activeTabLabel = $derived(dimTabs.find((t) => t.key === dimTab)?.label ?? '');
+	let dimSearch = $state('');
 
 	// ── Attention snooze/dismiss menu ────────────────────────────────────────
 	let menuFor = $state(null);
@@ -190,6 +191,12 @@
 	const sortedCompanies = $derived(sortRows(data.companies, 'name'));
 	const sortedDim = $derived(sortRows(dimRows, 'label'));
 
+	// Quick text filter on the dimension value (company / country / owner / …).
+	const dimMatch = (s) => (s ?? '').toLowerCase().includes(dimSearch.trim().toLowerCase());
+	const filteredCompanies = $derived(dimSearch.trim() ? sortedCompanies.filter((c) => dimMatch(c.name)) : sortedCompanies);
+	const filteredDim = $derived(dimSearch.trim() ? sortedDim.filter((d) => dimMatch(d.label)) : sortedDim);
+	const tabCount = $derived(dimTab === 'customers' ? filteredCompanies.length : filteredDim.length);
+
 	// ── CSV export of the current breakdown view (admin only) ────────────────
 	// Matches the Google-Sheets format used for downstream comparisons: raw
 	// unrounded numbers with '.' decimals, '-' for empty/zero cells, and Index
@@ -200,7 +207,7 @@
 	}
 	function exportCsv() {
 		const isCust = dimTab === 'customers';
-		const rows = isCust ? sortedCompanies : sortedDim;
+		const rows = isCust ? filteredCompanies : filteredDim;
 		const revCols = data.yearCols.map((y) => `${y} Revenue`);
 		const header = isCust
 			? ['Company name', 'Owner Name', ...revCols, 'Index']
@@ -383,7 +390,7 @@
 		<div class="table-head">
 			<div class="dim-tabs" role="tablist">
 				{#each dimTabs as t}
-					<button class="dim-tab" class:on={dimTab === t.key} role="tab" aria-selected={dimTab === t.key} onclick={() => (dimTab = t.key)}>{t.label}</button>
+					<button class="dim-tab" class:on={dimTab === t.key} role="tab" aria-selected={dimTab === t.key} onclick={() => { dimTab = t.key; dimSearch = ''; }}>{t.label}</button>
 				{/each}
 			</div>
 			<span class="count">{numFmt.format(tabCount)}</span>
@@ -396,7 +403,17 @@
 				</button>
 			{/if}
 		</div>
-		<p class="dim-caption">Columns show the selected date range in each year · Index = newest vs one year earlier</p>
+		<div class="dim-filter">
+			<div class="dim-search">
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+				</svg>
+				<input type="text" bind:value={dimSearch} placeholder="Search {activeTabLabel}…" aria-label="Filter {activeTabLabel}" />
+				{#if dimSearch}
+					<button class="dim-search-clear" onclick={() => (dimSearch = '')} aria-label="Clear search" title="Clear">×</button>
+				{/if}
+			</div>
+		</div>
 		<div class="table-scroll">
 			{#if dimTab === 'customers'}
 				<table>
@@ -421,7 +438,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each sortedCompanies as c (c.cid)}
+						{#each filteredCompanies as c (c.cid)}
 							<tr>
 								<td class="name">
 									<div class="name-cell">
@@ -438,8 +455,8 @@
 								{@render indexCell(c.index)}
 							</tr>
 						{/each}
-						{#if sortedCompanies.length === 0}
-							<tr><td colspan="6" class="empty">No companies in this period.</td></tr>
+						{#if filteredCompanies.length === 0}
+							<tr><td colspan="6" class="empty">{dimSearch.trim() ? 'No matches.' : 'No companies in this period.'}</td></tr>
 						{/if}
 					</tbody>
 				</table>
@@ -462,15 +479,15 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each sortedDim as d (d.key)}
+						{#each filteredDim as d (d.key)}
 							<tr>
 								<td class="name"><span class="cname">{d.label}</span></td>
 								{@render yearCells(d)}
 								{@render indexCell(d.index)}
 							</tr>
 						{/each}
-						{#if sortedDim.length === 0}
-							<tr><td colspan="5" class="empty">No data in this period.</td></tr>
+						{#if filteredDim.length === 0}
+							<tr><td colspan="5" class="empty">{dimSearch.trim() ? 'No matches.' : 'No data in this period.'}</td></tr>
 						{/if}
 					</tbody>
 				</table>
@@ -979,14 +996,49 @@
 	}
 	.export-btn:hover { background: #FFF5D2; color: #7B3803; border-color: #F4CE7A; }
 
-	.dim-caption {
-		margin: 0;
-		padding: 8px 20px 10px;
-		font-size: 12px;
-		color: #A88B52;
-		background: #FFFDF6;
+	.dim-filter {
+		padding: 10px 16px;
 		border-bottom: 1px solid var(--border);
 	}
+	.dim-search {
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+		width: 100%;
+		max-width: 300px;
+		padding: 6px 10px;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: #fff;
+		transition: border-color 0.12s, box-shadow 0.12s;
+	}
+	.dim-search:focus-within {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.12);
+	}
+	.dim-search svg { color: #B7A579; flex-shrink: 0; }
+	.dim-search input {
+		flex: 1;
+		min-width: 0;
+		border: none;
+		background: none;
+		outline: none;
+		font-family: inherit;
+		font-size: 13px;
+		color: #3f3a33;
+	}
+	.dim-search input::placeholder { color: #B7A579; }
+	.dim-search-clear {
+		flex-shrink: 0;
+		border: none;
+		background: none;
+		cursor: pointer;
+		color: #A88B52;
+		font-size: 16px;
+		line-height: 1;
+		padding: 0 2px;
+	}
+	.dim-search-clear:hover { color: #7B3803; }
 
 	.table-scroll {
 		max-height: 620px;
