@@ -356,6 +356,14 @@
 		<div class="table-scroll">
 			{#if dimTab === 'customers'}
 				<table>
+					<colgroup>
+						<col />
+						<col style="width:150px" />
+						<col style="width:116px" />
+						<col style="width:116px" />
+						<col style="width:116px" />
+						<col style="width:86px" />
+					</colgroup>
 					<thead>
 						<tr>
 							<th class="th-sort" class:sorted={sortKey === 'name'} onclick={() => setSort('name')}>
@@ -393,6 +401,13 @@
 				</table>
 			{:else}
 				<table>
+					<colgroup>
+						<col />
+						<col style="width:116px" />
+						<col style="width:116px" />
+						<col style="width:116px" />
+						<col style="width:86px" />
+					</colgroup>
 					<thead>
 						<tr>
 							<th class="th-sort" class:sorted={sortKey === 'name'} onclick={() => setSort('name')}>
@@ -933,7 +948,7 @@
 		border-bottom: 1px solid var(--border);
 		user-select: none;
 	}
-	th.num, td.num { text-align: right; }
+	th.num, td.num { text-align: right; white-space: nowrap; }
 	.th-sort { cursor: pointer; transition: background 0.12s; }
 	.th-sort:hover { background: #F8E6B0; }
 	.th-sort.sorted { color: #B15A12; }
