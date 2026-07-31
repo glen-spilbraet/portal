@@ -189,6 +189,42 @@
 	}
 	const sortedCompanies = $derived(sortRows(data.companies, 'name'));
 	const sortedDim = $derived(sortRows(dimRows, 'label'));
+
+	// ── CSV export of the current breakdown view (admin only) ────────────────
+	// Matches the Google-Sheets format used for downstream comparisons: raw
+	// unrounded numbers with '.' decimals, '-' for empty/zero cells, and Index
+	// as the newest÷prior ratio. Reflects the selected tab, filters and dates.
+	function csvEscape(val) {
+		const s = String(val);
+		return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+	}
+	function exportCsv() {
+		const isCust = dimTab === 'customers';
+		const rows = isCust ? sortedCompanies : sortedDim;
+		const revCols = data.yearCols.map((y) => `${y} Revenue`);
+		const header = isCust
+			? ['Company name', 'Owner Name', ...revCols, 'Index']
+			: [dimTitle[dimTab], ...revCols, 'Index'];
+
+		const revCell = (v, i) => (data.colNoData[i] || !v ? '-' : String(v));
+		const idxCell = (r) => (!data.colNoData[1] && r.rev1 > 0 ? String(r.rev2 / r.rev1) : '-');
+
+		const lines = [header];
+		for (const r of rows) {
+			const lead = isCust ? [r.name, r.owner ?? ''] : [r.label];
+			lines.push([...lead, revCell(r.rev0, 0), revCell(r.rev1, 1), revCell(r.rev2, 2), idxCell(r)]);
+		}
+		const csv = '﻿' + lines.map((row) => row.map(csvEscape).join(',')).join('\r\n');
+		const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `sales-stats-${dimTab}.csv`;
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		URL.revokeObjectURL(url);
+	}
 </script>
 
 <svelte:head><title>Sales Stats · Product Portal</title></svelte:head>
@@ -351,6 +387,14 @@
 				{/each}
 			</div>
 			<span class="count">{numFmt.format(tabCount)}</span>
+			{#if data.isAdmin}
+				<button class="export-btn" onclick={exportCsv} title="Export the current view to CSV">
+					<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+					</svg>
+					Export CSV
+				</button>
+			{/if}
 		</div>
 		<p class="dim-caption">Columns show the selected date range in each year · Index = newest vs one year earlier</p>
 		<div class="table-scroll">
@@ -916,6 +960,24 @@
 	}
 	.dim-tab:hover { background: #F4F4F5; color: #18181B; }
 	.dim-tab.on { background: #18181B; color: #fff; }
+
+	.export-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-family: inherit;
+		font-size: 12.5px;
+		font-weight: 700;
+		color: #524431;
+		background: #fff;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 6px 11px;
+		cursor: pointer;
+		white-space: nowrap;
+		transition: background 0.12s, color 0.12s, border-color 0.12s;
+	}
+	.export-btn:hover { background: #FFF5D2; color: #7B3803; border-color: #F4CE7A; }
 
 	.dim-caption {
 		margin: 0;
