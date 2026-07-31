@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
-import { getAllowedUser } from '$lib/db.js';
+import { getAllowedUser, getUserPermissions } from '$lib/db.js';
 
 const HUBSPOT_BASE = 'https://api.hubapi.com';
 const RACKBEAT_BASE = 'https://app.rackbeat.com/api';
@@ -55,7 +55,8 @@ export async function POST({ request, cookies, platform }) {
 
 	const user = await getAllowedUser(db, email);
 	if (!user) error(403, 'Access denied');
-	if (user.role !== 'admin') error(403, 'No access to orders');
+	const perms = await getUserPermissions(db, user);
+	if (!perms.orders) error(403, 'No access to orders');
 
 	const rackbeatKey  = platform?.env?.RACKBEAT_API_KEY;
 	const hubspotToken = platform?.env?.HUBSPOT_TOKEN;

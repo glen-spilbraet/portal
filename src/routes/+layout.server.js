@@ -11,6 +11,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/data'))                        return 'data';
 	if (pathname.startsWith('/mail'))                        return 'mail';
 	if (pathname.startsWith('/price-lists'))                 return 'price_lists';
+	if (pathname.startsWith('/orders'))                      return 'orders';
 	return null;
 }
 
@@ -77,11 +78,6 @@ export async function load({ cookies, url, platform }) {
 	// Block routes based on effective (possibly simulated) permissions
 	const section = sectionForPath(url.pathname);
 	if (section && !effectivePermissions[section]) {
-		error(403, "You don't have access to this section.");
-	}
-
-	// Orders is admin-only
-	if (url.pathname.startsWith('/orders') && effectiveRole !== 'admin') {
 		error(403, "You don't have access to this section.");
 	}
 

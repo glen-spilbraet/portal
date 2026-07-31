@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ sheets: true, catalogues: true, planograms: true, data: true, price_lists: false });
+	let newAccess = $state({ sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false });
 	let creating = $state(false);
 	let createError = $state('');
 
@@ -21,6 +21,7 @@
 		{ key: 'planograms',  label: 'Planograms' },
 		{ key: 'data',        label: 'Data' },
 		{ key: 'price_lists', label: 'Price List' },
+		{ key: 'orders',      label: 'Orders' },
 	];
 
 	async function createSet() {
@@ -38,6 +39,7 @@
 					access_planograms:  newAccess.planograms,
 					access_data:        newAccess.data,
 					access_price_lists: newAccess.price_lists,
+					access_orders:      newAccess.orders,
 				})
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
@@ -50,9 +52,10 @@
 				access_planograms:  newAccess.planograms   ? 1 : 0,
 				access_data:        newAccess.data         ? 1 : 0,
 				access_price_lists: newAccess.price_lists  ? 1 : 0,
+				access_orders:      newAccess.orders       ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { sheets: true, catalogues: true, planograms: true, data: true, price_lists: false };
+			newAccess = { sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false };
 		} catch (e) {
 			createError = e.message;
 		} finally {
@@ -68,6 +71,7 @@
 			access_planograms:  !!set.access_planograms,
 			access_data:        !!set.access_data,
 			access_price_lists: !!set.access_price_lists,
+			access_orders:      !!set.access_orders,
 		};
 	}
 
@@ -91,6 +95,7 @@
 					access_planograms:  e.access_planograms,
 					access_data:        e.access_data,
 					access_price_lists: e.access_price_lists,
+					access_orders:      e.access_orders,
 				})
 			});
 			if (!res.ok) throw new Error('Failed to save');
@@ -102,6 +107,7 @@
 				access_planograms:  e.access_planograms  ? 1 : 0,
 				access_data:        e.access_data        ? 1 : 0,
 				access_price_lists: e.access_price_lists ? 1 : 0,
+				access_orders:      e.access_orders      ? 1 : 0,
 			});
 			cancelEdit(id);
 		} catch (err) {

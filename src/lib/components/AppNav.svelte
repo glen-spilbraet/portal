@@ -2,7 +2,7 @@
 	let { active = 'sheets', user = null } = $props();
 
 	// Permissions — default to full access so the nav never breaks if not provided
-	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true });
+	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true });
 
 	const salesItems = $derived([
 		p.sheets       && { href: '/sheets',       label: 'Sheets',      key: 'sheets' },
@@ -15,6 +15,12 @@
 	const showStats = $derived(!!p.stats);
 	const showData  = $derived(p.data);
 	const showMail  = $derived(!!p.mail);
+	const showOrders = $derived(!!p.orders);
+
+	const orderItems = [
+		{ href: '/orders',                 label: 'Orders',        key: 'orders' },
+		{ href: '/orders/rackbeat-drafts', label: 'Create Orders', key: 'create-orders' },
+	];
 
 	const mailItems = [
 		{ href: '/mail/accounts',  label: 'Key Accounts', key: 'mail-accounts' },
@@ -22,10 +28,11 @@
 		{ href: '/mail/campaigns', label: 'Campaigns',    key: 'mail-campaigns' },
 	];
 
-	const adminRoutes = ['translations', 'admin', 'permissions', 'item-library', 'orders', 'create-orders', 'sheet-data', 'analytics', 'migrate-images', 'targets', 'verify'];
-	const salesActive = $derived(salesItems.some(i => i.key === active));
-	const mailActive  = $derived(active.startsWith('mail-'));
-	const adminActive = $derived(adminRoutes.includes(active));
+	const adminRoutes = ['translations', 'admin', 'permissions', 'item-library', 'sheet-data', 'analytics', 'migrate-images', 'targets', 'verify'];
+	const salesActive  = $derived(salesItems.some(i => i.key === active));
+	const orderActive  = $derived(orderItems.some(i => i.key === active));
+	const mailActive   = $derived(active.startsWith('mail-'));
+	const adminActive  = $derived(adminRoutes.includes(active));
 
 	// Display name: first_name if set, else email prefix
 	const displayName = $derived(
@@ -121,6 +128,25 @@
 					</div>
 				{/if}
 
+				<!-- Orders dropdown -->
+				{#if showOrders}
+					<div class="nav-group" class:active={orderActive}>
+						<button class="nav-top" class:active={orderActive}>
+							Orders
+							<svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none">
+								<path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+						</button>
+						<div class="dropdown">
+							<div class="dropdown-inner">
+								{#each orderItems as item}
+									<a href={item.href} class="dropdown-item" class:active={active === item.key}>{item.label}</a>
+								{/each}
+							</div>
+						</div>
+					</div>
+				{/if}
+
 				<!-- Data (direct link) -->
 				{#if showData}
 					<a href="/data" class="nav-link" class:active={active === 'data'}>Data</a>
@@ -156,9 +182,6 @@
 						</button>
 						<div class="dropdown">
 							<div class="dropdown-inner">
-								<a href="/orders" class="dropdown-item" class:active={active === 'orders'}>Orders</a>
-								<a href="/orders/rackbeat-drafts" class="dropdown-item" class:active={active === 'create-orders'}>Create Orders</a>
-								<div class="dropdown-divider"></div>
 								<a href="/translations" class="dropdown-item" class:active={active === 'translations'}>Translations</a>
 								<a href="/admin/users" class="dropdown-item" class:active={active === 'admin'}>Users</a>
 								<a href="/admin/permissions" class="dropdown-item" class:active={active === 'permissions'}>Permission Sets</a>
