@@ -7,6 +7,7 @@
 	let { data } = $props();
 
 	let openCompany = $state(null);
+	let scrollY = $state(0);
 
 	// Breakdown table dimension tabs.
 	const dimTabs = $derived([
@@ -189,16 +190,43 @@
 
 <AppNav active="stats" user={data.user} />
 
-<main class="wrap">
-	<header class="page-head">
-		<div class="head-top">
-			<h1>Sales Stats</h1>
-			<p class="sub">
-				Revenue by market · <strong>{data.periodLabel}</strong>
-				{#if !data.isAdmin}<span class="scope">· your accounts</span>{/if}
-			</p>
-		</div>
+<svelte:window bind:scrollY />
 
+<!-- Sticky date bar — pins under the nav; gains a shadow once scrolled. -->
+<div class="date-bar" class:scrolled={scrollY > 4}>
+	<div class="date-bar-inner">
+		<div class="range-controls">
+			<select class="quick-select" class:active={isQuickSelected} aria-label="Quick select" onchange={pickQuick}>
+				<option value="" disabled selected={!isQuickSelected}>Quick Select</option>
+				<optgroup label="Year">
+					{#each data.yearOptions as o}
+						<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
+					{/each}
+				</optgroup>
+				<optgroup label="Quarter">
+					{#each data.quarterOptions as o}
+						<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
+					{/each}
+				</optgroup>
+				<optgroup label="Month">
+					{#each data.monthOptions as o}
+						<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
+					{/each}
+				</optgroup>
+			</select>
+
+			<form class="custom-range" onsubmit={applyCustom}>
+				<input type="date" name="from" value={data.range.start} class="date-input" aria-label="From date" />
+				<span class="range-dash">–</span>
+				<input type="date" name="to" value={data.range.endInclusive} class="date-input" aria-label="To date" />
+				<button type="submit" class="apply-btn" class:active={data.selected === 'custom'}>Apply</button>
+			</form>
+		</div>
+	</div>
+</div>
+
+<main class="wrap">
+	{#snippet filterBar()}
 		<div class="filter-bar">
 			<span class="fb-label">Filters</span>
 			<MultiFilter label="Customer Level" options={levelOpts} selected={data.activeFilters.levels}
@@ -216,49 +244,33 @@
 				<button type="button" class="fb-clear" onclick={clearAllFilters}>Clear all</button>
 			{/if}
 		</div>
+	{/snippet}
 
-		<div class="controls">
-			<div class="range-controls">
-				<select class="quick-select" class:active={isQuickSelected} aria-label="Quick select" onchange={pickQuick}>
-					<option value="" disabled selected={!isQuickSelected}>Quick Select</option>
-					<optgroup label="Year">
-						{#each data.yearOptions as o}
-							<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
-						{/each}
-					</optgroup>
-					<optgroup label="Quarter">
-						{#each data.quarterOptions as o}
-							<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
-						{/each}
-					</optgroup>
-					<optgroup label="Month">
-						{#each data.monthOptions as o}
-							<option value={o.key} selected={data.selected === o.key}>{o.label}</option>
-						{/each}
-					</optgroup>
-				</select>
-
-				<form class="custom-range" onsubmit={applyCustom}>
-					<input type="date" name="from" value={data.range.start} class="date-input" aria-label="From date" />
-					<span class="range-dash">–</span>
-					<input type="date" name="to" value={data.range.endInclusive} class="date-input" aria-label="To date" />
-					<button type="submit" class="apply-btn" class:active={data.selected === 'custom'}>Apply</button>
-				</form>
-			</div>
-		</div>
-	</header>
-
-	<section class="grid">
-		{#each data.widgets as w (w.key)}
-			<div class="card" class:total={w.key === 'total'}>
-				<div class="card-label">{w.label}</div>
-				<div class="card-value">{formatDkk(w.dkk)}</div>
-				<div class="index-row">
-					<span class="index-chip {indexClass(w.index)}">{w.index !== null ? `Index ${w.index}` : 'Index —'}</span>
+	{#snippet widgetGrid(items)}
+		<section class="grid">
+			{#each items as w (w.key)}
+				<div class="card" class:total={w.key === 'total'}>
+					<div class="card-label">{w.label}</div>
+					<div class="card-value">{formatDkk(w.dkk)}</div>
+					<div class="index-row">
+						<span class="index-chip {indexClass(w.index)}">{w.index !== null ? `Index ${w.index}` : 'Index —'}</span>
+					</div>
 				</div>
-			</div>
-		{/each}
-	</section>
+			{/each}
+		</section>
+	{/snippet}
+
+	{#if data.isAdmin}
+		{@render filterBar()}
+		{@render widgetGrid(data.widgets)}
+	{:else}
+		<div class="section-head"><h2>Company Stats</h2></div>
+		{@render widgetGrid(data.companyWidgets)}
+
+		<div class="section-head"><h2>Your stats</h2></div>
+		{@render filterBar()}
+		{@render widgetGrid(data.widgets)}
+	{/if}
 
 	{#if data.tracker}
 		<section class="targets">
@@ -507,24 +519,56 @@
 		padding: 28px;
 	}
 
-	.page-head {
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-		margin-bottom: 22px;
+	/* Sticky date bar — sits under the nav, pins to top on scroll. */
+	.date-bar {
+		position: sticky;
+		top: 0;
+		z-index: 30;
+		background: #fff;
+		border-bottom: 1px solid var(--border);
+		transition: box-shadow 0.18s ease;
 	}
-	.controls {
+	.date-bar.scrolled {
+		box-shadow: 0 3px 14px rgba(0, 0, 0, 0.06);
+	}
+	.date-bar-inner {
+		max-width: 1140px;
+		margin: 0 auto;
+		padding: 9px 28px;
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 12px 20px;
-		flex-wrap: wrap;
+		justify-content: flex-end;
 	}
+
+	/* Section heading bar (Company Stats / Your stats) */
+	.section-head {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		margin: 28px 0 14px;
+	}
+	.section-head:first-child { margin-top: 4px; }
+	.section-head h2 {
+		font-size: 15px;
+		font-weight: 800;
+		letter-spacing: -0.2px;
+		color: #18181B;
+		margin: 0;
+		white-space: nowrap;
+	}
+	.section-head::after {
+		content: '';
+		flex: 1;
+		height: 1px;
+		background: var(--border);
+	}
+
 	.filter-bar {
 		display: flex;
 		align-items: center;
 		gap: 8px;
 		flex-wrap: wrap;
+		margin-bottom: 16px;
 	}
 	.fb-label {
 		font-size: 11px;
@@ -546,20 +590,6 @@
 		border-radius: 8px;
 	}
 	.fb-clear:hover { background: #FFF5D2; text-decoration: underline; }
-	h1 {
-		font-size: 24px;
-		font-weight: 800;
-		letter-spacing: -0.4px;
-		color: #18181B;
-		margin: 0;
-	}
-	.sub {
-		font-size: 14px;
-		color: #8A7550;
-		margin: 4px 0 0;
-	}
-	.sub strong { color: #7B3803; font-weight: 700; }
-	.scope { color: #A1A1AA; }
 
 	.range-controls {
 		display: flex;

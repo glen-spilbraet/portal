@@ -171,13 +171,18 @@ export async function load({ platform, url, cookies, parent }) {
 
 	const emptyOptions = { levels: [], groups: [], countries: [] };
 	if (!db) {
-		return { widgets: [], companies: [], dims: { countries: [], groups: [], levels: [], owners: [] }, attention: [], snoozed: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
+		return { widgets: [], companyWidgets: [], companies: [], dims: { countries: [], groups: [], levels: [], owners: [] }, attention: [], snoozed: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
 	}
 
 	const todayStr = now.toISOString().slice(0, 10);
-	const [curTotals, priorTotals, curCompanies, priorCompanies, universe, attentionRows, hides, meta, filterOptions, reps, dimCountries, dimGroups, dimLevels, dimOwners] = await Promise.all([
+	// Company-wide market totals react to the date range ONLY — never to the
+	// filter bar or owner scoping. Used for the always-visible company figures
+	// (and the quarterly target tracker, which tracks the whole company).
+	const [curTotals, priorTotals, companyCur, companyPrior, curCompanies, priorCompanies, universe, attentionRows, hides, meta, filterOptions, reps, dimCountries, dimGroups, dimLevels, dimOwners] = await Promise.all([
 		getMarketTotals(db, cur.start, cur.end, filters),
 		getMarketTotals(db, prior.start, prior.end, filters),
+		getMarketTotals(db, cur.start, cur.end, {}),
+		getMarketTotals(db, prior.start, prior.end, {}),
 		getCompanyTotals(db, cur.start, cur.end, filters),
 		getCompanyTotals(db, prior.start, prior.end, filters),
 		getCompanyUniverse(db, filters),
@@ -233,10 +238,17 @@ export async function load({ platform, url, cookies, parent }) {
 		...MARKETS.map((m) => widget(m.toLowerCase(), m, curTotals.byMarket[m], priorTotals.byMarket[m])),
 	];
 
-	// Quarterly target tracker — only for quarter views with prior-year data.
+	// Company-wide widgets (date-only, unfiltered) — shown to non-admins under a
+	// "Company Stats" heading so everyone sees whole-company market figures.
+	const companyWidgets = [
+		widget('total', 'Total revenue', companyCur.total, companyPrior.total),
+		...MARKETS.map((m) => widget(m.toLowerCase(), m, companyCur.byMarket[m], companyPrior.byMarket[m])),
+	];
+
+	// Quarterly target tracker — company-wide, only for quarter views with prior-year data.
 	let tracker = null;
-	const curRev = curTotals.total.dkk;
-	const priorRev = priorTotals.total.dkk;
+	const curRev = companyCur.total.dkk;
+	const priorRev = companyPrior.total.dkk;
 	if (isQuarterRange(cur.start, cur.end, now) && priorRev > 0) {
 		const targetYear = Number(cur.start.slice(0, 4));
 		const rows = await listSalesTargetsForYear(db, targetYear);
@@ -264,6 +276,7 @@ export async function load({ platform, url, cookies, parent }) {
 
 	return {
 		widgets,
+		companyWidgets,
 		companies,
 		dims,
 		attention,
