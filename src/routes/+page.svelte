@@ -260,17 +260,12 @@
 		</section>
 	{/snippet}
 
-	{#if data.isAdmin}
-		{@render filterBar()}
-		{@render widgetGrid(data.widgets)}
-	{:else}
-		<div class="section-head"><h2>Company Stats</h2></div>
-		{@render widgetGrid(data.companyWidgets)}
+	<div class="section-head"><h2>Company Stats</h2></div>
+	{@render widgetGrid(data.companyWidgets)}
 
-		<div class="section-head"><h2>Your stats</h2></div>
-		{@render filterBar()}
-		{@render widgetGrid(data.widgets)}
-	{/if}
+	<div class="section-head"><h2>Your stats</h2></div>
+	{@render filterBar()}
+	{@render widgetGrid(data.widgets)}
 
 	{#if data.tracker}
 		<section class="targets">
