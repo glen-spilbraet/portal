@@ -71,7 +71,14 @@ export default {
 				const from = url.searchParams.get('from'); // deal close_date >= (YYYY-MM-DD)
 				const to = url.searchParams.get('to'); //   deal close_date <  (YYYY-MM-DD, exclusive)
 				if (!from || !to) return json({ ok: false, error: 'from & to (YYYY-MM-DD) required' }, 400);
-				const range = { dealFrom: from, dealTo: to, invFrom: addDaysYmd(from, -15), invTo: addDaysYmd(to, 15), label: `${from} → ${to}` };
+				// Invoice window is deliberately DECOUPLED from the deal window. An
+				// invoice is only ever dated at/after the deal closes and can lag by
+				// months, so we index invoices from a month before the period up to
+				// today — otherwise a late invoice is missed and the deal is wrongly
+				// flagged "not_found" (which also hides real amount/date mismatches).
+				const today = new Date().toISOString().slice(0, 10);
+				const invTo = to > today ? to : today;
+				const range = { dealFrom: from, dealTo: to, invFrom: addDaysYmd(from, -31), invTo, label: `${from} → ${to}` };
 				return json({ ok: true, ...(await runVerification(env, range)) });
 			}
 			let summary;
