@@ -171,32 +171,52 @@ export async function load({ platform, url, cookies, parent }) {
 
 	const emptyOptions = { levels: [], groups: [], countries: [] };
 	if (!db) {
-		return { widgets: [], companyWidgets: [], companies: [], dims: { countries: [], groups: [], levels: [], owners: [] }, attention: [], snoozed: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
+		return { widgets: [], companyWidgets: [], companies: [], dims: { countries: [], groups: [], levels: [], owners: [] }, yearCols: ['—', '—', '—'], colNoData: [false, false, false], crossing: false, attention: [], snoozed: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
 	}
 
 	const todayStr = now.toISOString().slice(0, 10);
+	// The breakdown tables compare three same-shaped windows: the selected range
+	// (cur), and the same range one and two years earlier. Shifting by whole
+	// years keeps a year-crossing range (e.g. Oct→Mar) apples-to-apples.
+	const prior2 = { start: minusYears(cur.start, 2), end: minusYears(cur.end, 2) };
+	const dimWindows = { y0: prior2, y1: prior, y2: cur };
+
 	// Company-wide market totals react to the date range ONLY — never to the
 	// filter bar or owner scoping. Used for the always-visible company figures
 	// (and the quarterly target tracker, which tracks the whole company).
-	const [curTotals, priorTotals, companyCur, companyPrior, curCompanies, priorCompanies, universe, attentionRows, hides, meta, filterOptions, reps, dimCountries, dimGroups, dimLevels, dimOwners] = await Promise.all([
+	const [curTotals, priorTotals, companyCur, companyPrior, y0Companies, y1Companies, y2Companies, universe, attentionRows, hides, meta, filterOptions, reps, dimCountries, dimGroups, dimLevels, dimOwners] = await Promise.all([
 		getMarketTotals(db, cur.start, cur.end, filters),
 		getMarketTotals(db, prior.start, prior.end, filters),
 		getMarketTotals(db, cur.start, cur.end, {}),
 		getMarketTotals(db, prior.start, prior.end, {}),
-		getCompanyTotals(db, cur.start, cur.end, filters),
+		getCompanyTotals(db, prior2.start, prior2.end, filters),
 		getCompanyTotals(db, prior.start, prior.end, filters),
+		getCompanyTotals(db, cur.start, cur.end, filters),
 		getCompanyUniverse(db, filters),
 		getAttentionData(db, cur, prior, filters),
 		getActiveHides(db, email, todayStr),
 		getSyncMeta(db),
 		getFilterOptions(db, isAdmin ? null : email),
 		isAdmin ? getReps(db) : Promise.resolve([]),
-		getDimensionBreakdown(db, cur, prior, 'country', filters),
-		getDimensionBreakdown(db, cur, prior, 'customer_group', filters),
-		getDimensionBreakdown(db, cur, prior, 'customer_level', filters),
-		isAdmin ? getDimensionBreakdown(db, cur, prior, 'owner_email', filters) : Promise.resolve([]),
+		getDimensionBreakdown(db, dimWindows, 'country', filters),
+		getDimensionBreakdown(db, dimWindows, 'customer_group', filters),
+		getDimensionBreakdown(db, dimWindows, 'customer_level', filters),
+		isAdmin ? getDimensionBreakdown(db, dimWindows, 'owner_email', filters) : Promise.resolve([]),
 	]);
 	const dims = { countries: dimCountries, groups: dimGroups, levels: dimLevels, owners: dimOwners };
+
+	// Column labels for the three windows (oldest→newest). A window inside one
+	// calendar year → just the year ("2025"); a year-crossing window → span
+	// ("2025–26"). Windows entirely before data start (2024) are flagged noData.
+	const DATA_START = '2024-01-01';
+	const winYearLabel = (w) => {
+		const sy = w.start.slice(0, 4);
+		const ey = addDaysStr(w.end, -1).slice(0, 4);
+		return sy === ey ? sy : `${sy}–${ey.slice(2)}`;
+	};
+	const yearCols = [winYearLabel(prior2), winYearLabel(prior), winYearLabel(cur)];
+	const colNoData = [prior2, prior, cur].map((w) => w.end <= DATA_START);
+	const crossing = cur.start.slice(0, 4) !== addDaysStr(cur.end, -1).slice(0, 4);
 
 	// Split hidden (snoozed/dismissed) out before scoring so they don't skew the
 	// gap scale; keep them for the "Show snoozed" list.
@@ -211,18 +231,20 @@ export async function load({ platform, url, cookies, parent }) {
 		})
 		.sort((a, b) => b.krBehind - a.krBehind);
 
-	// Show every known company; overlay this period's revenue + YoY (0 when idle).
-	const curByCompany = new Map(curCompanies.map((r) => [r.cid, r]));
-	const priorByCompany = new Map(priorCompanies.map((r) => [r.cid, r.revenue]));
+	// Show every known company; overlay the three windows' revenue (0 when idle)
+	// and the YoY index (newest vs one year earlier).
+	const y0Map = new Map(y0Companies.map((r) => [r.cid, r.revenue]));
+	const y1Map = new Map(y1Companies.map((r) => [r.cid, r.revenue]));
+	const y2Map = new Map(y2Companies.map((r) => [r.cid, r.revenue]));
 	const companies = universe
 		.map((u) => {
-			const cur = curByCompany.get(u.cid);
-			const revenue = cur?.revenue ?? 0;
-			const priorRev = priorByCompany.get(u.cid) ?? 0;
-			const pct = priorRev > 0 ? (revenue / priorRev - 1) * 100 : null;
-			return { cid: u.cid, name: u.name, owner: u.owner_name, revenue, deals: cur?.deals ?? 0, pct };
+			const rev0 = y0Map.get(u.cid) ?? 0;
+			const rev1 = y1Map.get(u.cid) ?? 0;
+			const rev2 = y2Map.get(u.cid) ?? 0;
+			const index = rev1 > 0 ? Math.round((rev2 / rev1) * 100) : null;
+			return { cid: u.cid, name: u.name, owner: u.owner_name, rev0, rev1, rev2, index };
 		})
-		.sort((a, b) => b.revenue - a.revenue);
+		.sort((a, b) => b.rev2 - a.rev2);
 
 	/** Build one widget: current dkk/deals + YoY index vs prior-year same window. */
 	function widget(key, wLabel, curVal, priorVal) {
@@ -279,6 +301,9 @@ export async function load({ platform, url, cookies, parent }) {
 		companyWidgets,
 		companies,
 		dims,
+		yearCols,
+		colNoData,
+		crossing,
 		attention,
 		snoozed,
 		tracker,

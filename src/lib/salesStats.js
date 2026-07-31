@@ -86,7 +86,14 @@ export async function getCompanyTotals(db, startIncl, endExcl, filters = {}) {
  * exists in the data appears (0 when idle in the selected window).
  * @param {App.Platform['env']['SALES_DB']} db
  */
-export async function getDimensionBreakdown(db, cur, prior, col, filters = {}) {
+/**
+ * Breakdown of a dimension across three same-shaped windows (oldest→newest):
+ * y0 = two periods ago, y1 = one period ago, y2 = the selected period. Index is
+ * YoY (y2 vs y1). Windows are passed in already shifted, so a year-crossing
+ * range just shifts cleanly. Filters (owner/level/group/country) apply.
+ */
+export async function getDimensionBreakdown(db, windows, col, filters = {}) {
+	const { y0, y1, y2 } = windows;
 	const where = [];
 	const binds = [];
 	if (filters.ownerEmail) { where.push('owner_email = ?'); binds.push(filters.ownerEmail); }
@@ -99,22 +106,23 @@ export async function getDimensionBreakdown(db, cur, prior, col, filters = {}) {
 	const rows = await db
 		.prepare(
 			`SELECT COALESCE(${col}, '—') AS key, ${label} AS label,
-			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS cur_rev,
-			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN 1 ELSE 0 END) AS cur_deals,
-			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS prior_rev
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
 			 FROM sales_deals ${clause} GROUP BY key`
 		)
-		.bind(cur.start, cur.end, cur.start, cur.end, prior.start, prior.end, ...binds)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, ...binds)
 		.all();
 	return (rows.results ?? [])
 		.map((r) => ({
 			key: r.key,
 			label: r.label ?? r.key,
-			revenue: r.cur_rev || 0,
-			deals: r.cur_deals || 0,
-			pct: r.prior_rev > 0 ? (r.cur_rev / r.prior_rev - 1) * 100 : null,
+			rev0: r.rev0 || 0,
+			rev1: r.rev1 || 0,
+			rev2: r.rev2 || 0,
+			index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null,
 		}))
-		.sort((a, b) => b.revenue - a.revenue);
+		.sort((a, b) => b.rev2 - a.rev2);
 }
 
 /**

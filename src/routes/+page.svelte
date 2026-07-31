@@ -159,8 +159,10 @@
 		return d.toLocaleString('da-DK', { dateStyle: 'medium', timeStyle: 'short' });
 	}
 
-	// ── Companies table sorting ──────────────────────────────────────────────
-	let sortKey = $state('revenue');
+	// ── Breakdown table sorting (shared across Customers + dimension tabs) ─────
+	// Keys: 'name' (label column), 'owner', 'rev0'|'rev1'|'rev2' (year columns),
+	// 'index'. Default = newest year descending.
+	let sortKey = $state('rev2');
 	let sortDir = $state('desc'); // 'asc' | 'desc'
 
 	function setSort(key) {
@@ -172,18 +174,21 @@
 		}
 	}
 
-	const sortedCompanies = $derived(
-		[...(data.companies ?? [])].sort((a, b) => {
+	/** Sort rows by the active key; `nameField` maps the first column per table. */
+	function sortRows(rows, nameField) {
+		return [...(rows ?? [])].sort((a, b) => {
 			let av, bv;
-			if (sortKey === 'name') { av = a.name?.toLowerCase() ?? ''; bv = b.name?.toLowerCase() ?? ''; }
+			if (sortKey === 'name') { av = a[nameField]?.toLowerCase() ?? ''; bv = b[nameField]?.toLowerCase() ?? ''; }
 			else if (sortKey === 'owner') { av = a.owner?.toLowerCase() ?? ''; bv = b.owner?.toLowerCase() ?? ''; }
-			else if (sortKey === 'pct') { av = a.pct ?? -Infinity; bv = b.pct ?? -Infinity; }
-			else { av = a.revenue; bv = b.revenue; }
+			else if (sortKey === 'index') { av = a.index ?? -Infinity; bv = b.index ?? -Infinity; }
+			else { av = a[sortKey] ?? 0; bv = b[sortKey] ?? 0; } // rev0 | rev1 | rev2
 			if (av < bv) return sortDir === 'asc' ? -1 : 1;
 			if (av > bv) return sortDir === 'asc' ? 1 : -1;
 			return 0;
-		})
-	);
+		});
+	}
+	const sortedCompanies = $derived(sortRows(data.companies, 'name'));
+	const sortedDim = $derived(sortRows(dimRows, 'label'));
 </script>
 
 <svelte:head><title>Sales Stats · Product Portal</title></svelte:head>
@@ -308,17 +313,34 @@
 		</section>
 	{/if}
 
-	{#snippet deltaCell(pct)}
-		{#if pct !== null && pct !== undefined}
-			<span class="delta" class:up={pct >= 0} class:down={pct < 0}>
-				{pct >= 0 ? '' : '−'}{Math.abs(pct).toFixed(1)}%
-				<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
-					{#if pct >= 0}<polyline points="6 15 12 9 18 15" />{:else}<polyline points="6 9 12 15 18 9" />{/if}
-				</svg>
-			</span>
-		{:else}
-			<span class="delta flat">–</span>
-		{/if}
+	{#snippet yearHeads()}
+		{#each ['rev0', 'rev1', 'rev2'] as key, i}
+			<th class="th-sort num" class:sorted={sortKey === key} onclick={() => setSort(key)}>
+				{data.yearCols[i]}{#if sortKey === key}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+			</th>
+		{/each}
+	{/snippet}
+
+	{#snippet indexHead()}
+		<th class="th-sort num" class:sorted={sortKey === 'index'} onclick={() => setSort('index')}>
+			Index{#if sortKey === 'index'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+		</th>
+	{/snippet}
+
+	{#snippet yearCells(row)}
+		{#each ['rev0', 'rev1', 'rev2'] as key, i}
+			<td class="num" class:nodata={data.colNoData[i]}>{data.colNoData[i] ? '—' : numFmt.format(Math.round(row[key]))}</td>
+		{/each}
+	{/snippet}
+
+	{#snippet indexCell(idx)}
+		<td class="num">
+			{#if idx !== null && idx !== undefined}
+				<span class="index-chip {indexClass(idx)}">{idx}</span>
+			{:else}
+				<span class="muted">–</span>
+			{/if}
+		</td>
 	{/snippet}
 
 	<section class="table-wrap">
@@ -330,6 +352,7 @@
 			</div>
 			<span class="count">{numFmt.format(tabCount)}</span>
 		</div>
+		<p class="dim-caption">Columns show the selected date range in each year · Index = newest vs one year earlier</p>
 		<div class="table-scroll">
 			{#if dimTab === 'customers'}
 				<table>
@@ -341,12 +364,8 @@
 							<th class="th-sort" class:sorted={sortKey === 'owner'} onclick={() => setSort('owner')}>
 								Owner Name{#if sortKey === 'owner'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
 							</th>
-							<th class="th-sort num" class:sorted={sortKey === 'revenue'} onclick={() => setSort('revenue')}>
-								Revenue{#if sortKey === 'revenue'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
-							</th>
-							<th class="th-sort num" class:sorted={sortKey === 'pct'} onclick={() => setSort('pct')}>
-								% Δ{#if sortKey === 'pct'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
-							</th>
+							{@render yearHeads()}
+							{@render indexHead()}
 						</tr>
 					</thead>
 					<tbody>
@@ -363,12 +382,12 @@
 									</div>
 								</td>
 								<td class="owner">{c.owner ?? '—'}</td>
-								<td class="num">{numFmt.format(Math.round(c.revenue))}</td>
-								<td class="num">{@render deltaCell(c.pct)}</td>
+								{@render yearCells(c)}
+								{@render indexCell(c.index)}
 							</tr>
 						{/each}
 						{#if sortedCompanies.length === 0}
-							<tr><td colspan="4" class="empty">No companies in this period.</td></tr>
+							<tr><td colspan="6" class="empty">No companies in this period.</td></tr>
 						{/if}
 					</tbody>
 				</table>
@@ -376,21 +395,23 @@
 				<table>
 					<thead>
 						<tr>
-							<th>{dimTitle[dimTab]}</th>
-							<th class="num">Revenue</th>
-							<th class="num">% Δ</th>
+							<th class="th-sort" class:sorted={sortKey === 'name'} onclick={() => setSort('name')}>
+								{dimTitle[dimTab]}{#if sortKey === 'name'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}
+							</th>
+							{@render yearHeads()}
+							{@render indexHead()}
 						</tr>
 					</thead>
 					<tbody>
-						{#each dimRows as d (d.key)}
+						{#each sortedDim as d (d.key)}
 							<tr>
 								<td class="name"><span class="cname">{d.label}</span></td>
-								<td class="num">{numFmt.format(Math.round(d.revenue))}</td>
-								<td class="num">{@render deltaCell(d.pct)}</td>
+								{@render yearCells(d)}
+								{@render indexCell(d.index)}
 							</tr>
 						{/each}
-						{#if dimRows.length === 0}
-							<tr><td colspan="3" class="empty">No data in this period.</td></tr>
+						{#if sortedDim.length === 0}
+							<tr><td colspan="5" class="empty">No data in this period.</td></tr>
 						{/if}
 					</tbody>
 				</table>
@@ -881,6 +902,15 @@
 	.dim-tab:hover { background: #F4F4F5; color: #18181B; }
 	.dim-tab.on { background: #18181B; color: #fff; }
 
+	.dim-caption {
+		margin: 0;
+		padding: 8px 20px 10px;
+		font-size: 12px;
+		color: #A88B52;
+		background: #FFFDF6;
+		border-bottom: 1px solid var(--border);
+	}
+
 	.table-scroll {
 		max-height: 620px;
 		overflow: auto;
@@ -934,16 +964,8 @@
 	td.owner { color: #6b5e4e; }
 	td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
 
-	.delta {
-		display: inline-flex;
-		align-items: center;
-		gap: 2px;
-		font-weight: 800;
-		justify-content: flex-end;
-	}
-	.delta.up { color: #16794C; }
-	.delta.down { color: #C4381B; }
-	.delta.flat { color: #C0AC7C; }
+	td.num.nodata { color: #C7C7CC; font-weight: 500; }
+	.muted { color: #C0AC7C; }
 
 	.empty { text-align: center; color: #A1A1AA; padding: 28px; }
 
