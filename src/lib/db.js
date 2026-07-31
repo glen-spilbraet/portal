@@ -711,8 +711,8 @@ export async function getPermissionSet(db, id) {
 
 export async function createPermissionSet(db, id, name, access) {
 	await db.prepare(`
-		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_mail)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`).bind(id, name,
 		access.sheets       ? 1 : 0,
 		access.catalogues   ? 1 : 0,
@@ -720,7 +720,8 @@ export async function createPermissionSet(db, id, name, access) {
 		access.data         ? 1 : 0,
 		access.price_lists  ? 1 : 0,
 		access.orders       ? 1 : 0,
-		access.stats        ? 1 : 0
+		access.stats        ? 1 : 0,
+		access.mail         ? 1 : 0
 	).run();
 }
 

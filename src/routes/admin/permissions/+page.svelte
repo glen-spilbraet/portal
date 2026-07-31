@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false });
+	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false });
 	let creating = $state(false);
 	let createError = $state('');
 
@@ -23,6 +23,7 @@
 		{ key: 'data',        label: 'Data' },
 		{ key: 'price_lists', label: 'Price List' },
 		{ key: 'orders',      label: 'Orders' },
+		{ key: 'mail',        label: 'Mail' },
 	];
 
 	async function createSet() {
@@ -42,6 +43,7 @@
 					access_price_lists: newAccess.price_lists,
 					access_orders:      newAccess.orders,
 					access_stats:       newAccess.stats,
+					access_mail:        newAccess.mail,
 				})
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
@@ -56,9 +58,10 @@
 				access_price_lists: newAccess.price_lists  ? 1 : 0,
 				access_orders:      newAccess.orders       ? 1 : 0,
 				access_stats:       newAccess.stats        ? 1 : 0,
+				access_mail:        newAccess.mail         ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false };
+			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false };
 		} catch (e) {
 			createError = e.message;
 		} finally {
@@ -76,6 +79,7 @@
 			access_price_lists: !!set.access_price_lists,
 			access_orders:      !!set.access_orders,
 			access_stats:       !!set.access_stats,
+			access_mail:        !!set.access_mail,
 		};
 	}
 
@@ -101,6 +105,7 @@
 					access_price_lists: e.access_price_lists,
 					access_orders:      e.access_orders,
 					access_stats:       e.access_stats,
+					access_mail:        e.access_mail,
 				})
 			});
 			if (!res.ok) throw new Error('Failed to save');
@@ -114,6 +119,7 @@
 				access_price_lists: e.access_price_lists ? 1 : 0,
 				access_orders:      e.access_orders      ? 1 : 0,
 				access_stats:       e.access_stats       ? 1 : 0,
+				access_mail:        e.access_mail        ? 1 : 0,
 			});
 			cancelEdit(id);
 		} catch (err) {
