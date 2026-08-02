@@ -330,10 +330,19 @@
 		</div>
 		<div class="chart-plot">
 			{#each monthLabels as ml, i}
-				<div class="chart-col" title={`${ml} ${data.monthly.year}: ${formatDkk(data.monthly.cur[i])}  ·  ${data.monthly.year - 1}: ${formatDkk(data.monthly.prior[i])}`}>
+				{@const cur = data.monthly.cur[i]}
+				{@const prior = data.monthly.prior[i]}
+				{@const idx = prior > 0 ? Math.round((cur / prior) * 100) : null}
+				<div class="chart-col">
 					<div class="chart-bars">
-						<div class="bar prior" style="height:{barH(data.monthly.prior[i])}"></div>
-						<div class="bar cur" style="height:{barH(data.monthly.cur[i])}"></div>
+						<div class="bar prior" style="height:{barH(prior)}"></div>
+						<div class="bar cur" style="height:{barH(cur)}"></div>
+						<div class="chart-tip" role="tooltip">
+							<div class="tip-h">{ml} {data.monthly.year}</div>
+							<div class="tip-row"><span class="tip-k">{data.monthly.year - 1} Revenue</span><span class="tip-v">{formatDkk(prior)}</span></div>
+							<div class="tip-row"><span class="tip-k">{data.monthly.year} Revenue</span><span class="tip-v">{formatDkk(cur)}</span></div>
+							<div class="tip-row tip-idx"><span class="tip-k">Index</span><span class="index-chip {indexClass(idx)}">{idx ?? '—'}</span></div>
+						</div>
 					</div>
 					<span class="chart-mlabel">{ml}</span>
 				</div>
@@ -835,6 +844,7 @@
 		align-items: center;
 	}
 	.chart-bars {
+		position: relative;
 		flex: 1;
 		width: 100%;
 		display: flex;
@@ -857,6 +867,62 @@
 		font-size: 11px;
 		font-weight: 700;
 		color: #A88B52;
+	}
+
+	/* Hover tooltip over a month's bars */
+	.chart-tip {
+		position: absolute;
+		bottom: 100%;
+		left: 50%;
+		transform: translateX(-50%);
+		margin-bottom: 9px;
+		width: 196px;
+		display: none;
+		z-index: 30;
+		pointer-events: none;
+		background: #fff;
+		border: 1px solid var(--border);
+		border-radius: 11px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+		padding: 11px 13px;
+	}
+	.chart-tip::after {
+		content: '';
+		position: absolute;
+		top: 100%;
+		left: 50%;
+		transform: translateX(-50%);
+		border: 6px solid transparent;
+		border-top-color: #fff;
+		filter: drop-shadow(0 1px 0 var(--border));
+	}
+	.chart-col:hover .chart-tip { display: block; }
+	/* Keep edge tooltips inside the card */
+	.chart-col:first-child .chart-tip { left: 0; transform: none; }
+	.chart-col:first-child .chart-tip::after { left: 30px; }
+	.chart-col:last-child .chart-tip { left: auto; right: 0; transform: none; }
+	.chart-col:last-child .chart-tip::after { left: auto; right: 30px; transform: none; }
+	.tip-h {
+		font-size: 11px;
+		font-weight: 800;
+		color: #A88B52;
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+		margin-bottom: 8px;
+	}
+	.tip-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		padding: 3px 0;
+	}
+	.tip-k { font-size: 12px; font-weight: 600; color: #71717A; white-space: nowrap; }
+	.tip-v { font-size: 13px; font-weight: 800; color: #18181B; font-variant-numeric: tabular-nums; }
+	.tip-idx {
+		margin-top: 5px;
+		padding-top: 8px;
+		border-top: 1px solid var(--border);
 	}
 
 	.card {
