@@ -1,4 +1,4 @@
-import { getMarketTotals, getCompanyTotals, getCompanyUniverse, getDimensionBreakdown, getAttentionData, scoreAttention, getActiveHides, getFilterOptions, getReps, getSyncMeta, MARKETS } from '$lib/salesStats.js';
+import { getMarketTotals, getCompanyTotals, getCompanyUniverse, getDimensionBreakdown, getMonthlyTotals, getAttentionData, scoreAttention, getActiveHides, getFilterOptions, getReps, getSyncMeta, MARKETS } from '$lib/salesStats.js';
 import { getEffectiveEmail } from '$lib/server/effectiveEmail.js';
 import { listSalesTargetsForYear } from '$lib/db.js';
 
@@ -171,7 +171,7 @@ export async function load({ platform, url, cookies, parent }) {
 
 	const emptyOptions = { levels: [], groups: [], countries: [] };
 	if (!db) {
-		return { widgets: [], companyWidgets: [], companies: [], dims: { countries: [], groups: [], levels: [], owners: [] }, yearCols: ['—', '—', '—'], colNoData: [false, false, false], crossing: false, attention: [], snoozed: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
+		return { widgets: [], companyWidgets: [], companies: [], dims: { countries: [], groups: [], levels: [], owners: [] }, monthly: { year: curYear, cur: Array(12).fill(0), prior: Array(12).fill(0) }, yearCols: ['—', '—', '—'], colNoData: [false, false, false], crossing: false, attention: [], snoozed: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
 	}
 
 	const todayStr = now.toISOString().slice(0, 10);
@@ -184,7 +184,7 @@ export async function load({ platform, url, cookies, parent }) {
 	// Company-wide market totals react to the date range ONLY — never to the
 	// filter bar or owner scoping. Used for the always-visible company figures
 	// (and the quarterly target tracker, which tracks the whole company).
-	const [curTotals, priorTotals, companyCur, companyPrior, y0Companies, y1Companies, y2Companies, universe, attentionRows, hides, meta, filterOptions, reps, dimCountries, dimGroups, dimLevels, dimOwners] = await Promise.all([
+	const [curTotals, priorTotals, companyCur, companyPrior, y0Companies, y1Companies, y2Companies, universe, attentionRows, hides, meta, filterOptions, reps, dimCountries, dimGroups, dimLevels, dimOwners, monthlyCur, monthlyPrior] = await Promise.all([
 		getMarketTotals(db, cur.start, cur.end, filters),
 		getMarketTotals(db, prior.start, prior.end, filters),
 		getMarketTotals(db, cur.start, cur.end, {}),
@@ -202,8 +202,11 @@ export async function load({ platform, url, cookies, parent }) {
 		getDimensionBreakdown(db, dimWindows, 'customer_group', filters),
 		getDimensionBreakdown(db, dimWindows, 'customer_level', filters),
 		isAdmin ? getDimensionBreakdown(db, dimWindows, 'owner_email', filters) : Promise.resolve([]),
+		getMonthlyTotals(db, curYear, filters),
+		getMonthlyTotals(db, curYear - 1, filters),
 	]);
 	const dims = { countries: dimCountries, groups: dimGroups, levels: dimLevels, owners: dimOwners };
+	const monthly = { year: curYear, cur: monthlyCur, prior: monthlyPrior };
 
 	// Column labels for the three windows (oldest→newest). A window inside one
 	// calendar year → just the year ("2025"); a year-crossing window → span
@@ -301,6 +304,7 @@ export async function load({ platform, url, cookies, parent }) {
 		companyWidgets,
 		companies,
 		dims,
+		monthly,
 		yearCols,
 		colNoData,
 		crossing,

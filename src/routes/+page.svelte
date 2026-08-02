@@ -197,6 +197,11 @@
 	const filteredDim = $derived(dimSearch.trim() ? sortedDim.filter((d) => dimMatch(d.label)) : sortedDim);
 	const tabCount = $derived(dimTab === 'customers' ? filteredCompanies.length : filteredDim.length);
 
+	// Monthly revenue chart — whole current year; filters apply, date picker does not.
+	const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+	const monthlyMax = $derived(Math.max(1, ...(data.monthly?.cur ?? []), ...(data.monthly?.prior ?? [])));
+	const barH = (v) => `${((v || 0) / monthlyMax) * 100}%`;
+
 	// ── CSV export of the current breakdown view (admin only) ────────────────
 	// Matches the Google-Sheets format used for downstream comparisons: raw
 	// unrounded numbers with '.' decimals, '-' for empty/zero cells, and Index
@@ -314,6 +319,27 @@
 	<div class="section-head"><h2>Your stats</h2></div>
 	{@render filterBar()}
 	{@render widgetGrid(data.widgets)}
+
+	<section class="chart-card">
+		<div class="chart-head">
+			<h3>Revenue by month · {data.monthly.year}</h3>
+			<div class="chart-legend">
+				<span class="lg"><i class="sw prior"></i>{data.monthly.year - 1}</span>
+				<span class="lg"><i class="sw cur"></i>{data.monthly.year}</span>
+			</div>
+		</div>
+		<div class="chart-plot">
+			{#each monthLabels as ml, i}
+				<div class="chart-col" title={`${ml} ${data.monthly.year}: ${formatDkk(data.monthly.cur[i])}  ·  ${data.monthly.year - 1}: ${formatDkk(data.monthly.prior[i])}`}>
+					<div class="chart-bars">
+						<div class="bar prior" style="height:{barH(data.monthly.prior[i])}"></div>
+						<div class="bar cur" style="height:{barH(data.monthly.cur[i])}"></div>
+					</div>
+					<span class="chart-mlabel">{ml}</span>
+				</div>
+			{/each}
+		</div>
+	</section>
 
 	{#if data.tracker}
 		<section class="targets">
@@ -756,6 +782,81 @@
 	}
 	@media (max-width: 520px) {
 		.grid { grid-template-columns: 1fr; }
+	}
+
+	/* ── Monthly revenue chart ────────────────────────────────────────────────── */
+	.chart-card {
+		margin-top: 14px;
+		background: #fff;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow);
+		padding: 18px 20px 14px;
+	}
+	.chart-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		flex-wrap: wrap;
+		margin-bottom: 16px;
+	}
+	.chart-head h3 {
+		font-size: 14px;
+		font-weight: 800;
+		color: #18181B;
+		margin: 0;
+		letter-spacing: -0.2px;
+	}
+	.chart-legend { display: flex; gap: 14px; }
+	.chart-legend .lg {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12px;
+		font-weight: 700;
+		color: #8A7550;
+	}
+	.chart-legend .sw { width: 10px; height: 10px; border-radius: 3px; }
+	.sw.cur { background: #F57832; }
+	.sw.prior { background: #E7D3A6; }
+	.chart-plot {
+		display: flex;
+		align-items: flex-end;
+		gap: 8px;
+		height: 172px;
+	}
+	.chart-col {
+		flex: 1;
+		min-width: 0;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
+	.chart-bars {
+		flex: 1;
+		width: 100%;
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		gap: 3px;
+	}
+	.chart-bars .bar {
+		width: 44%;
+		max-width: 22px;
+		border-radius: 4px 4px 0 0;
+		transition: height 0.2s, background 0.12s;
+	}
+	.chart-bars .bar.cur { background: #F57832; }
+	.chart-bars .bar.prior { background: #E7D3A6; }
+	.chart-col:hover .bar.cur { background: #E06820; }
+	.chart-col:hover .bar.prior { background: #DcC492; }
+	.chart-mlabel {
+		margin-top: 8px;
+		font-size: 11px;
+		font-weight: 700;
+		color: #A88B52;
 	}
 
 	.card {

@@ -60,6 +60,27 @@ export async function getMarketTotals(db, startIncl, endExcl, filters = {}) {
 }
 
 /**
+ * Revenue per calendar month (Jan–Dec) for a given year, honouring the filter
+ * bar + owner scoping (buildWhere) but NOT any picked date range. Returns a
+ * 12-element array of DKK totals (index 0 = January).
+ */
+export async function getMonthlyTotals(db, year, filters = {}) {
+	const { clause, binds } = buildWhere(`${year}-01-01`, `${year + 1}-01-01`, filters);
+	const rows = await db
+		.prepare(
+			`SELECT CAST(strftime('%m', close_date) AS INTEGER) AS m, COALESCE(SUM(amount_dkk), 0) AS rev
+			 FROM sales_deals WHERE ${clause} GROUP BY m`
+		)
+		.bind(...binds)
+		.all();
+	const months = Array(12).fill(0);
+	for (const r of rows.results ?? []) {
+		if (r.m >= 1 && r.m <= 12) months[r.m - 1] = r.rev || 0;
+	}
+	return months;
+}
+
+/**
  * Revenue per company for a half-open window [startIncl, endExcl).
  * @param {App.Platform['env']['SALES_DB']} db
  */
