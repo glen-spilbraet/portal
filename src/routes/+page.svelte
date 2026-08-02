@@ -876,7 +876,8 @@
 		left: 50%;
 		transform: translateX(-50%);
 		margin-bottom: 9px;
-		width: 196px;
+		width: max-content;
+		max-width: 300px;
 		display: none;
 		z-index: 30;
 		pointer-events: none;
@@ -918,7 +919,7 @@
 		padding: 3px 0;
 	}
 	.tip-k { font-size: 12px; font-weight: 600; color: #71717A; white-space: nowrap; }
-	.tip-v { font-size: 13px; font-weight: 800; color: #18181B; font-variant-numeric: tabular-nums; }
+	.tip-v { font-size: 13px; font-weight: 800; color: #18181B; font-variant-numeric: tabular-nums; white-space: nowrap; }
 	.tip-idx {
 		margin-top: 5px;
 		padding-top: 8px;
