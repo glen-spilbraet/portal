@@ -166,7 +166,7 @@
 	const isFixable = (r) =>
 		r.issue !== 'not_found' && r.issue !== 'multiple' && (r.amount_match === 0 || r.date_match === 0 || rateFixable(r) || currencyFixable(r));
 	let selected = $state(new Set());
-	let fixField = $state('both');
+	let fixField = $state('all');
 	let fixing = $state(false);
 	let fixMsg = $state('');
 	let queue = $state(null); // { total, done, fixed, failed, stop, field } while running
@@ -197,7 +197,7 @@
 	async function applyFix() {
 		const ids = [...selected];
 		if (!ids.length) return;
-		const label = { date: 'close dates', amount: 'amounts', both: 'dates & amounts', rate: 'currency rates', all: 'dates, amounts & rates', currency: 'currency (→ Rackbeat)' }[fixField];
+		const label = { date: 'close dates', amount: 'amounts', currency: 'currencies (rate + currency)', all: 'everything' }[fixField];
 		if (!confirm(`Update ${ids.length} deal(s) in HubSpot — set their ${label} to the Rackbeat values?\n\n⚠️ This changes LIVE HubSpot data. It runs in batches of ${QUEUE_BATCH}; you can stop between batches.`)) return;
 
 		fixing = true;
@@ -387,12 +387,10 @@
 	<div class="fixbar">
 		<span class="fx-count">{selected.size} selected</span>
 		<select class="fx-sel" bind:value={fixField} disabled={fixing}>
-			<option value="both">Fix dates &amp; amounts</option>
 			<option value="date">Fix dates</option>
 			<option value="amount">Fix amounts</option>
-			<option value="rate">Fix currency rates</option>
-			<option value="currency">Fix currency (→ Rackbeat)</option>
-			<option value="all">Fix dates, amounts &amp; rates</option>
+			<option value="currency">Fix currencies</option>
+			<option value="all">Fix all</option>
 		</select>
 		<button class="fx-apply" onclick={applyFix} disabled={fixing}>Apply to HubSpot</button>
 		<button class="fx-cancel" onclick={() => (selected = new Set())} disabled={fixing}>Cancel</button>

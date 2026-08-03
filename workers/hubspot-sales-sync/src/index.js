@@ -62,8 +62,8 @@ export default {
 				const body = await request.json().catch(() => ({}));
 				const dealIds = Array.isArray(body.dealIds) ? body.dealIds.map(String) : [];
 				const field = body.field;
-				if (!dealIds.length || !['date', 'amount', 'both', 'rate', 'all', 'currency'].includes(field)) {
-					return json({ ok: false, error: 'dealIds[] and field (date|amount|both|rate|all|currency) required' }, 400);
+				if (!dealIds.length || !['date', 'amount', 'currency', 'all'].includes(field)) {
+					return json({ ok: false, error: 'dealIds[] and field (date|amount|currency|all) required' }, 400);
 				}
 				return json({ ok: true, ...(await runFix(env, dealIds, field)) });
 			}
@@ -394,10 +394,9 @@ async function runVerification(env, range) {
  */
 async function runFix(env, dealIds, field) {
 	if (!env.HUBSPOT_TOKEN) throw new Error('No HUBSPOT_TOKEN');
-	const wantDate = field === 'date' || field === 'both' || field === 'all';
-	const wantAmount = field === 'amount' || field === 'both' || field === 'all';
-	const wantRate = field === 'rate' || field === 'all';
-	const wantCurrency = field === 'currency';
+	const wantDate = field === 'date' || field === 'all';
+	const wantAmount = field === 'amount' || field === 'all';
+	const wantCurrencies = field === 'currency' || field === 'all'; // rate + currency code
 	const round4 = (x) => (x == null ? null : Math.round(x * 10000) / 10000);
 	let fixed = 0, failed = 0;
 	const errors = [];
@@ -414,19 +413,17 @@ async function runFix(env, dealIds, field) {
 			if (wantAmount && row.rb_subtotal != null) {
 				props.amount = String(row.rb_subtotal);
 			}
-			// Currency rate: write the invoice's rate onto the deal. Only when the
-			// currency codes match (a wrong currency needs a currency change, not
-			// just a rate). HubSpot recalculates amount_in_home_currency from it.
-			if (wantRate && row.rb_rate != null && (!row.currency || !row.rb_currency || row.currency === row.rb_currency)) {
-				props.hs_exchange_rate = String(row.rb_rate);
-			}
-			// Wrong currency: switch the deal to the invoice's currency and set its
-			// amount + rate to the Rackbeat values (the amount number stays, it's now
-			// correctly labelled). HubSpot recomputes amount_in_home_currency.
-			if (wantCurrency && row.rb_currency && row.currency !== row.rb_currency) {
-				props.deal_currency_code = row.rb_currency;
-				if (row.rb_subtotal != null) props.amount = String(row.rb_subtotal);
-				if (row.rb_rate != null) props.hs_exchange_rate = String(row.rb_rate);
+			// Currencies: align the deal's currency with the invoice. If the code is
+			// wrong, switch it (+ amount + rate); otherwise just write the rate.
+			// HubSpot recomputes amount_in_home_currency from the rate/currency.
+			if (wantCurrencies) {
+				if (row.rb_currency && row.currency !== row.rb_currency) {
+					props.deal_currency_code = row.rb_currency;
+					if (row.rb_subtotal != null) props.amount = String(row.rb_subtotal);
+					if (row.rb_rate != null) props.hs_exchange_rate = String(row.rb_rate);
+				} else if (row.rb_rate != null) {
+					props.hs_exchange_rate = String(row.rb_rate);
+				}
 			}
 			if (!Object.keys(props).length) { failed++; errors.push({ id, error: 'nothing fixable for this field' }); continue; }
 
