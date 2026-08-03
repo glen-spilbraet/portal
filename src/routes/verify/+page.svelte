@@ -158,10 +158,12 @@
 	}
 
 	// ── Fixing (write Rackbeat values back to HubSpot) ───────────────────────
-	// Fixable = has an amount or date discrepancy we can write back (incl. combos
-	// with a rate issue). Pure currency-rate mismatches aren't auto-fixable —
-	// HubSpot derives the home-currency amount from its own FX table.
-	const isFixable = (r) => r.issue !== 'not_found' && r.issue !== 'multiple' && (r.amount_match === 0 || r.date_match === 0);
+	// Fixable = has an amount/date discrepancy, or a rate discrepancy where the
+	// currency codes match (write the invoice rate onto the deal). A wrong
+	// currency code needs a currency change, which isn't auto-fixable here.
+	const rateFixable = (r) => r.rate_match === 0 && r.currency && r.rb_currency && r.currency === r.rb_currency;
+	const isFixable = (r) =>
+		r.issue !== 'not_found' && r.issue !== 'multiple' && (r.amount_match === 0 || r.date_match === 0 || rateFixable(r));
 	let selected = $state(new Set());
 	let fixField = $state('both');
 	let fixing = $state(false);
@@ -194,7 +196,7 @@
 	async function applyFix() {
 		const ids = [...selected];
 		if (!ids.length) return;
-		const label = { date: 'close dates', amount: 'amounts', both: 'dates & amounts' }[fixField];
+		const label = { date: 'close dates', amount: 'amounts', both: 'dates & amounts', rate: 'currency rates', all: 'dates, amounts & rates' }[fixField];
 		if (!confirm(`Update ${ids.length} deal(s) in HubSpot — set their ${label} to the Rackbeat values?\n\n⚠️ This changes LIVE HubSpot data. It runs in batches of ${QUEUE_BATCH}; you can stop between batches.`)) return;
 
 		fixing = true;
@@ -387,6 +389,8 @@
 			<option value="both">Fix dates &amp; amounts</option>
 			<option value="date">Fix dates</option>
 			<option value="amount">Fix amounts</option>
+			<option value="rate">Fix currency rates</option>
+			<option value="all">Fix dates, amounts &amp; rates</option>
 		</select>
 		<button class="fx-apply" onclick={applyFix} disabled={fixing}>Apply to HubSpot</button>
 		<button class="fx-cancel" onclick={() => (selected = new Set())} disabled={fixing}>Cancel</button>

@@ -62,8 +62,8 @@ export default {
 				const body = await request.json().catch(() => ({}));
 				const dealIds = Array.isArray(body.dealIds) ? body.dealIds.map(String) : [];
 				const field = body.field;
-				if (!dealIds.length || !['date', 'amount', 'both'].includes(field)) {
-					return json({ ok: false, error: 'dealIds[] and field (date|amount|both) required' }, 400);
+				if (!dealIds.length || !['date', 'amount', 'both', 'rate', 'all'].includes(field)) {
+					return json({ ok: false, error: 'dealIds[] and field (date|amount|both|rate|all) required' }, 400);
 				}
 				return json({ ok: true, ...(await runFix(env, dealIds, field)) });
 			}
@@ -394,8 +394,10 @@ async function runVerification(env, range) {
  */
 async function runFix(env, dealIds, field) {
 	if (!env.HUBSPOT_TOKEN) throw new Error('No HUBSPOT_TOKEN');
-	const wantDate = field === 'date' || field === 'both';
-	const wantAmount = field === 'amount' || field === 'both';
+	const wantDate = field === 'date' || field === 'both' || field === 'all';
+	const wantAmount = field === 'amount' || field === 'both' || field === 'all';
+	const wantRate = field === 'rate' || field === 'all';
+	const round4 = (x) => (x == null ? null : Math.round(x * 10000) / 10000);
 	let fixed = 0, failed = 0;
 	const errors = [];
 
@@ -411,11 +413,17 @@ async function runFix(env, dealIds, field) {
 			if (wantAmount && row.rb_subtotal != null) {
 				props.amount = String(row.rb_subtotal);
 			}
-			if (!Object.keys(props).length) { failed++; errors.push({ id, error: 'nothing fixable (no invoice)' }); continue; }
+			// Currency rate: write the invoice's rate onto the deal. Only when the
+			// currency codes match (a wrong currency needs a currency change, not
+			// just a rate). HubSpot recalculates amount_in_home_currency from it.
+			if (wantRate && row.rb_rate != null && (!row.currency || !row.rb_currency || row.currency === row.rb_currency)) {
+				props.hs_exchange_rate = String(row.rb_rate);
+			}
+			if (!Object.keys(props).length) { failed++; errors.push({ id, error: 'nothing fixable (no invoice/rate)' }); continue; }
 
 			// Write to HubSpot, then read the deal back for accurate mirror values.
 			await hsPatch(env, `${HS}/crm/v3/objects/deals/${id}`, { properties: props });
-			const back = await hsGet(env, `${HS}/crm/v3/objects/deals/${id}?properties=amount,amount_in_home_currency,closedate`);
+			const back = await hsGet(env, `${HS}/crm/v3/objects/deals/${id}?properties=amount,amount_in_home_currency,closedate,hs_exchange_rate`);
 			const p = back.properties || {};
 			const newClose = p.closedate ? String(p.closedate).slice(0, 10) : row.close_date;
 			const newRaw = num(p.amount);
@@ -426,12 +434,20 @@ async function runFix(env, dealIds, field) {
 			// Re-evaluate against Rackbeat; drop the row if it now matches.
 			const amtOk = row.rb_subtotal == null ? row.amount_match : Math.abs((newRaw || 0) - row.rb_subtotal) <= 0.5 ? 1 : 0;
 			const dateOk = !row.rb_date || String(row.rb_date).includes(',') ? row.date_match : newClose === row.rb_date ? 1 : 0;
-			if (amtOk && dateOk) {
+			const newRate = newRaw ? round4(newDkk / newRaw) : null;
+			const rateOk = row.rb_rate == null || (row.currency && row.rb_currency && row.currency !== row.rb_currency) || newRate == null
+				? row.rate_match
+				: newRate === round4(row.rb_rate) ? 1 : 0;
+			if (amtOk && dateOk && rateOk) {
 				await env.DB.prepare('DELETE FROM verification_issues WHERE deal_id = ?').bind(id).run();
 			} else {
-				const issue = !amtOk && !dateOk ? 'amount+date' : !amtOk ? 'amount' : 'date';
-				await env.DB.prepare('UPDATE verification_issues SET close_date = ?, amount_raw = ?, amount_match = ?, date_match = ?, issue = ? WHERE deal_id = ?')
-					.bind(newClose, newRaw, amtOk, dateOk, issue, id).run();
+				const parts = [];
+				if (!amtOk) parts.push('amount');
+				if (!dateOk) parts.push('date');
+				if (!rateOk) parts.push('rate');
+				const issue = row.issue === 'multiple' ? 'multiple' : parts.join('+');
+				await env.DB.prepare('UPDATE verification_issues SET close_date = ?, amount_raw = ?, hs_rate = ?, amount_match = ?, date_match = ?, rate_match = ?, issue = ? WHERE deal_id = ?')
+					.bind(newClose, newRaw, newRate, amtOk, dateOk, rateOk, issue, id).run();
 			}
 			fixed++;
 		} catch (e) {
