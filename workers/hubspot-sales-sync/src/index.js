@@ -62,8 +62,8 @@ export default {
 				const body = await request.json().catch(() => ({}));
 				const dealIds = Array.isArray(body.dealIds) ? body.dealIds.map(String) : [];
 				const field = body.field;
-				if (!dealIds.length || !['date', 'amount', 'both', 'rate', 'all'].includes(field)) {
-					return json({ ok: false, error: 'dealIds[] and field (date|amount|both|rate|all) required' }, 400);
+				if (!dealIds.length || !['date', 'amount', 'both', 'rate', 'all', 'currency'].includes(field)) {
+					return json({ ok: false, error: 'dealIds[] and field (date|amount|both|rate|all|currency) required' }, 400);
 				}
 				return json({ ok: true, ...(await runFix(env, dealIds, field)) });
 			}
@@ -397,6 +397,7 @@ async function runFix(env, dealIds, field) {
 	const wantDate = field === 'date' || field === 'both' || field === 'all';
 	const wantAmount = field === 'amount' || field === 'both' || field === 'all';
 	const wantRate = field === 'rate' || field === 'all';
+	const wantCurrency = field === 'currency';
 	const round4 = (x) => (x == null ? null : Math.round(x * 10000) / 10000);
 	let fixed = 0, failed = 0;
 	const errors = [];
@@ -419,26 +420,36 @@ async function runFix(env, dealIds, field) {
 			if (wantRate && row.rb_rate != null && (!row.currency || !row.rb_currency || row.currency === row.rb_currency)) {
 				props.hs_exchange_rate = String(row.rb_rate);
 			}
-			if (!Object.keys(props).length) { failed++; errors.push({ id, error: 'nothing fixable (no invoice/rate)' }); continue; }
+			// Wrong currency: switch the deal to the invoice's currency and set its
+			// amount + rate to the Rackbeat values (the amount number stays, it's now
+			// correctly labelled). HubSpot recomputes amount_in_home_currency.
+			if (wantCurrency && row.rb_currency && row.currency !== row.rb_currency) {
+				props.deal_currency_code = row.rb_currency;
+				if (row.rb_subtotal != null) props.amount = String(row.rb_subtotal);
+				if (row.rb_rate != null) props.hs_exchange_rate = String(row.rb_rate);
+			}
+			if (!Object.keys(props).length) { failed++; errors.push({ id, error: 'nothing fixable for this field' }); continue; }
 
 			// Write to HubSpot, then read the deal back for accurate mirror values.
 			await hsPatch(env, `${HS}/crm/v3/objects/deals/${id}`, { properties: props });
-			const back = await hsGet(env, `${HS}/crm/v3/objects/deals/${id}?properties=amount,amount_in_home_currency,closedate,hs_exchange_rate`);
+			const back = await hsGet(env, `${HS}/crm/v3/objects/deals/${id}?properties=amount,amount_in_home_currency,closedate,hs_exchange_rate,deal_currency_code`);
 			const p = back.properties || {};
 			const newClose = p.closedate ? String(p.closedate).slice(0, 10) : row.close_date;
 			const newRaw = num(p.amount);
 			const newDkk = num(p.amount_in_home_currency);
-			await env.DB.prepare('UPDATE sales_deals SET close_date = ?, amount_raw = ?, amount_dkk = ? WHERE deal_id = ?')
-				.bind(newClose, newRaw, newDkk, id).run();
+			const newCur = p.deal_currency_code || row.currency;
+			await env.DB.prepare('UPDATE sales_deals SET close_date = ?, amount_raw = ?, amount_dkk = ?, currency = ? WHERE deal_id = ?')
+				.bind(newClose, newRaw, newDkk, newCur, id).run();
 
 			// Re-evaluate against Rackbeat; drop the row if it now matches.
 			const amtOk = row.rb_subtotal == null ? row.amount_match : Math.abs((newRaw || 0) - row.rb_subtotal) <= 0.5 ? 1 : 0;
 			const dateOk = !row.rb_date || String(row.rb_date).includes(',') ? row.date_match : newClose === row.rb_date ? 1 : 0;
 			const newRate = newRaw ? round4(newDkk / newRaw) : null;
-			const rateOk = row.rb_rate == null || (row.currency && row.rb_currency && row.currency !== row.rb_currency) || newRate == null
+			const currencyMismatch = newCur && row.rb_currency && newCur !== row.rb_currency;
+			const rateOk = row.rb_rate == null || currencyMismatch || newRate == null
 				? row.rate_match
 				: newRate === round4(row.rb_rate) ? 1 : 0;
-			if (amtOk && dateOk && rateOk) {
+			if (amtOk && dateOk && rateOk && !currencyMismatch) {
 				await env.DB.prepare('DELETE FROM verification_issues WHERE deal_id = ?').bind(id).run();
 			} else {
 				const parts = [];
@@ -446,8 +457,8 @@ async function runFix(env, dealIds, field) {
 				if (!dateOk) parts.push('date');
 				if (!rateOk) parts.push('rate');
 				const issue = row.issue === 'multiple' ? 'multiple' : parts.join('+');
-				await env.DB.prepare('UPDATE verification_issues SET close_date = ?, amount_raw = ?, hs_rate = ?, amount_match = ?, date_match = ?, rate_match = ?, issue = ? WHERE deal_id = ?')
-					.bind(newClose, newRaw, newRate, amtOk, dateOk, rateOk, issue, id).run();
+				await env.DB.prepare('UPDATE verification_issues SET close_date = ?, amount_raw = ?, currency = ?, hs_rate = ?, amount_match = ?, date_match = ?, rate_match = ?, issue = ? WHERE deal_id = ?')
+					.bind(newClose, newRaw, newCur, newRate, amtOk, dateOk, rateOk, issue, id).run();
 			}
 			fixed++;
 		} catch (e) {

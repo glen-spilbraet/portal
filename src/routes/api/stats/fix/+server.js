@@ -19,8 +19,8 @@ export async function POST({ request, cookies, platform }) {
 	if (!secret) error(500, 'SYNC_SECRET not set in this environment');
 
 	const { dealIds, field } = await request.json().catch(() => ({}));
-	if (!Array.isArray(dealIds) || !dealIds.length || !['date', 'amount', 'both', 'rate', 'all'].includes(field)) {
-		error(400, 'dealIds[] and field (date|amount|both|rate|all) required');
+	if (!Array.isArray(dealIds) || !dealIds.length || !['date', 'amount', 'both', 'rate', 'all', 'currency'].includes(field)) {
+		error(400, 'dealIds[] and field (date|amount|both|rate|all|currency) required');
 	}
 
 	const res = await fetch(`${WORKER}/?fix=1`, {
