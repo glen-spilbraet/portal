@@ -31,6 +31,7 @@
 	function matches(r, f) {
 		if (f === 'amount') return r.amount_match === 0 && r.issue !== 'not_found';
 		if (f === 'date') return r.date_match === 0 && r.issue !== 'not_found';
+		if (f === 'rate') return r.rate_match === 0 && r.issue !== 'not_found';
 		if (f === 'not_found') return r.issue === 'not_found';
 		if (f === 'multiple') return r.issue === 'multiple';
 		return true;
@@ -39,6 +40,7 @@
 	function setFilter(f) {
 		filter = filter === f ? null : f;
 		if (filter !== 'date') dateSeg = null;
+		if (filter !== 'rate') rateSeg = null;
 	}
 
 	// Date sub-segments (only meaningful for date issues).
@@ -69,6 +71,37 @@
 		['20+', '20+ days'],
 	];
 
+	// Rate sub-segments (only meaningful for currency-rate issues). Currency-code
+	// mismatches get their own bucket; the rest are bucketed by % rate difference.
+	let rateSeg = $state(null); // 'cur' | '<1' | '1-2' | '2-3' | '3-5' | '5+' | null
+	const toggleRateSeg = (s) => (rateSeg = rateSeg === s ? null : s);
+	const ratePct = (r) => (r.rb_rate ? (Math.abs((r.hs_rate ?? 0) - r.rb_rate) / r.rb_rate) * 100 : null);
+	function rateBucketOf(r) {
+		if (r.currency && r.rb_currency && r.currency !== r.rb_currency) return 'cur';
+		const p = ratePct(r);
+		if (p == null) return null;
+		if (p < 1) return '<1';
+		if (p < 2) return '1-2';
+		if (p < 3) return '2-3';
+		if (p < 5) return '3-5';
+		return '5+';
+	}
+	const rateSegMatch = (r, seg) => rateBucketOf(r) === seg;
+	const rateRows = $derived((data.issues ?? []).filter((r) => matches(r, 'rate')));
+	const rateSegCounts = $derived.by(() => {
+		const c = { cur: 0, '<1': 0, '1-2': 0, '2-3': 0, '3-5': 0, '5+': 0 };
+		for (const r of rateRows) { const b = rateBucketOf(r); if (b) c[b]++; }
+		return c;
+	});
+	const rateSegLabels = [
+		['cur', 'Currency ≠'],
+		['<1', '0–1%'],
+		['1-2', '1–2%'],
+		['2-3', '2–3%'],
+		['3-5', '3–5%'],
+		['5+', '5%+'],
+	];
+
 	// Sorting by size of the difference.
 	let sortKey = $state(null); // 'amount' | 'date' | null
 	let sortDir = $state('desc');
@@ -83,11 +116,19 @@
 		if (sortKey === k) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
 		else { sortKey = k; sortDir = 'desc'; }
 	}
-	const segFiltered = $derived(filter === 'date' && dateSeg ? filtered.filter((r) => segMatch(r, dateSeg)) : filtered);
+	const rateDiffVal = (r) => {
+		if (r.currency && r.rb_currency && r.currency !== r.rb_currency) return Infinity; // currency mismatch first
+		return ratePct(r);
+	};
+	const segFiltered = $derived(
+		filter === 'date' && dateSeg ? filtered.filter((r) => segMatch(r, dateSeg))
+		: filter === 'rate' && rateSeg ? filtered.filter((r) => rateSegMatch(r, rateSeg))
+		: filtered
+	);
 	const shown = $derived.by(() => {
 		const arr = [...segFiltered];
 		if (!sortKey) return arr;
-		const val = sortKey === 'amount' ? amtDiff : dateDiffDays;
+		const val = sortKey === 'amount' ? amtDiff : sortKey === 'date' ? dateDiffDays : rateDiffVal;
 		return arr.sort((x, y) => {
 			const xv = val(x), yv = val(y);
 			if (xv == null && yv == null) return 0;
@@ -117,7 +158,10 @@
 	}
 
 	// ── Fixing (write Rackbeat values back to HubSpot) ───────────────────────
-	const isFixable = (r) => r.issue === 'amount' || r.issue === 'date' || r.issue === 'amount+date';
+	// Fixable = has an amount or date discrepancy we can write back (incl. combos
+	// with a rate issue). Pure currency-rate mismatches aren't auto-fixable —
+	// HubSpot derives the home-currency amount from its own FX table.
+	const isFixable = (r) => r.issue !== 'not_found' && r.issue !== 'multiple' && (r.amount_match === 0 || r.date_match === 0);
 	let selected = $state(new Set());
 	let fixField = $state('both');
 	let fixing = $state(false);
@@ -232,6 +276,9 @@
 			<button class="stat bad" class:on={filter === 'date'} onclick={() => setFilter('date')}>
 				<span class="s-num">{num.format(m.date_mismatch ?? 0)}</span><span class="s-lbl">Date ≠</span>
 			</button>
+			<button class="stat bad" class:on={filter === 'rate'} onclick={() => setFilter('rate')}>
+				<span class="s-num">{num.format(m.rate_mismatch ?? 0)}</span><span class="s-lbl">Rate ≠</span>
+			</button>
 			<button class="stat warn" class:on={filter === 'not_found'} onclick={() => setFilter('not_found')}>
 				<span class="s-num">{num.format(m.not_found ?? 0)}</span><span class="s-lbl">No invoice</span>
 			</button>
@@ -256,6 +303,15 @@
 		</div>
 	{/if}
 
+	{#if filter === 'rate'}
+		<div class="segs">
+			<span class="seg-lbl">Rate difference</span>
+			{#each rateSegLabels as [key, label]}
+				<button class="seg" class:on={rateSeg === key} onclick={() => toggleRateSeg(key)}>{label} <span class="seg-n">{rateSegCounts[key]}</span></button>
+			{/each}
+		</div>
+	{/if}
+
 	{#if fixableShown.length > 0}
 		<div class="sel-tools">
 			<span class="st-lbl">{fixableShown.length} fixable</span>
@@ -268,7 +324,7 @@
 	<section class="table-wrap">
 		<div class="table-scroll">
 			<table>
-				<colgroup><col style="width:38px" /><col /><col style="width:160px" /><col style="width:110px" /><col style="width:170px" /><col style="width:170px" /></colgroup>
+				<colgroup><col style="width:38px" /><col /><col style="width:150px" /><col style="width:100px" /><col style="width:160px" /><col style="width:160px" /><col style="width:130px" /></colgroup>
 				<thead>
 					<tr>
 						<th class="chk"><input type="checkbox" checked={allSelected} onchange={toggleAll} aria-label="Select all fixable" /></th>
@@ -277,6 +333,7 @@
 						<th>Issue</th>
 						<th class="th-sort" class:sorted={sortKey === 'amount'} onclick={() => setSort('amount')}>Amount{caret('amount')}</th>
 						<th class="th-sort" class:sorted={sortKey === 'date'} onclick={() => setSort('date')}>Date{caret('date')}</th>
+						<th class="th-sort" class:sorted={sortKey === 'rate'} onclick={() => setSort('rate')}>Currency rate{caret('rate')}</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -302,9 +359,13 @@
 								<div class="ln"><span class="k">HS</span>{r.close_date ?? '—'}</div>
 								<div class="ln rb" class:bad={!r.date_match && r.issue !== 'not_found'}><span class="k">RB</span>{r.rb_date ?? '—'}</div>
 							</td>
+							<td class="cell">
+								<div class="ln"><span class="k">HS</span>{r.hs_rate ?? '—'} {r.currency ?? ''}</div>
+								<div class="ln rb" class:bad={!r.rate_match && r.issue !== 'not_found'}><span class="k">RB</span>{r.rb_rate ?? '—'} {r.rb_currency ?? ''}</div>
+							</td>
 						</tr>
 					{:else}
-						<tr><td colspan="6" class="empty">{data.issues.length ? 'No rows for this filter.' : 'No discrepancies 🎉'}</td></tr>
+						<tr><td colspan="7" class="empty">{data.issues.length ? 'No rows for this filter.' : 'No discrepancies 🎉'}</td></tr>
 					{/each}
 				</tbody>
 			</table>

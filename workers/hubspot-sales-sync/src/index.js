@@ -260,6 +260,7 @@ async function fetchAllInvoices(env, invFrom, invTo) {
 			invoice_date: inv.invoice_date,
 			total_subtotal: inv.total_subtotal,
 			currency: inv.currency,
+			currency_rate: inv.currency_rate,
 			is_creditnote: inv.is_creditnote,
 		};
 		byNumber.set(String(inv.number), rec);
@@ -298,7 +299,7 @@ async function runVerification(env, range) {
 	const tStart = Date.now();
 	const dealsRes = await env.DB
 		.prepare(
-			`SELECT deal_id, deal_name, rackbeat_id, close_date, amount_raw, currency, owner_name, company_name
+			`SELECT deal_id, deal_name, rackbeat_id, close_date, amount_raw, amount_dkk, currency, owner_name, company_name
 			 FROM sales_deals WHERE rackbeat_id IS NOT NULL AND rackbeat_id != '' AND close_date >= ? AND close_date < ?`
 		)
 		.bind(range.dealFrom, range.dealTo)
@@ -308,7 +309,8 @@ async function runVerification(env, range) {
 	console.log(`verify ${range.label}: ${deals.length} deals, ${invoiceCount} invoices in ${Date.now() - tStart}ms`);
 
 	const issues = [];
-	let ok = 0, amountMis = 0, dateMis = 0, notFound = 0, multiple = 0;
+	let ok = 0, amountMis = 0, dateMis = 0, rateMis = 0, notFound = 0, multiple = 0;
+	const round4 = (x) => (x == null ? null : Math.round(x * 10000) / 10000);
 
 	for (const d of deals) {
 		const rid = d.rackbeat_id;
@@ -324,7 +326,7 @@ async function runVerification(env, range) {
 
 		if (!invs.length) {
 			notFound++;
-			issues.push({ ...d, invoice_number: null, rb_date: null, rb_subtotal: null, amount_match: 0, date_match: 0, issue: 'not_found' });
+			issues.push({ ...d, invoice_number: null, rb_date: null, rb_subtotal: null, hs_rate: null, rb_rate: null, rb_currency: null, amount_match: 0, date_match: 0, rate_match: 0, issue: 'not_found' });
 			continue;
 		}
 
@@ -334,22 +336,37 @@ async function runVerification(env, range) {
 		const dates = invs.map((i) => i.invoice_date);
 		const date_match = dates.includes(d.close_date) ? 1 : 0;
 
-		if (amount_match && date_match) { ok++; continue; }
+		// Currency rate: HubSpot's effective rate (home DKK per unit of deal
+		// currency) vs the invoice's currency_rate, exact to 4 decimals. Skipped
+		// (treated as OK) when the deal has no amount or the invoice no rate.
+		const rbCurrency = invs[0].currency || null;
+		const rbRate = round4(invs[0].currency_rate);
+		const hsRate = d.amount_raw ? round4(d.amount_dkk / d.amount_raw) : null;
+		const currencyOk = !rbCurrency || !d.currency || rbCurrency === d.currency;
+		const rate_match = hsRate == null || rbRate == null ? 1 : currencyOk && hsRate === rbRate ? 1 : 0;
+
+		if (amount_match && date_match && rate_match) { ok++; continue; }
 		if (invs.length > 1) multiple++;
 		if (!amount_match) amountMis++;
 		if (!date_match) dateMis++;
-		const issue = invs.length > 1 ? 'multiple' : !amount_match && !date_match ? 'amount+date' : !amount_match ? 'amount' : 'date';
+		if (!rate_match) rateMis++;
+		const parts = [];
+		if (!amount_match) parts.push('amount');
+		if (!date_match) parts.push('date');
+		if (!rate_match) parts.push('rate');
+		const issue = invs.length > 1 ? 'multiple' : parts.join('+');
 		issues.push({
 			deal_id: d.deal_id, deal_name: d.deal_name, rackbeat_id: rid, owner_name: d.owner_name, company_name: d.company_name,
 			close_date: d.close_date, amount_raw: d.amount_raw, currency: d.currency,
 			invoice_number: invs.map((i) => i.number).join(','), rb_date: dates.join(','), rb_subtotal: rbSubtotal,
-			amount_match, date_match, issue,
+			hs_rate: hsRate, rb_rate: rbRate, rb_currency: rbCurrency,
+			amount_match, date_match, rate_match, issue,
 		});
 	}
 
 	// Persist: replace issues, update meta.
 	await env.DB.prepare('DELETE FROM verification_issues').run();
-	const cols = ['deal_id', 'deal_name', 'rackbeat_id', 'owner_name', 'company_name', 'close_date', 'amount_raw', 'currency', 'invoice_number', 'rb_date', 'rb_subtotal', 'amount_match', 'date_match', 'issue'];
+	const cols = ['deal_id', 'deal_name', 'rackbeat_id', 'owner_name', 'company_name', 'close_date', 'amount_raw', 'currency', 'invoice_number', 'rb_date', 'rb_subtotal', 'hs_rate', 'rb_rate', 'rb_currency', 'amount_match', 'date_match', 'rate_match', 'issue'];
 	const ph = `(${cols.map(() => '?').join(',')})`;
 	const sql = `INSERT OR REPLACE INTO verification_issues (${cols.join(',')}) VALUES ${ph}`;
 	for (const batch of chunks(issues, 50)) {
@@ -358,16 +375,16 @@ async function runVerification(env, range) {
 	const finished = new Date().toISOString();
 	await env.DB
 		.prepare(
-			`INSERT INTO verification_meta (id, last_run, checked, ok, amount_mismatch, date_mismatch, not_found, multiple, status, message)
-			 VALUES (1, ?, ?, ?, ?, ?, ?, ?, 'ok', ?)
+			`INSERT INTO verification_meta (id, last_run, checked, ok, amount_mismatch, date_mismatch, rate_mismatch, not_found, multiple, status, message)
+			 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, 'ok', ?)
 			 ON CONFLICT(id) DO UPDATE SET last_run=excluded.last_run, checked=excluded.checked, ok=excluded.ok,
-			   amount_mismatch=excluded.amount_mismatch, date_mismatch=excluded.date_mismatch, not_found=excluded.not_found,
+			   amount_mismatch=excluded.amount_mismatch, date_mismatch=excluded.date_mismatch, rate_mismatch=excluded.rate_mismatch, not_found=excluded.not_found,
 			   multiple=excluded.multiple, status='ok', message=excluded.message`
 		)
-		.bind(finished, deals.length, ok, amountMis, dateMis, notFound, multiple, `${range.label} · invoices indexed ${invoiceCount}`)
+		.bind(finished, deals.length, ok, amountMis, dateMis, rateMis, notFound, multiple, `${range.label} · invoices indexed ${invoiceCount}`)
 		.run();
 
-	return { scope: range.label, checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, not_found: notFound, multiple, invoiceCount, issues: issues.length };
+	return { scope: range.label, checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, rate_mismatch: rateMis, not_found: notFound, multiple, invoiceCount, issues: issues.length };
 }
 
 /**
@@ -433,6 +450,7 @@ async function recomputeVerifyMeta(db) {
 			`SELECT COUNT(*) total,
 			        SUM(CASE WHEN amount_match=0 AND issue!='not_found' THEN 1 ELSE 0 END) amt,
 			        SUM(CASE WHEN date_match=0 AND issue!='not_found' THEN 1 ELSE 0 END) dt,
+			        SUM(CASE WHEN rate_match=0 AND issue!='not_found' THEN 1 ELSE 0 END) rt,
 			        SUM(CASE WHEN issue='not_found' THEN 1 ELSE 0 END) nf,
 			        SUM(CASE WHEN issue='multiple' THEN 1 ELSE 0 END) mu
 			 FROM verification_issues`
@@ -441,8 +459,8 @@ async function recomputeVerifyMeta(db) {
 	const meta = await db.prepare('SELECT checked FROM verification_meta WHERE id = 1').first();
 	const checked = meta?.checked ?? 0;
 	await db
-		.prepare('UPDATE verification_meta SET amount_mismatch=?, date_mismatch=?, not_found=?, multiple=?, ok=? WHERE id=1')
-		.bind(c?.amt || 0, c?.dt || 0, c?.nf || 0, c?.mu || 0, Math.max(0, checked - (c?.total || 0)))
+		.prepare('UPDATE verification_meta SET amount_mismatch=?, date_mismatch=?, rate_mismatch=?, not_found=?, multiple=?, ok=? WHERE id=1')
+		.bind(c?.amt || 0, c?.dt || 0, c?.rt || 0, c?.nf || 0, c?.mu || 0, Math.max(0, checked - (c?.total || 0)))
 		.run();
 }
 
