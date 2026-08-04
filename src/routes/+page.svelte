@@ -120,6 +120,12 @@
 	function formatDkk(n) {
 		return dkkFmt.format(Math.round(n ?? 0)) + ' kr';
 	}
+	const contactFmt = new Intl.DateTimeFormat('da-DK', { day: 'numeric', month: 'short', year: 'numeric' });
+	function formatDate(s) {
+		if (!s) return '—';
+		const d = new Date(s + 'T00:00:00Z');
+		return isNaN(d.getTime()) ? '—' : contactFmt.format(d);
+	}
 	function formatPct(pct) {
 		if (pct === null || pct === undefined) return null;
 		const sign = pct >= 0 ? '+' : '−';
@@ -560,8 +566,9 @@
 					<colgroup>
 						<col style="width:64px" />
 						<col />
-						<col style="width:160px" />
-						<col style="width:300px" />
+						<col style="width:120px" />
+						<col style="width:150px" />
+						<col style="width:280px" />
 						<col style="width:64px" />
 						<col style="width:150px" />
 					</colgroup>
@@ -569,6 +576,7 @@
 						<tr>
 							<th>Prio</th>
 							<th>Customer</th>
+							<th>Last Contacted</th>
 							<th>Owner Name</th>
 							<th>Why attention</th>
 							<th class="num">Index</th>
@@ -594,6 +602,7 @@
 										</button>
 									</div>
 								</td>
+								<td class="lastc">{formatDate(a.lastContacted)}</td>
 								<td class="owner">{a.owner ?? '—'}</td>
 								<td>
 									<span class="whys">
@@ -1041,6 +1050,7 @@
 	/* Trim the priority column's padding so the narrower column still fits. */
 	.attn-table th:first-child, .attn-table td:first-child { padding-right: 6px; }
 	.attn-table td.owner { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.attn-table td.lastc { white-space: nowrap; color: #6b5e4e; font-variant-numeric: tabular-nums; }
 	.attn-table .whys { flex-wrap: nowrap; }
 	.pri {
 		display: inline-flex; align-items: center; justify-content: center;

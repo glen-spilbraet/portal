@@ -258,7 +258,8 @@ export async function getAttentionData(db, cur, prior, filters = {}) {
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN 1 ELSE 0 END) AS cur_ord,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS prior_rev,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN 1 ELSE 0 END) AS prior_ord,
-			        MAX(close_date) AS last_order
+			        MAX(close_date) AS last_order,
+			        MAX(last_contacted) AS last_contacted
 			 FROM sales_deals ${clause}
 			 GROUP BY cid HAVING prior_rev > 0`
 		)
@@ -300,6 +301,7 @@ export function scoreAttention(rows, todayStr) {
 				cid: r.cid,
 				name: r.name,
 				owner: r.owner,
+				lastContacted: r.last_contacted ?? null,
 				krBehind,
 				index: r.prior_rev > 0 ? Math.round((r.cur_rev / r.prior_rev) * 100) : null,
 				yoyPct: r.prior_rev > 0 ? Math.round((r.cur_rev / r.prior_rev - 1) * 100) : null,

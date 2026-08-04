@@ -43,7 +43,15 @@ const DEAL_PROPS = [
 ];
 
 // Company properties (the "customer level" data).
-const COMPANY_PROPS = ['name', 'country', 'customer_group', 'customer_color', 'hubspot_owner_id'];
+const COMPANY_PROPS = ['name', 'country', 'customer_group', 'customer_color', 'hubspot_owner_id', 'notes_last_contacted'];
+
+/** HubSpot date/datetime → YYYY-MM-DD (handles ISO strings and epoch-ms). */
+function hsYmd(v) {
+	if (!v) return null;
+	const s = String(v);
+	if (/^\d{12,}$/.test(s)) return new Date(Number(s)).toISOString().slice(0, 10); // epoch ms
+	return s.slice(0, 10); // ISO 8601
+}
 
 export default {
 	async scheduled(event, env, ctx) {
@@ -209,6 +217,7 @@ async function enrichDeals(env, deals) {
 			market: marketFromCountry(country),
 			customer_group: c.customer_group || null,
 			customer_level: c.customer_color || null,
+			last_contacted: hsYmd(c.notes_last_contacted),
 			rackbeat_id: p.rackbeat_id || null,
 			updated_at: p.hs_lastmodifieddate ? String(p.hs_lastmodifieddate) : null,
 		};
@@ -655,7 +664,7 @@ async function hsRequest(env, url, init, attempt = 0) {
 const ROW_COLS = [
 	'deal_id', 'deal_name', 'close_date', 'amount_dkk', 'amount_raw', 'currency',
 	'pipeline', 'dealstage', 'company_id', 'company_name', 'owner_email', 'owner_name',
-	'country', 'market', 'customer_group', 'customer_level', 'rackbeat_id', 'updated_at',
+	'country', 'market', 'customer_group', 'customer_level', 'last_contacted', 'rackbeat_id', 'updated_at',
 ];
 
 /** INSERT OR REPLACE rows by deal_id (no deletes). Used by both paths. */
