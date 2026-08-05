@@ -66,6 +66,22 @@ export default {
 		}
 		const url = new URL(request.url);
 		try {
+			if (url.searchParams.get('counts') === '1') {
+				// Diagnostic: how many Closed-Won deals (2024+) exist with vs without
+				// auto_imported — i.e. how much revenue our sync currently excludes.
+				const since = String(Date.UTC(2024, 0, 1));
+				const count = async (filters) => {
+					const data = await hsPost(env, `${HS}/crm/v3/objects/deals/search`, { filterGroups: [{ filters }], properties: ['dealname'], limit: 1 });
+					return data.total ?? 0;
+				};
+				const base = [
+					{ propertyName: 'hs_is_closed_won', operator: 'EQ', value: 'true' },
+					{ propertyName: 'closedate', operator: 'GTE', value: since },
+				];
+				const won = await count(base);
+				const wonAuto = await count([...base, { propertyName: 'auto_imported', operator: 'EQ', value: 'true' }]);
+				return json({ won_2024plus: won, won_auto_imported_2024plus: wonAuto, won_not_auto_imported: won - wonAuto });
+			}
 			if (url.searchParams.get('fix') === '1') {
 				const body = await request.json().catch(() => ({}));
 				const dealIds = Array.isArray(body.dealIds) ? body.dealIds.map(String) : [];
