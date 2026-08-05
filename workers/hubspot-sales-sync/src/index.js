@@ -40,7 +40,12 @@ const DEAL_PROPS = [
 	'dealstage',
 	'hs_lastmodifieddate',
 	'rackbeat_id', // links the deal to its Rackbeat order/invoice/credit note
+	'forecast_start_date', // forecast deals only
+	'forecast_end_date',
 ];
+
+// Forecast pipeline stages (same Sales Pipeline as closed deals).
+const FORECAST_STAGES = ['961100990', '5037397224']; // [0] Forecasting, Expired Forecast
 
 // Company properties (the "customer level" data).
 const COMPANY_PROPS = ['name', 'country', 'customer_group', 'customer_color', 'hubspot_owner_id', 'notes_last_contacted'];
@@ -66,6 +71,15 @@ export default {
 		}
 		const url = new URL(request.url);
 		try {
+			if (url.searchParams.get('forecast') === '1') {
+				return json({ ok: true, ...(await syncForecastDeals(env)) });
+			}
+			if (url.searchParams.get('lineimport') === '1') {
+				const body = await request.json().catch(() => ({}));
+				const rows = Array.isArray(body.rows) ? body.rows : [];
+				if (!rows.length) return json({ ok: false, error: 'rows[] required' }, 400);
+				return json({ ok: true, inserted: await importLineItems(env, rows) });
+			}
 			if (url.searchParams.get('props')) {
 				// Diagnostic: list properties whose name/label matches a term.
 				// &obj=line_items (or deals, default) selects the object type.
@@ -149,6 +163,7 @@ async function handleScheduled(event, env) {
 	const prev = (await getMeta(env.DB))?.last_run || null;
 	await runSync(env, { sinceYear: currentYear - 1 });
 	await incrementalSync(env, prev);
+	await syncForecastDeals(env); // small set; refresh the forecast mirror daily
 }
 
 async function runSync(env, { onlyYear, sinceYear }) {
@@ -247,6 +262,8 @@ async function enrichDeals(env, deals) {
 			last_contacted: hsYmd(c.notes_last_contacted),
 			rackbeat_id: p.rackbeat_id || null,
 			updated_at: p.hs_lastmodifieddate ? String(p.hs_lastmodifieddate) : null,
+			forecast_start_date: hsYmd(p.forecast_start_date),
+			forecast_end_date: hsYmd(p.forecast_end_date),
 		};
 	});
 	return { rows, companyCount: companyIds.length };
@@ -693,6 +710,52 @@ const ROW_COLS = [
 	'pipeline', 'dealstage', 'company_id', 'company_name', 'owner_email', 'owner_name',
 	'country', 'market', 'customer_group', 'customer_level', 'last_contacted', 'rackbeat_id', 'updated_at',
 ];
+
+const FORECAST_COLS = [...ROW_COLS, 'forecast_start_date', 'forecast_end_date'];
+
+/** Fetch + replace all forecast-stage deals into forecast_deals (small set). */
+async function syncForecastDeals(env) {
+	const deals = [];
+	let after;
+	do {
+		const body = {
+			filterGroups: [{ filters: [{ propertyName: 'dealstage', operator: 'IN', values: FORECAST_STAGES }] }],
+			properties: DEAL_PROPS,
+			sorts: [{ propertyName: 'hs_lastmodifieddate', direction: 'DESCENDING' }],
+			limit: 100,
+			...(after ? { after } : {}),
+		};
+		const data = await hsPost(env, `${HS}/crm/v3/objects/deals/search`, body);
+		deals.push(...(data.results || []));
+		after = data.paging?.next?.after;
+	} while (after);
+
+	const { rows } = await enrichDeals(env, deals);
+	await env.DB.prepare('DELETE FROM forecast_deals').run();
+	const ph = `(${FORECAST_COLS.map(() => '?').join(',')})`;
+	const sql = `INSERT OR REPLACE INTO forecast_deals (${FORECAST_COLS.join(',')}) VALUES ${ph}`;
+	for (const batch of chunks(rows, 50)) {
+		await env.DB.batch(batch.map((r) => env.DB.prepare(sql).bind(...FORECAST_COLS.map((c) => r[c] ?? null))));
+	}
+	return { forecast_deals: rows.length };
+}
+
+// Columns accepted by the bulk line-item import (pre-computed rows).
+const LINE_ITEM_COLS = [
+	'line_item_id', 'deal_id', 'deal_kind', 'company_id', 'close_date', 'sku', 'sku_prefix',
+	'name', 'unit_price', 'discount', 'net_price', 'amount_dkk', 'currency', 'quantity',
+	'publisher', 'quantity_log_create', 'quantity_log_start',
+];
+
+/** Bulk-insert pre-computed line-item rows (used by the one-time CSV importer). */
+async function importLineItems(env, rows) {
+	const ph = `(${LINE_ITEM_COLS.map(() => '?').join(',')})`;
+	const sql = `INSERT OR REPLACE INTO deal_line_items (${LINE_ITEM_COLS.join(',')}) VALUES ${ph}`;
+	for (const batch of chunks(rows, 50)) {
+		await env.DB.batch(batch.map((r) => env.DB.prepare(sql).bind(...LINE_ITEM_COLS.map((c) => r[c] ?? null))));
+	}
+	return rows.length;
+}
 
 /** INSERT OR REPLACE rows by deal_id (no deletes). Used by both paths. */
 async function insertRows(db, rows) {
