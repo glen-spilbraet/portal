@@ -67,9 +67,11 @@ export default {
 		const url = new URL(request.url);
 		try {
 			if (url.searchParams.get('props')) {
-				// Diagnostic: list deal properties whose name/label matches a term.
+				// Diagnostic: list properties whose name/label matches a term.
+				// &obj=line_items (or deals, default) selects the object type.
 				const term = url.searchParams.get('props').toLowerCase();
-				const data = await hsGet(env, `${HS}/crm/v3/properties/deals`);
+				const obj = url.searchParams.get('obj') || 'deals';
+				const data = await hsGet(env, `${HS}/crm/v3/properties/${obj}`);
 				const hits = (data.results || [])
 					.filter((p) => p.name.toLowerCase().includes(term) || (p.label || '').toLowerCase().includes(term))
 					.map((p) => ({ name: p.name, label: p.label, type: p.type }));
