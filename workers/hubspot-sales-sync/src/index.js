@@ -66,6 +66,15 @@ export default {
 		}
 		const url = new URL(request.url);
 		try {
+			if (url.searchParams.get('props')) {
+				// Diagnostic: list deal properties whose name/label matches a term.
+				const term = url.searchParams.get('props').toLowerCase();
+				const data = await hsGet(env, `${HS}/crm/v3/properties/deals`);
+				const hits = (data.results || [])
+					.filter((p) => p.name.toLowerCase().includes(term) || (p.label || '').toLowerCase().includes(term))
+					.map((p) => ({ name: p.name, label: p.label, type: p.type }));
+				return json({ term, matches: hits });
+			}
 			if (url.searchParams.get('counts') === '1') {
 				// Diagnostic: how many Closed-Won deals (2024+) exist with vs without
 				// auto_imported — i.e. how much revenue our sync currently excludes.
