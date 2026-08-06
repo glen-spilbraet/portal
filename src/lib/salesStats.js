@@ -85,6 +85,79 @@ export async function getPublisherBreakdown(db, windows) {
 		.sort((a, b) => b.rev2 - a.rev2);
 }
 
+/** Market totals (DKK) for ONE publisher over a window. Joins line items → deals for market. */
+export async function getPublisherMarketTotals(db, startIncl, endExcl, publisher) {
+	const rows = await db
+		.prepare(
+			`SELECT d.market AS market, COALESCE(SUM(li.amount_dkk), 0) AS dkk
+			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
+			 WHERE li.deal_kind = 'closed' AND li.publisher = ? AND li.close_date >= ? AND li.close_date < ?
+			 GROUP BY d.market`
+		)
+		.bind(publisher, startIncl, endExcl)
+		.all();
+	const byMarket = {};
+	for (const m of MARKETS) byMarket[m] = { dkk: 0 };
+	let total = 0;
+	for (const r of rows.results ?? []) {
+		const m = MARKETS.includes(r.market) ? r.market : 'International';
+		byMarket[m].dkk += r.dkk;
+		total += r.dkk;
+	}
+	return { total: { dkk: total }, byMarket };
+}
+
+/** Monthly DKK for ONE publisher in a year (12-element array). */
+export async function getPublisherMonthly(db, year, publisher) {
+	const rows = await db
+		.prepare(
+			`SELECT CAST(strftime('%m', close_date) AS INTEGER) AS m, COALESCE(SUM(amount_dkk), 0) AS rev
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND publisher = ? AND close_date >= ? AND close_date < ? GROUP BY m`
+		)
+		.bind(publisher, `${year}-01-01`, `${year + 1}-01-01`)
+		.all();
+	const months = Array(12).fill(0);
+	for (const r of rows.results ?? []) if (r.m >= 1 && r.m <= 12) months[r.m - 1] = r.rev || 0;
+	return months;
+}
+
+/** Per-customer 3-window breakdown for ONE publisher (company name + owner via deals). */
+export async function getPublisherCustomers(db, windows, publisher) {
+	const { y0, y1, y2 } = windows;
+	const rows = await db
+		.prepare(
+			`SELECT li.company_id AS key, MAX(d.company_name) AS name, MAX(d.owner_name) AS owner,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev0,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev1,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev2
+			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
+			 WHERE li.deal_kind = 'closed' AND li.publisher = ? GROUP BY li.company_id`
+		)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, publisher)
+		.all();
+	return (rows.results ?? [])
+		.map((r) => ({ key: r.key, name: r.name ?? '(No company)', owner: r.owner, rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0, index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null }))
+		.sort((a, b) => b.rev2 - a.rev2);
+}
+
+/** Per-product (SKU) 3-window breakdown for ONE publisher. */
+export async function getPublisherProducts(db, windows, publisher) {
+	const { y0, y1, y2 } = windows;
+	const rows = await db
+		.prepare(
+			`SELECT sku AS key, MAX(name) AS name,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND publisher = ? AND sku IS NOT NULL GROUP BY sku`
+		)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, publisher)
+		.all();
+	return (rows.results ?? [])
+		.map((r) => ({ key: r.key, sku: r.key, name: r.name, rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0, index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null }))
+		.sort((a, b) => b.rev2 - a.rev2);
+}
+
 /**
  * Revenue per calendar month (Jan–Dec) for a given year, honouring the filter
  * bar + owner scoping (buildWhere) but NOT any picked date range. Returns a
