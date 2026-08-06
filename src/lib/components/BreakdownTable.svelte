@@ -22,7 +22,6 @@
 		else { sortKey = key; sortDir = ['rev0', 'rev1', 'rev2', 'index'].includes(key) ? 'desc' : 'asc'; }
 	}
 	const caret = (k) => (sortKey === k ? (sortDir === 'asc' ? '▲' : '▼') : '');
-	const searchKey = $derived(leadCols[0]?.key);
 
 	let loadingKey = $state(null);
 	function openRow(r) {
@@ -32,7 +31,10 @@
 
 	const shown = $derived(
 		(search.trim()
-			? rows.filter((r) => String(r[searchKey] ?? '').toLowerCase().includes(search.trim().toLowerCase()))
+			? rows.filter((r) => {
+					const t = search.trim().toLowerCase();
+					return leadCols.some((c) => String(r[c.key] ?? '').toLowerCase().includes(t));
+				})
 			: rows
 		).slice().sort((a, b) => {
 			let av, bv;
