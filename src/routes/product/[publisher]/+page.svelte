@@ -21,10 +21,8 @@
 />
 
 <main class="wrap">
-	<div class="head">
-		<a class="back" href="/product">← Publishers</a>
-		<h1>{data.publisher}</h1>
-		<span class="period">{data.periodLabel}</span>
+	<div class="section-head">
+		<h2><a class="crumb" href="/product">Publishers</a><span class="sep">›</span>{data.publisher}</h2>
 	</div>
 
 	<MarketWidgets widgets={data.widgets} />
@@ -56,9 +54,10 @@
 
 <style>
 	.wrap { max-width: 1140px; margin: 0 auto; padding: 20px 28px 60px; }
-	.head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
-	.back { font-size: 13px; font-weight: 700; color: #B15A12; text-decoration: none; }
-	.back:hover { text-decoration: underline; }
-	.head h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; color: #18181B; margin: 0; }
-	.period { font-size: 14px; font-weight: 600; color: #A88B52; }
+	.section-head { display: flex; align-items: center; gap: 14px; margin: 4px 0 14px; }
+	.section-head h2 { font-size: 15px; font-weight: 800; letter-spacing: -0.2px; color: #18181B; margin: 0; white-space: nowrap; }
+	.section-head::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+	.crumb { color: #B15A12; text-decoration: none; }
+	.crumb:hover { text-decoration: underline; }
+	.sep { color: #C0AC7C; margin: 0 8px; }
 </style>
