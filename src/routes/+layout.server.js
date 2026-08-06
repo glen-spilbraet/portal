@@ -12,6 +12,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/mail'))                        return 'mail';
 	if (pathname.startsWith('/price-lists'))                 return 'price_lists';
 	if (pathname.startsWith('/orders'))                      return 'orders';
+	if (pathname.startsWith('/product'))                     return 'product';
 	return null;
 }
 
@@ -66,6 +67,7 @@ export async function load({ cookies, url, platform }) {
 	// nav order: Stats, Sales (sheets → price list), Orders, Data, Mail.
 	if (url.pathname === '/' && !effectivePermissions.stats) {
 		const fallback = [
+			['product', '/product'],
 			['sheets', '/sheets'],
 			['catalogues', '/catalogues'],
 			['planograms', '/planograms'],

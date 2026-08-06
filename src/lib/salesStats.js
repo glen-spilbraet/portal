@@ -60,6 +60,32 @@ export async function getMarketTotals(db, startIncl, endExcl, filters = {}) {
 }
 
 /**
+ * Publisher breakdown from line items across three same-shaped windows
+ * (oldest→newest). Groups closed line items by resolved publisher; index is YoY
+ * (y2 vs y1). Company-wide (Product view is not owner-scoped).
+ */
+export async function getPublisherBreakdown(db, windows) {
+	const { y0, y1, y2 } = windows;
+	const rows = await db
+		.prepare(
+			`SELECT COALESCE(publisher, '—') AS key, COALESCE(publisher, '—') AS label,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
+			 FROM deal_line_items WHERE deal_kind = 'closed' GROUP BY key`
+		)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end)
+		.all();
+	return (rows.results ?? [])
+		.map((r) => ({
+			key: r.key, label: r.label ?? r.key,
+			rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0,
+			index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null,
+		}))
+		.sort((a, b) => b.rev2 - a.rev2);
+}
+
+/**
  * Revenue per calendar month (Jan–Dec) for a given year, honouring the filter
  * bar + owner scoping (buildWhere) but NOT any picked date range. Returns a
  * 12-element array of DKK totals (index 0 = January).

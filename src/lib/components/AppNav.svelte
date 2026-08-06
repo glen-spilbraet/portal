@@ -2,7 +2,7 @@
 	let { active = 'sheets', user = null } = $props();
 
 	// Permissions — default to full access so the nav never breaks if not provided
-	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true });
+	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true });
 
 	const salesItems = $derived([
 		p.sheets       && { href: '/sheets',       label: 'Sheets',      key: 'sheets' },
@@ -12,7 +12,15 @@
 	].filter(Boolean));
 
 	const showSales = $derived(salesItems.length > 0);
-	const showStats = $derived(!!p.stats);
+
+	// Stats menu: Overview (stats perm) + Product (product perm). One item → a
+	// plain link; both → a dropdown.
+	const statsItems = $derived([
+		p.stats   && { href: '/',        label: 'Overview', key: 'stats' },
+		p.product && { href: '/product', label: 'Product',  key: 'product' },
+	].filter(Boolean));
+	const showStats = $derived(statsItems.length > 0);
+	const statsActive = $derived(active === 'stats' || active === 'product');
 	const showData  = $derived(p.data);
 	const showMail  = $derived(!!p.mail);
 	const showOrders = $derived(!!p.orders);
@@ -104,9 +112,27 @@
 			</a>
 
 			<nav class="nav-links">
-				<!-- Stats (direct link) -->
+				<!-- Stats (direct link when only Overview; dropdown when Product too) -->
 				{#if showStats}
-					<a href="/" class="nav-link" class:active={active === 'stats'}>Stats</a>
+					{#if statsItems.length === 1}
+						<a href={statsItems[0].href} class="nav-link" class:active={statsActive}>Stats</a>
+					{:else}
+						<div class="nav-group" class:active={statsActive}>
+							<button class="nav-top" class:active={statsActive}>
+								Stats
+								<svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none">
+									<path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+								</svg>
+							</button>
+							<div class="dropdown">
+								<div class="dropdown-inner">
+									{#each statsItems as item}
+										<a href={item.href} class="dropdown-item" class:active={active === item.key}>{item.label}</a>
+									{/each}
+								</div>
+							</div>
+						</div>
+					{/if}
 				{/if}
 
 				<!-- Sales dropdown -->

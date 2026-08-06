@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false });
+	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false });
 	let creating = $state(false);
 	let createError = $state('');
 
@@ -24,6 +24,7 @@
 		{ key: 'price_lists', label: 'Price List' },
 		{ key: 'orders',      label: 'Orders' },
 		{ key: 'mail',        label: 'Mail' },
+		{ key: 'product',     label: 'Product' },
 	];
 
 	async function createSet() {
@@ -44,6 +45,7 @@
 					access_orders:      newAccess.orders,
 					access_stats:       newAccess.stats,
 					access_mail:        newAccess.mail,
+					access_product:     newAccess.product,
 				})
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
@@ -59,9 +61,10 @@
 				access_orders:      newAccess.orders       ? 1 : 0,
 				access_stats:       newAccess.stats        ? 1 : 0,
 				access_mail:        newAccess.mail         ? 1 : 0,
+				access_product:     newAccess.product      ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false };
+			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false };
 		} catch (e) {
 			createError = e.message;
 		} finally {
@@ -80,6 +83,7 @@
 			access_orders:      !!set.access_orders,
 			access_stats:       !!set.access_stats,
 			access_mail:        !!set.access_mail,
+			access_product:     !!set.access_product,
 		};
 	}
 
@@ -106,6 +110,7 @@
 					access_orders:      e.access_orders,
 					access_stats:       e.access_stats,
 					access_mail:        e.access_mail,
+					access_product:     e.access_product,
 				})
 			});
 			if (!res.ok) throw new Error('Failed to save');
@@ -120,6 +125,7 @@
 				access_orders:      e.access_orders      ? 1 : 0,
 				access_stats:       e.access_stats       ? 1 : 0,
 				access_mail:        e.access_mail        ? 1 : 0,
+				access_product:     e.access_product      ? 1 : 0,
 			});
 			cancelEdit(id);
 		} catch (err) {
