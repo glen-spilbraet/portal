@@ -173,10 +173,10 @@
 	.sw-prev { background: #E4D7B0; }
 	.sw-cur { background: var(--accent); }
 
-	.chart { display: flex; align-items: flex-end; gap: 6px; height: 172px; padding-top: 8px; }
+	.chart { display: flex; align-items: flex-end; gap: 10px; height: 172px; padding-top: 8px; }
 	.mcol { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; justify-content: flex-end; }
-	.bars { display: flex; align-items: flex-end; gap: 3px; height: 150px; width: 100%; justify-content: center; }
-	.bar { width: 9px; border-radius: 3px 3px 0 0; min-height: 1px; }
+	.bars { display: flex; align-items: flex-end; gap: 4px; height: 150px; width: 100%; justify-content: center; }
+	.bar { width: 15px; border-radius: 3px 3px 0 0; min-height: 1px; }
 	.bar.prev { background: #E4D7B0; }
 	.bar.cur { background: var(--accent); }
 	.mlabel { font-size: 10px; font-weight: 700; color: #A88B52; }
