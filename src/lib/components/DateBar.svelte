@@ -1,5 +1,6 @@
 <script>
 	import { goto } from '$app/navigation';
+	import { navigating } from '$app/stores';
 
 	// Shared sticky date picker for Stats + Product. Navigates within the current
 	// route (period/from/to) and writes a `statsRange` cookie so the selection
@@ -9,6 +10,10 @@
 
 	let scrollY = $state(0);
 	const isQuickSelected = $derived(selected !== 'custom');
+	// Disable the whole picker while a navigation is in flight. Prevents the race
+	// where a user picks a quick option (which auto-navigates) and then clicks
+	// Apply mid-load, overriding the pick with the stale custom-range inputs.
+	const busy = $derived(!!$navigating);
 
 	function addFilters(p) {
 		if (filters.levels?.length) p.set('level', filters.levels.join(','));
@@ -21,6 +26,7 @@
 		document.cookie = `statsRange=${encodeURIComponent(datePart)}; path=/; max-age=31536000; samesite=lax`;
 	}
 	function pickQuick(e) {
+		if (busy) return;
 		const v = e.currentTarget.value;
 		if (!v) return;
 		setCookie(`period=${v}`);
@@ -30,6 +36,7 @@
 	}
 	function applyCustom(e) {
 		e.preventDefault();
+		if (busy) return;
 		const f = e.currentTarget;
 		if (!f.from.value || !f.to.value) return;
 		setCookie(`from=${f.from.value}&to=${f.to.value}`);
@@ -44,8 +51,8 @@
 
 <div class="date-bar" class:scrolled={scrollY > 4}>
 	<div class="date-bar-inner">
-		<div class="range-controls">
-			<select class="quick-select" class:active={isQuickSelected} aria-label="Quick select" onchange={pickQuick}>
+		<div class="range-controls" class:busy aria-busy={busy}>
+			<select class="quick-select" class:active={isQuickSelected} aria-label="Quick select" onchange={pickQuick} disabled={busy}>
 				<option value="" disabled selected={!isQuickSelected}>Quick Select</option>
 				<optgroup label="Year">
 					{#each yearOptions as o}<option value={o.key} selected={selected === o.key}>{o.label}</option>{/each}
@@ -59,10 +66,12 @@
 			</select>
 
 			<form class="custom-range" onsubmit={applyCustom}>
-				<input type="date" name="from" value={range.start} class="date-input" aria-label="From date" />
+				<input type="date" name="from" value={range.start} class="date-input" aria-label="From date" disabled={busy} />
 				<span class="range-dash">–</span>
-				<input type="date" name="to" value={range.endInclusive} class="date-input" aria-label="To date" />
-				<button type="submit" class="apply-btn" class:active={selected === 'custom'}>Apply</button>
+				<input type="date" name="to" value={range.endInclusive} class="date-input" aria-label="To date" disabled={busy} />
+				<button type="submit" class="apply-btn" class:active={selected === 'custom'} disabled={busy}>
+					{#if busy}<span class="spinner" aria-hidden="true"></span>Loading{:else}Apply{/if}
+				</button>
 			</form>
 		</div>
 	</div>
@@ -86,7 +95,12 @@
 		align-items: center;
 		justify-content: flex-end;
 	}
-	.range-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+	.range-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; transition: opacity 0.15s ease; }
+	.range-controls.busy { opacity: 0.75; }
+	.range-controls.busy .quick-select,
+	.range-controls.busy .date-input { cursor: progress; }
+	.quick-select:disabled,
+	.date-input:disabled { background: #F7F4EE; color: #9A8C74; cursor: progress; }
 	.quick-select {
 		font-family: inherit; font-size: 13px; font-weight: 700; color: #524431;
 		background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; cursor: pointer;
@@ -101,9 +115,17 @@
 	.date-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.15); }
 	.range-dash { color: #A88B52; font-weight: 700; }
 	.apply-btn {
+		display: inline-flex; align-items: center; gap: 6px;
 		font-family: inherit; font-size: 13px; font-weight: 700; color: #fff;
 		background: var(--accent); border: none; border-radius: 8px; padding: 7px 14px; transition: background 0.15s;
 	}
 	.apply-btn:hover { background: var(--accent-hover); }
 	.apply-btn.active { box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.2); }
+	.apply-btn:disabled { cursor: progress; opacity: 0.9; }
+	.spinner {
+		width: 12px; height: 12px; border-radius: 50%;
+		border: 2px solid rgba(255, 255, 255, 0.45); border-top-color: #fff;
+		animation: db-spin 0.6s linear infinite;
+	}
+	@keyframes db-spin { to { transform: rotate(360deg); } }
 </style>
