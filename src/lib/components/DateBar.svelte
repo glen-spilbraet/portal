@@ -1,6 +1,5 @@
 <script>
 	import { goto } from '$app/navigation';
-	import { navigating } from '$app/stores';
 
 	// Shared sticky date picker for Stats + Product. Navigates within the current
 	// route (period/from/to) and writes a `statsRange` cookie so the selection
@@ -10,10 +9,11 @@
 
 	let scrollY = $state(0);
 	const isQuickSelected = $derived(selected !== 'custom');
-	// Disable the whole picker while a navigation is in flight. Prevents the race
-	// where a user picks a quick option (which auto-navigates) and then clicks
-	// Apply mid-load, overriding the pick with the stale custom-range inputs.
-	const busy = $derived(!!$navigating);
+	// Disable the picker only while a date change WE triggered is loading. Prevents
+	// the race where a user picks a quick option (which auto-navigates) and then
+	// clicks Apply mid-load, overriding the pick with the stale custom-range inputs.
+	// Scoped to bar-initiated navigations so it doesn't flash on menu route changes.
+	let busy = $state(false);
 
 	function addFilters(p) {
 		if (filters.levels?.length) p.set('level', filters.levels.join(','));
@@ -25,16 +25,21 @@
 	function setCookie(datePart) {
 		document.cookie = `statsRange=${encodeURIComponent(datePart)}; path=/; max-age=31536000; samesite=lax`;
 	}
-	function pickQuick(e) {
+	async function pickQuick(e) {
 		if (busy) return;
 		const v = e.currentTarget.value;
 		if (!v) return;
 		setCookie(`period=${v}`);
 		const p = new URLSearchParams();
 		p.set('period', v);
-		goto(`?${addFilters(p).toString()}`, { noScroll: true });
+		busy = true;
+		try {
+			await goto(`?${addFilters(p).toString()}`, { noScroll: true });
+		} finally {
+			busy = false;
+		}
 	}
-	function applyCustom(e) {
+	async function applyCustom(e) {
 		e.preventDefault();
 		if (busy) return;
 		const f = e.currentTarget;
@@ -43,7 +48,12 @@
 		const p = new URLSearchParams();
 		p.set('from', f.from.value);
 		p.set('to', f.to.value);
-		goto(`?${addFilters(p).toString()}`, { noScroll: true });
+		busy = true;
+		try {
+			await goto(`?${addFilters(p).toString()}`, { noScroll: true });
+		} finally {
+			busy = false;
+		}
 	}
 </script>
 
