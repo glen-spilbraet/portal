@@ -160,11 +160,12 @@
 	tbody tr:nth-child(even) td { background: #FFFBEF; }
 	td.pfx { font-weight: 800; color: #18181B; font-variant-numeric: tabular-nums; }
 	td.num { font-variant-numeric: tabular-nums; }
-	td.pub { display: flex; align-items: center; }
+	td.pub { vertical-align: middle; }
 	.pub-input {
-		flex: 1; box-sizing: border-box; height: 34px; padding: 6px 10px;
-		border: 1px solid var(--border); border-radius: 8px;
-		font-size: 13px; font-family: inherit; outline: none; background: #fff;
+		display: block; width: 100%; box-sizing: border-box; height: 34px;
+		padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+		font-size: 13px; line-height: 20px; font-family: inherit; outline: none; background: #fff;
+		field-sizing: fixed;
 		transition: background-color 0.6s ease, border-color 0.6s ease;
 	}
 	.pub-input:focus { border-color: #F57832; box-shadow: 0 0 0 3px rgba(245,120,50,0.12); }
