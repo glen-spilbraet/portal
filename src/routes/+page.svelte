@@ -596,9 +596,8 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div class="menu-backdrop" onclick={() => (menuFor = null)}></div>
 	<div class="snz-menu" style="top:{menuY}px; left:{menuX}px;">
-		<button onclick={() => postHide(menuFor, 'snooze', todayPlus(30))}>Snooze 30 days</button>
-		<button onclick={() => postHide(menuFor, 'snooze', todayPlus(90))}>Snooze 90 days</button>
-		<label class="snz-custom">Until <input type="date" onchange={(e) => e.currentTarget.value && postHide(menuFor, 'snooze', e.currentTarget.value)} /></label>
+		<button onclick={() => postHide(menuFor, 'snooze', todayPlus(7))}>Snooze 7 days</button>
+		<button onclick={() => postHide(menuFor, 'snooze', todayPlus(14))}>Snooze 14 days</button>
 		<div class="snz-div"></div>
 		<button class="snz-dismiss" onclick={() => postHide(menuFor, 'dismiss')}>Dismiss{data.isAdmin ? ' (everyone)' : ''}</button>
 	</div>
@@ -957,15 +956,13 @@
 		box-shadow: 0 10px 30px rgba(100, 60, 0, 0.16); padding: 5px;
 		display: flex; flex-direction: column;
 	}
-	.snz-menu button, .snz-custom {
+	.snz-menu button {
 		text-align: left; background: none; border: none; font-family: inherit;
 		font-size: 13px; font-weight: 600; color: #3f3a33; padding: 8px 10px;
 		border-radius: 7px; cursor: pointer; white-space: nowrap;
 		display: flex; align-items: center; gap: 6px;
 	}
 	.snz-menu button:hover { background: #FFF5D2; color: #7B3803; }
-	.snz-custom { justify-content: space-between; }
-	.snz-custom input { border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 12px; padding: 3px 5px; }
 	.snz-div { height: 1px; background: var(--border); margin: 4px 6px; }
 	.snz-dismiss { color: #C4381B; }
 	.snz-dismiss:hover { background: #FEF2F2 !important; color: #C4381B !important; }

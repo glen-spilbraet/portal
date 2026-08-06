@@ -45,6 +45,12 @@ export async function POST({ request, cookies, platform }) {
 	} else if (op === 'snooze') {
 		const until = body.until?.toString();
 		if (!until || !/^\d{4}-\d{2}-\d{2}$/.test(until)) error(400, 'Invalid until date');
+		// Reps may only snooze 1–2 weeks. Cap at 14 days out (+1 day slack for
+		// timezone differences between client and edge).
+		const todayMs = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+		const untilMs = Date.parse(`${until}T00:00:00Z`);
+		const maxMs = todayMs + 15 * 86400000;
+		if (Number.isNaN(untilMs) || untilMs < todayMs || untilMs > maxMs) error(400, 'Snooze must be 1–14 days');
 		await addHide(salesDb, { scope: 'user', userEmail: effEmail, createdBy: effEmail, companyId, untilDate: until });
 	} else if (op === 'dismiss') {
 		if (isAdmin) {
