@@ -24,6 +24,12 @@
 	const caret = (k) => (sortKey === k ? (sortDir === 'asc' ? '▲' : '▼') : '');
 	const searchKey = $derived(leadCols[0]?.key);
 
+	let loadingKey = $state(null);
+	function openRow(r) {
+		loadingKey = r.key; // spinner until navigation swaps the page
+		onRowClick?.(r);
+	}
+
 	const shown = $derived(
 		(search.trim()
 			? rows.filter((r) => String(r[searchKey] ?? '').toLowerCase().includes(search.trim().toLowerCase()))
@@ -74,9 +80,22 @@
 			</thead>
 			<tbody>
 				{#each shown as r (r.key)}
-					<tr class:clickable={!!onRowClick} onclick={onRowClick ? () => onRowClick(r) : undefined}>
+					<tr>
 						{#each leadCols as c, ci}
-							<td class:lead={ci === 0} class:bold={c.bold}>{r[c.key] ?? '—'}</td>
+							<td class:lead={ci === 0} class:bold={c.bold}>
+								{#if ci === 0 && onRowClick}
+									<div class="name-cell">
+										<span class="cname">{r[c.key] ?? '—'}</span>
+										<button class="detail-btn" onclick={() => openRow(r)} aria-label="Open details" title="Open details">
+											{#if loadingKey === r.key}
+												<svg class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+											{:else}
+												<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+											{/if}
+										</button>
+									</div>
+								{:else}{r[c.key] ?? '—'}{/if}
+							</td>
 						{/each}
 						{#each ['rev0', 'rev1', 'rev2'] as key, i}
 							<td class="num" class:nodata={colNoData[i]}>{colNoData[i] ? '—' : numFmt.format(Math.round(r[key]))}</td>
@@ -117,8 +136,21 @@
 	tbody td { padding: 11px 20px; border-bottom: 1px solid #F5EDD8; color: #3f3a33; }
 	tbody tr:nth-child(even) td { background: #FFFBEF; }
 	tbody tr:hover td { background: #FFF5D2; }
-	tr.clickable { cursor: pointer; }
 	td.lead.bold, td.bold { font-weight: 700; color: #18181B; }
+	.name-cell { display: flex; align-items: center; gap: 8px; }
+	.cname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+	.detail-btn {
+		flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+		width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border);
+		background: #fff; color: #A88B52; cursor: pointer; opacity: 0;
+		transition: opacity 0.12s, background 0.12s, color 0.12s;
+	}
+	tbody tr:hover .detail-btn { opacity: 1; }
+	.detail-btn:hover { background: #FFE6A5; color: #7B3803; }
+	@media (hover: none) { .detail-btn { opacity: 1; } }
+	@keyframes spin { to { transform: rotate(360deg); } }
+	.spin { animation: spin 0.7s linear infinite; opacity: 1; }
+	.name-cell:has(.spin) .detail-btn { opacity: 1; }
 	td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
 	td.num.nodata { color: #C7C7CC; font-weight: 500; }
 	.muted { color: #C0AC7C; }
