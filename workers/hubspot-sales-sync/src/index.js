@@ -47,6 +47,20 @@ const DEAL_PROPS = [
 // Forecast pipeline stages (same Sales Pipeline as closed deals).
 const FORECAST_STAGES = ['961100990', '5037397224']; // [0] Forecasting, Expired Forecast
 
+// Line-item properties fetched for the incremental sync (internal names).
+const LINE_ITEM_PROPS = [
+	'hs_sku', 'name', 'price', 'discount', 'amount', // amount = "Net price"
+	'line_item_revenue_in_company_currency', 'hs_line_item_currency_code',
+	'quantity', 'quantity_log_create', 'quantity_log_start', 'hs_lastmodifieddate',
+];
+
+/** Leading alpha of a SKU, uppercased (publisher grouping key); null if none. */
+function skuPrefix(sku) {
+	if (!sku) return null;
+	const m = String(sku).match(/^[A-Za-z]+/);
+	return m ? m[0].toUpperCase() : null;
+}
+
 // Company properties (the "customer level" data).
 const COMPANY_PROPS = ['name', 'country', 'customer_group', 'customer_color', 'hubspot_owner_id', 'notes_last_contacted'];
 
@@ -79,6 +93,20 @@ export default {
 				const rows = Array.isArray(body.rows) ? body.rows : [];
 				if (!rows.length) return json({ ok: false, error: 'rows[] required' }, 400);
 				return json({ ok: true, inserted: await importLineItems(env, rows) });
+			}
+			if (url.searchParams.get('lineitems') === '1') {
+				const from = url.searchParams.get('from');
+				const to = url.searchParams.get('to');
+				if (from && to) {
+					// Window backfill: refresh line items for closed deals closing in [from,to).
+					// Use small windows (≤ ~a quarter) to stay under the subrequest cap.
+					const maps = await resolvePublisherMaps(env);
+					const deals = (await env.DB.prepare('SELECT deal_id, company_id, close_date, amount_raw, amount_dkk, currency FROM sales_deals WHERE close_date >= ? AND close_date < ?').bind(from, to).all()).results || [];
+					const res = await refreshLineItemsForDeals(env, deals, 'closed', maps);
+					return json({ ok: true, window: `${from} → ${to}`, ...res });
+				}
+				const since = url.searchParams.get('since') || (await getMeta(env.DB))?.last_run || null;
+				return json({ ok: true, ...(await syncLineItems(env, since)) });
 			}
 			if (url.searchParams.get('props')) {
 				// Diagnostic: list properties whose name/label matches a term.
@@ -155,15 +183,18 @@ export default {
 
 async function handleScheduled(event, env) {
 	const currentYear = new Date().getUTCFullYear();
+	const prev = (await getMeta(env.DB))?.last_run || null;
 	if (event?.cron === MONTHLY_CRON) {
 		await runSync(env, {}); // monthly full reconcile (catches deletions / un-wins)
+		await syncForecastDeals(env);
+		await syncLineItems(env, prev);
 		return;
 	}
 	// Daily: refresh the active window, then sweep anything edited since last run.
-	const prev = (await getMeta(env.DB))?.last_run || null;
 	await runSync(env, { sinceYear: currentYear - 1 });
-	await incrementalSync(env, prev);
+	const inc = await incrementalSync(env, prev);
 	await syncForecastDeals(env); // small set; refresh the forecast mirror daily
+	await syncLineItems(env, prev, inc?.modifiedIds); // line items for changed deals + all forecast
 }
 
 async function runSync(env, { onlyYear, sinceYear }) {
@@ -213,13 +244,13 @@ async function incrementalSync(env, sinceIso) {
 		if (!deals.length) {
 			const finished = new Date().toISOString();
 			await setMeta(env.DB, { status: 'ok', last_run: finished, message: `incremental: no changes since ${new Date(sinceMs).toISOString()}` });
-			return { incremental: true, changed: 0, since: new Date(sinceMs).toISOString() };
+			return { incremental: true, changed: 0, since: new Date(sinceMs).toISOString(), modifiedIds: [] };
 		}
 		const { rows } = await enrichDeals(env, deals);
 		await insertRows(env.DB, rows);
 		const finished = new Date().toISOString();
 		await setMeta(env.DB, { status: 'ok', last_run: finished, message: `incremental: upserted ${rows.length} changed deals` });
-		return { incremental: true, changed: rows.length, since: new Date(sinceMs).toISOString() };
+		return { incremental: true, changed: rows.length, since: new Date(sinceMs).toISOString(), modifiedIds: deals.map((d) => d.id) };
 	} catch (e) {
 		await setMeta(env.DB, { status: 'error', message: `incremental failed: ${e?.message ?? String(e)}` });
 		throw e;
@@ -755,6 +786,149 @@ async function importLineItems(env, rows) {
 		await env.DB.batch(batch.map((r) => env.DB.prepare(sql).bind(...LINE_ITEM_COLS.map((c) => r[c] ?? null))));
 	}
 	return rows.length;
+}
+
+// ── Incremental line-item sync ───────────────────────────────────────────────
+
+/** Publisher mapping tables → { prefixMap, overrideMap } for resolving new lines. */
+async function resolvePublisherMaps(env) {
+	const [pfx, ovr] = await Promise.all([
+		env.DB.prepare('SELECT prefix, publisher FROM publisher_prefix').all(),
+		env.DB.prepare('SELECT sku, publisher FROM product_publisher_override').all(),
+	]);
+	const prefixMap = {}; for (const r of pfx.results || []) prefixMap[r.prefix] = r.publisher;
+	const overrideMap = {}; for (const r of ovr.results || []) overrideMap[r.sku] = r.publisher;
+	return { prefixMap, overrideMap };
+}
+
+/** Fetch line items for a set of deals → { dealId: [{ id, p }] }. */
+async function fetchDealLineItems(env, dealIds) {
+	const dealToLine = {};
+	const allLineIds = new Set();
+	for (const chunk of chunks(dealIds, 100)) {
+		const data = await hsPost(env, `${HS}/crm/v4/associations/deals/line_items/batch/read`, { inputs: chunk.map((id) => ({ id })) });
+		for (const r of data.results || []) {
+			const from = r.from?.id;
+			if (!from) continue;
+			const ids = (r.to || []).map((t) => String(t.toObjectId ?? t.id)).filter(Boolean);
+			dealToLine[from] = ids;
+			ids.forEach((i) => allLineIds.add(i));
+		}
+	}
+	const props = {};
+	for (const chunk of chunks([...allLineIds], 100)) {
+		const data = await hsPost(env, `${HS}/crm/v3/objects/line_items/batch/read`, { inputs: chunk.map((id) => ({ id })), properties: LINE_ITEM_PROPS });
+		for (const li of data.results || []) props[li.id] = li.properties || {};
+	}
+	const byDeal = {};
+	for (const [dealId, ids] of Object.entries(dealToLine)) {
+		byDeal[dealId] = ids.filter((i) => props[i]).map((i) => ({ id: i, p: props[i] }));
+	}
+	return byDeal;
+}
+
+/** Build one deal_line_items row from a HubSpot line item + its (mirror) deal row. */
+function buildLineRow(li, deal, kind, maps) {
+	const p = li.p;
+	const sku = p.hs_sku || null;
+	const pfx = skuPrefix(sku);
+	const net = num(p.amount);
+	const currency = p.hs_line_item_currency_code || deal.currency || null;
+	let dkk = num(p.line_item_revenue_in_company_currency);
+	if (dkk == null) {
+		if (currency === 'DKK') dkk = net;
+		else {
+			const rate = deal.amount_raw && deal.amount_dkk != null ? deal.amount_dkk / deal.amount_raw : null;
+			dkk = net != null && rate != null ? net * rate : null;
+		}
+	}
+	// Intentional: unmapped → SKU prefix (not "Unknown"); null when no prefix.
+	const publisher = maps.overrideMap[sku] ?? maps.prefixMap[pfx] ?? pfx ?? null;
+	return {
+		line_item_id: li.id, deal_id: String(deal.deal_id), deal_kind: kind,
+		company_id: deal.company_id ?? null, close_date: deal.close_date ?? null,
+		sku, sku_prefix: pfx, name: p.name || null,
+		unit_price: num(p.price), discount: num(p.discount), net_price: net,
+		amount_dkk: dkk, currency, quantity: num(p.quantity),
+		publisher, quantity_log_create: num(p.quantity_log_create), quantity_log_start: num(p.quantity_log_start),
+	};
+}
+
+/** Replace line items for the given deal rows: delete existing, insert current. */
+async function refreshLineItemsForDeals(env, dealRows, kind, maps) {
+	if (!dealRows.length) return { deals: 0, lines: 0 };
+	const dealById = {};
+	for (const d of dealRows) dealById[String(d.deal_id)] = d;
+	const dealIds = Object.keys(dealById);
+	const byDeal = await fetchDealLineItems(env, dealIds);
+	const rows = [];
+	for (const [dealId, items] of Object.entries(byDeal)) {
+		const deal = dealById[dealId];
+		if (!deal) continue;
+		for (const li of items) rows.push(buildLineRow(li, deal, kind, maps));
+	}
+	for (const chunk of chunks(dealIds, 50)) {
+		await env.DB.prepare(`DELETE FROM deal_line_items WHERE deal_id IN (${chunk.map(() => '?').join(',')})`).bind(...chunk).run();
+	}
+	await importLineItems(env, rows);
+	return { deals: dealIds.length, lines: rows.length };
+}
+
+/** Deals whose line items changed since the watermark (line-only edits). */
+async function fetchDealsWithChangedLineItems(env, sinceMs) {
+	const lineIds = [];
+	let after;
+	do {
+		const body = {
+			filterGroups: [{ filters: [{ propertyName: 'hs_lastmodifieddate', operator: 'GTE', value: String(sinceMs) }] }],
+			properties: ['hs_sku'], limit: 100, ...(after ? { after } : {}),
+		};
+		const data = await hsPost(env, `${HS}/crm/v3/objects/line_items/search`, body);
+		lineIds.push(...(data.results || []).map((l) => l.id));
+		after = data.paging?.next?.after;
+	} while (after);
+	if (!lineIds.length) return [];
+	const dealIds = new Set();
+	for (const chunk of chunks(lineIds, 100)) {
+		const data = await hsPost(env, `${HS}/crm/v4/associations/line_items/deals/batch/read`, { inputs: chunk.map((id) => ({ id })) });
+		for (const r of data.results || []) for (const t of r.to || []) dealIds.add(String(t.toObjectId ?? t.id));
+	}
+	return [...dealIds];
+}
+
+/** Load mirror deal rows (context for building line items) for a set of ids. */
+async function loadDealRows(env, table, ids) {
+	const out = [];
+	for (const chunk of chunks(ids, 100)) {
+		const r = await env.DB
+			.prepare(`SELECT deal_id, company_id, close_date, amount_raw, amount_dkk, currency FROM ${table} WHERE deal_id IN (${chunk.map(() => '?').join(',')})`)
+			.bind(...chunk).all();
+		out.push(...(r.results || []));
+	}
+	return out;
+}
+
+/**
+ * Incremental line-item refresh: closed deals modified since the watermark (or a
+ * supplied id list) + deals whose line items changed, plus ALL forecast deals
+ * (small; keeps quantity-logs current). Replaces those deals' lines wholesale,
+ * so new/edited/deleted lines all land.
+ */
+async function syncLineItems(env, sinceIso, modifiedClosedIds = null) {
+	const maps = await resolvePublisherMaps(env);
+	const base = sinceIso ? Date.parse(sinceIso) : Date.now() - 2 * 86400000;
+	const sinceMs = (Number.isFinite(base) ? base : Date.now() - 2 * 86400000) - 2 * 3600 * 1000;
+
+	const closedIds = modifiedClosedIds ?? (await fetchModifiedDeals(env, sinceMs)).map((d) => d.id);
+	const lineChanged = await fetchDealsWithChangedLineItems(env, sinceMs);
+	const candidates = [...new Set([...closedIds, ...lineChanged].map(String))];
+	const closedRows = candidates.length ? await loadDealRows(env, 'sales_deals', candidates) : [];
+	const closed = await refreshLineItemsForDeals(env, closedRows, 'closed', maps);
+
+	const fcRows = (await env.DB.prepare('SELECT deal_id, company_id, close_date, amount_raw, amount_dkk, currency FROM forecast_deals').all()).results || [];
+	const forecast = await refreshLineItemsForDeals(env, fcRows, 'forecast', maps);
+
+	return { closed_deals: closed.deals, closed_lines: closed.lines, forecast_deals: forecast.deals, forecast_lines: forecast.lines };
 }
 
 /** INSERT OR REPLACE rows by deal_id (no deletes). Used by both paths. */
