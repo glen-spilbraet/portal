@@ -3,7 +3,7 @@
 
 	let { data } = $props();
 
-	let rows = $state(data.prefixes.map((p) => ({ ...p, saved: false, saving: false })));
+	let rows = $state(data.prefixes.map((p) => ({ ...p, saved: false, saving: false, _saved: p.publisher ?? '' })));
 	let overrides = $state([...data.overrides]);
 	let search = $state('');
 	let resolving = $state(false);
@@ -20,6 +20,7 @@
 	const mappedCount = $derived(rows.filter((r) => r.publisher.trim()).length);
 
 	async function savePrefix(row) {
+		if ((row.publisher ?? '').trim() === (row._saved ?? '').trim()) return; // no change → no save/flash
 		row.saving = true; row.saved = false;
 		try {
 			const res = await fetch('/api/admin/publisher-map', {
@@ -28,8 +29,9 @@
 				body: JSON.stringify({ prefix: row.prefix, publisher: row.publisher }),
 			});
 			if (!res.ok) throw new Error('save failed');
+			row._saved = row.publisher;
 			row.saved = true;
-			setTimeout(() => (row.saved = false), 1500);
+			setTimeout(() => (row.saved = false), 800);
 		} catch {
 			alert(`Could not save ${row.prefix}`);
 		} finally {
@@ -105,12 +107,12 @@
 						<td class="pub">
 							<input
 								class="pub-input"
-								placeholder={row.prefix}
+								class:empty={!row.publisher.trim()}
+								class:saved={row.saved && !!row.publisher.trim()}
 								bind:value={row.publisher}
 								onkeydown={(e) => e.key === 'Enter' && savePrefix(row)}
 								onblur={() => savePrefix(row)}
 							/>
-							{#if row.saving}<span class="tag">…</span>{:else if row.saved}<span class="tag ok">✓</span>{/if}
 						</td>
 					</tr>
 				{/each}
@@ -158,11 +160,17 @@
 	tbody tr:nth-child(even) td { background: #FFFBEF; }
 	td.pfx { font-weight: 800; color: #18181B; font-variant-numeric: tabular-nums; }
 	td.num { font-variant-numeric: tabular-nums; }
-	td.pub { display: flex; align-items: center; gap: 8px; }
-	.pub-input { flex: 1; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; background: #fff; }
+	td.pub { padding-top: 6px; padding-bottom: 6px; }
+	.pub-input {
+		width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+		font-size: 13px; font-family: inherit; outline: none; background: #fff;
+		transition: background-color 0.6s ease, border-color 0.6s ease;
+	}
 	.pub-input:focus { border-color: #F57832; box-shadow: 0 0 0 3px rgba(245,120,50,0.12); }
-	.tag { font-size: 12px; color: #A1A1AA; width: 14px; }
-	.tag.ok { color: #16a34a; font-weight: 800; }
+	/* Just saved → flash green, then fades back to white via the transition. */
+	.pub-input.saved { background: #EAF7EF; border-color: #86efac; transition: none; }
+	/* Empty (unmapped) → light red so gaps stand out. */
+	.pub-input.empty { background: #FDECEC; border-color: #f6c9c4; }
 	.btn-primary { padding: 9px 18px; background: #F57832; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer; white-space: nowrap; }
 	.btn-primary:hover:not(:disabled) { background: #E06820; }
 	.btn-primary:disabled { opacity: 0.55; cursor: default; }
