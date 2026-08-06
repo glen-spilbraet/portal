@@ -107,7 +107,7 @@
 						<td class="pub">
 							<input
 								class="pub-input"
-								class:empty={!row.publisher.trim()}
+								class:unmapped={!row.publisher.trim()}
 								class:saved={row.saved && !!row.publisher.trim()}
 								bind:value={row.publisher}
 								onkeydown={(e) => e.key === 'Enter' && savePrefix(row)}
@@ -172,7 +172,7 @@
 	/* Just saved → flash green, then fades back to white via the transition. */
 	.pub-input.saved { background: #EAF7EF; border-color: #86efac; transition: none; }
 	/* Empty (unmapped) → light red so gaps stand out. */
-	.pub-input.empty { background: #FDECEC; border-color: #f6c9c4; }
+	.pub-input.unmapped { background: #FDECEC; border-color: #f6c9c4; }
 	.btn-primary { padding: 9px 18px; background: #F57832; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer; white-space: nowrap; }
 	.btn-primary:hover:not(:disabled) { background: #E06820; }
 	.btn-primary:disabled { opacity: 0.55; cursor: default; }
