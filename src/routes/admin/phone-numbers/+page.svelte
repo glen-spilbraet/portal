@@ -82,7 +82,7 @@
 		<h1>Phone Number Normalization</h1>
 		<p class="sub">
 			Adds the country code to HubSpot contact phone numbers (<code>phone</code> and <code>mobilephone</code>),
-			using the country of each contact's primary company. Formats as international (e.g. <code>+45 20 12 34 56</code>).
+			using the country of each contact's primary company. Formats as E.164 (e.g. <code>+4520123456</code>).
 			Numbers that already have a country code are kept and just reformatted. Nothing is written until you press
 			<strong>Apply</strong>.
 		</p>

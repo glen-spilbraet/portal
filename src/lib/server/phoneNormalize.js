@@ -5,9 +5,9 @@ import { parsePhoneNumberFromString } from 'libphonenumber-js';
  *
  * A contact's country comes from its primary associated company (free-text
  * `country` property in HubSpot). We map that to an ISO 3166-1 region code and
- * let libphonenumber add/keep the dialling code and format the number as
- * international ("+45 20 12 34 56"). Numbers that already carry an explicit
- * country code keep it; only the formatting is normalized.
+ * let libphonenumber add/keep the dialling code and format the number as E.164
+ * ("+4520123456", no spaces). Numbers that already carry an explicit country
+ * code keep it; only the formatting is normalized.
  */
 
 // Free-text company country (English + common Danish/German variants) → ISO region.
@@ -70,6 +70,6 @@ export function normalizePhone(raw, region) {
 	if (!region) return { status: 'no_region' };
 	const parsed = parsePhoneNumberFromString(val, region);
 	if (!parsed || !parsed.isValid()) return { status: 'invalid' };
-	const formatted = parsed.formatInternational();
+	const formatted = parsed.number; // E.164, e.g. "+4520123456"
 	return formatted === val ? { status: 'ok' } : { status: 'change', value: formatted };
 }
