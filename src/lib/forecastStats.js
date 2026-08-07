@@ -41,13 +41,14 @@ export async function getSkippedCount(db, ownerEmail) {
 }
 
 /**
- * Ended forecasts, rolled up per customer. Each forecast line's actual is the
- * units of that SKU the customer bought within that forecast's window.
+ * Ended forecasts. Each forecast line's actual is the units of that SKU the
+ * customer bought within that forecast's window. Returned rolled up three ways
+ * (customers / owners / products), each with expandable drill-down children.
  */
 export async function getCompletedAccuracy(db, today, ownerEmail) {
 	const ownerClause = ownerEmail ? 'AND f.owner_email = ?' : '';
 	const binds = ownerEmail ? [today, ownerEmail] : [today];
-	const rows = await db
+	const rows = (await db
 		.prepare(
 			`SELECT f.company_id AS cid, f.company_name AS company,
 			        f.owner_name AS owner, f.owner_email AS owner_email,
@@ -64,8 +65,52 @@ export async function getCompletedAccuracy(db, today, ownerEmail) {
 			   ${ownerClause}`
 		)
 		.bind(...binds)
-		.all();
-	return aggregateByCustomer(rows.results ?? []);
+		.all()).results ?? [];
+
+	return {
+		customers: rollup(rows,
+			(r) => r.cid ?? r.company, (r) => r.company || '(No company)',
+			(r) => ({ owner: r.owner || '—' }),
+			(r) => r.sku, (r) => r.name || r.sku),
+		owners: rollup(rows,
+			(r) => r.owner_email ?? r.owner, (r) => r.owner || '—',
+			() => ({}),
+			(r) => r.cid ?? r.company, (r) => r.company || '(No company)'),
+		products: rollup(rows,
+			(r) => r.sku, (r) => r.name || r.sku,
+			(r) => ({ sku: r.sku }),
+			(r) => r.cid ?? r.company, (r) => r.company || '(No company)')
+	};
+}
+
+/**
+ * Group forecast lines by a dimension, summing forecast/actual units, and build
+ * per-child sub-rows (also summed) for the drill-down.
+ */
+function rollup(rows, keyOf, labelOf, metaOf, childKeyOf, childLabelOf) {
+	const map = new Map();
+	for (const r of rows) {
+		const k = keyOf(r);
+		let g = map.get(k);
+		if (!g) { g = { key: k, label: labelOf(r), forecastUnits: 0, actualUnits: 0, _kids: new Map(), ...metaOf(r) }; map.set(k, g); }
+		g.forecastUnits += r.forecast_qty || 0;
+		g.actualUnits += r.actual_qty || 0;
+		const ck = childKeyOf(r);
+		let c = g._kids.get(ck);
+		if (!c) { c = { key: ck, label: childLabelOf(r), forecast: 0, actual: 0 }; g._kids.set(ck, c); }
+		c.forecast += r.forecast_qty || 0;
+		c.actual += r.actual_qty || 0;
+	}
+	return [...map.values()].map((g) => {
+		g.attainment = g.forecastUnits > 0 ? g.actualUnits / g.forecastUnits : null;
+		g.bias = biasTag(g.attainment);
+		g.children = [...g._kids.values()]
+			.map((c) => ({ ...c, attainment: c.forecast > 0 ? c.actual / c.forecast : null }))
+			.sort((a, b) => b.forecast - a.forecast);
+		g.childCount = g.children.length;
+		delete g._kids;
+		return g;
+	}).sort((a, b) => b.forecastUnits - a.forecastUnits);
 }
 
 /**
