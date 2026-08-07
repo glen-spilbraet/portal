@@ -146,6 +146,7 @@ export async function load({ platform, url, cookies, parent }) {
 					return {
 						name: t.name,
 						index: t.index_value,
+						needed,
 						reached: curRev >= needed,
 						gap: Math.max(0, needed - curRev),
 					};
@@ -156,6 +157,8 @@ export async function load({ platform, url, cookies, parent }) {
 					year: targetYear,
 					index: Math.round(index * 10) / 10,
 					allReached: nextIdx === -1,
+					curRev,
+					priorRev,
 					targets,
 				};
 			}

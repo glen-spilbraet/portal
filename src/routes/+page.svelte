@@ -312,6 +312,14 @@
 		</div>
 	</section>
 
+	{#snippet flagTip(label, milestoneRev, remaining)}
+		<span class="flag-tip">
+			<span class="ft-row"><span class="ft-k">This period</span><span class="ft-v">{formatDkk(data.tracker.curRev)}</span></span>
+			<span class="ft-row"><span class="ft-k">{label}</span><span class="ft-v">{formatDkk(milestoneRev)}</span></span>
+			<span class="ft-row ft-rem"><span class="ft-k">Remaining</span><span class="ft-v">{formatDkk(remaining)}</span></span>
+		</span>
+	{/snippet}
+
 	{#if data.tracker}
 		<section class="targets">
 			<div class="track-card">
@@ -336,6 +344,7 @@
 								<span class="fl-idx">100</span>
 							</span>
 							<span class="fdot"></span>
+							{@render flagTip('Last year', data.tracker.priorRev, Math.max(0, data.tracker.priorRev - data.tracker.curRev))}
 						</div>
 						{#each data.tracker.targets as t (t.name)}
 							<div class="flag" class:reached={t.reached} class:next={t.next} style="left:{trackPos(t.index)}%">
@@ -344,6 +353,7 @@
 									<span class="fl-idx">{t.index}{t.reached ? ' ✓' : ''}</span>
 								</span>
 								<span class="fdot"></span>
+								{@render flagTip(t.name, t.needed, t.gap)}
 							</div>
 						{/each}
 						<div class="you" style="left:{trackPos(data.tracker.index)}%"><span class="ydot"></span></div>
@@ -862,7 +872,6 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow);
-		overflow: hidden;
 	}
 	.tc-head {
 		display: flex;
@@ -906,6 +915,44 @@
 	.fl-idx { font-weight: 700; }
 	.flag.reached .flabel { color: #16794C; }
 	.flag.next .flabel { color: #7B3803; }
+
+	/* Hover tooltip on each milestone flag (baseline + targets). */
+	.flag { cursor: default; }
+	.flag-tip {
+		position: absolute;
+		top: calc(100% + 13px);
+		left: 50%;
+		transform: translateX(-50%) translateY(3px);
+		min-width: 172px;
+		background: #2A2118;
+		border-radius: 9px;
+		padding: 9px 11px;
+		box-shadow: 0 8px 24px rgba(60, 36, 0, 0.22);
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+		opacity: 0;
+		visibility: hidden;
+		pointer-events: none;
+		transition: opacity 0.12s ease, transform 0.12s ease;
+		z-index: 5;
+	}
+	.flag-tip::before {
+		content: '';
+		position: absolute;
+		bottom: 100%;
+		left: 50%;
+		transform: translateX(-50%);
+		border: 6px solid transparent;
+		border-bottom-color: #2A2118;
+	}
+	.flag:hover { z-index: 6; }
+	.flag:hover .flag-tip { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+	.ft-row { display: flex; justify-content: space-between; gap: 18px; font-size: 12px; white-space: nowrap; line-height: 1.3; }
+	.ft-k { color: #C9BCA8; font-weight: 600; }
+	.ft-v { color: #fff; font-weight: 800; font-variant-numeric: tabular-nums; }
+	.ft-rem { border-top: 1px solid rgba(255, 255, 255, 0.14); padding-top: 6px; margin-top: 1px; }
+	.ft-rem .ft-k, .ft-rem .ft-v { color: #FFB27A; }
 	.you { position: absolute; top: 50%; transform: translate(-50%, -50%); z-index: 2; }
 	.ydot {
 		display: block; width: 20px; height: 20px; border-radius: 50%;
