@@ -26,6 +26,27 @@ export async function getForecastOwners(db) {
 	return rows.results ?? [];
 }
 
+/** Distinct forecast-window years (by start date), newest first. */
+export async function getForecastYears(db) {
+	const rows = await db
+		.prepare(
+			`SELECT DISTINCT substr(forecast_start_date, 1, 4) AS y
+			 FROM forecast_deals WHERE forecast_start_date IS NOT NULL AND forecast_start_date != ''
+			 ORDER BY y DESC`
+		)
+		.all();
+	return (rows.results ?? []).map((r) => r.y).filter(Boolean);
+}
+
+/** Build the optional owner + year filter clause (by forecast start-date year). */
+function filterClause(ownerEmail, years) {
+	const parts = [];
+	const binds = [];
+	if (ownerEmail) { parts.push('AND f.owner_email = ?'); binds.push(ownerEmail); }
+	if (years?.length) { parts.push(`AND substr(f.forecast_start_date, 1, 4) IN (${years.map(() => '?').join(',')})`); binds.push(...years); }
+	return { clause: parts.join(' '), binds };
+}
+
 /** Count of forecasts we skip because they have no start/end window. */
 export async function getSkippedCount(db, ownerEmail) {
 	const clause = ownerEmail ? 'AND owner_email = ?' : '';
@@ -45,9 +66,8 @@ export async function getSkippedCount(db, ownerEmail) {
  * customer bought within that forecast's window. Returned rolled up three ways
  * (customers / owners / products), each with expandable drill-down children.
  */
-export async function getCompletedAccuracy(db, today, ownerEmail) {
-	const ownerClause = ownerEmail ? 'AND f.owner_email = ?' : '';
-	const binds = ownerEmail ? [today, ownerEmail] : [today];
+export async function getCompletedAccuracy(db, today, ownerEmail, years) {
+	const f = filterClause(ownerEmail, years);
 	const rows = (await db
 		.prepare(
 			`SELECT f.company_id AS cid, f.company_name AS company,
@@ -62,9 +82,9 @@ export async function getCompletedAccuracy(db, today, ownerEmail) {
 			 WHERE f.forecast_start_date IS NOT NULL AND f.forecast_end_date IS NOT NULL
 			   AND f.forecast_end_date < ?
 			   AND ${FC_QTY} > 0
-			   ${ownerClause}`
+			   ${f.clause}`
 		)
-		.bind(...binds)
+		.bind(today, ...f.binds)
 		.all()).results ?? [];
 
 	return {
@@ -117,9 +137,8 @@ function rollup(rows, keyOf, labelOf, metaOf, childKeyOf, childLabelOf) {
  * Ongoing forecasts (today inside the window), rolled up per customer. Actual is
  * units bought so far (window start → today).
  */
-export async function getOngoingProgress(db, today, ownerEmail) {
-	const ownerClause = ownerEmail ? 'AND f.owner_email = ?' : '';
-	const binds = ownerEmail ? [today, today, today, ownerEmail] : [today, today, today];
+export async function getOngoingProgress(db, today, ownerEmail, years) {
+	const f = filterClause(ownerEmail, years);
 	const rows = await db
 		.prepare(
 			`SELECT f.company_id AS cid, f.company_name AS company,
@@ -135,9 +154,9 @@ export async function getOngoingProgress(db, today, ownerEmail) {
 			 WHERE f.forecast_start_date IS NOT NULL AND f.forecast_end_date IS NOT NULL
 			   AND f.forecast_start_date <= ? AND f.forecast_end_date >= ?
 			   AND ${FC_QTY} > 0
-			   ${ownerClause}`
+			   ${f.clause}`
 		)
-		.bind(...binds)
+		.bind(today, today, today, ...f.binds)
 		.all();
 	const custs = aggregateByCustomer(rows.results ?? [], true);
 	// Attach time-elapsed pace for the ongoing view.

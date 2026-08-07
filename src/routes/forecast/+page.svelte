@@ -1,8 +1,20 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
+	import MultiFilter from '$lib/components/MultiFilter.svelte';
 	import { goto } from '$app/navigation';
 
 	let { data } = $props();
+
+	const ownerOpts = $derived((data.owners ?? []).map((o) => ({ value: o.email, label: o.name })));
+	const yearOpts = $derived((data.years ?? []).map((y) => ({ value: y, label: y })));
+
+	function applyFilters(owner, years) {
+		const p = new URLSearchParams();
+		if (owner) p.set('owner', owner);
+		if (years?.length) p.set('year', years.join(','));
+		const qs = p.toString();
+		goto(qs ? `?${qs}` : '?', { noScroll: true });
+	}
 
 	const numFmt = new Intl.NumberFormat('da-DK');
 	function pct(a) { return a === null || a === undefined ? '—' : Math.round(a * 100) + '%'; }
@@ -25,11 +37,6 @@
 		return s;
 	});
 
-	function onOwner(e) {
-		const v = e.currentTarget.value;
-		goto(v ? `?owner=${encodeURIComponent(v)}` : '?', { noScroll: true });
-	}
-
 	const DIMS = [
 		{ key: 'customers', label: 'Customers' },
 		{ key: 'owners', label: 'Owners' },
@@ -48,12 +55,12 @@
 			<h1>Forecast Stats</h1>
 			<p class="sub">Forecast accuracy compared to actual purchases · SKU level, in units</p>
 		</div>
-		<select class="owner-select" onchange={onOwner}>
-			<option value="" selected={!data.ownerParam}>All owners</option>
-			{#each data.owners as o}
-				<option value={o.email} selected={data.ownerParam === o.email}>{o.name}</option>
-			{/each}
-		</select>
+		<div class="filters">
+			<MultiFilter label="Year" options={yearOpts} selected={data.yearParam}
+				onApply={(v) => applyFilters(data.ownerParam, v)} />
+			<MultiFilter label="Owner" single allLabel="All owners" options={ownerOpts} selected={data.ownerParam ? [data.ownerParam] : []}
+				onApply={(v) => applyFilters(v[0] ?? null, data.yearParam)} />
+		</div>
 	</div>
 
 	<div class="toptabs">
@@ -189,8 +196,7 @@
 	.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
 	.head h1 { font-size: 20px; font-weight: 800; color: #18181B; margin: 0 0 3px; letter-spacing: -0.3px; }
 	.sub { font-size: 13px; color: #98876e; margin: 0; }
-	.owner-select { font-family: inherit; font-size: 13px; font-weight: 700; color: #524431; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 8px 11px; cursor: pointer; }
-	.owner-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(245,120,50,0.14); }
+	.filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 	.toptabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
 	.toptab { font-family: inherit; font-size: 14px; font-weight: 800; color: #8A7550; background: none; border: none; padding: 10px 4px; margin-right: 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
