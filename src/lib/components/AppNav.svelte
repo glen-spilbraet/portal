@@ -197,31 +197,9 @@
 					</div>
 				{/if}
 
-				<!-- Admin dropdown (admin only) -->
+				<!-- Admin (direct link to the control-panel overview, admin only) -->
 				{#if user?.role === 'admin'}
-					<div class="nav-group" class:active={adminActive}>
-						<button class="nav-top" class:active={adminActive}>
-							Admin
-							<svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none">
-								<path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-							</svg>
-						</button>
-						<div class="dropdown">
-							<div class="dropdown-inner">
-								<a href="/translations" class="dropdown-item" class:active={active === 'translations'}>Translations</a>
-								<a href="/admin/users" class="dropdown-item" class:active={active === 'admin'}>Users</a>
-								<a href="/admin/permissions" class="dropdown-item" class:active={active === 'permissions'}>Permission Sets</a>
-								<a href="/admin/targets" class="dropdown-item" class:active={active === 'targets'}>Targets</a>
-								<a href="/admin/publishers" class="dropdown-item" class:active={active === 'publishers'}>Publisher Mapping</a>
-								<a href="/admin/phone-numbers" class="dropdown-item" class:active={active === 'phone-numbers'}>Phone Numbers</a>
-								<a href="/verify" class="dropdown-item" class:active={active === 'verify'}>Data Verification</a>
-								<a href="/admin/item-library" class="dropdown-item" class:active={active === 'item-library'}>Item Library</a>
-								<a href="/admin/sheet-data" class="dropdown-item" class:active={active === 'sheet-data'}>Sheet Data</a>
-								<a href="/admin/analytics" class="dropdown-item" class:active={active === 'analytics'}>Analytics</a>
-								<a href="/admin/migrate-images" class="dropdown-item" class:active={active === 'migrate-images'}>Migrate Images</a>
-							</div>
-						</div>
-					</div>
+					<a href="/admin" class="nav-link" class:active={adminActive}>Admin</a>
 				{/if}
 			</nav>
 		</div>
