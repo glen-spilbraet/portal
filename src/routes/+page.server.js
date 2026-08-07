@@ -47,8 +47,8 @@ export async function load({ platform, url, cookies, parent }) {
 	const prior2 = dimWindows.y0;
 
 	// Company-wide market totals react to the date range ONLY — never to the
-	// filter bar or owner scoping. Used for the always-visible company figures
-	// (and the quarterly target tracker, which tracks the whole company).
+	// filter bar or owner scoping. Used for the always-visible "Company Stats"
+	// figures. (The quarterly target tracker is owner-scoped separately below.)
 	const [curTotals, priorTotals, companyCur, companyPrior, y0Companies, y1Companies, y2Companies, universe, attentionRows, hides, meta, filterOptions, reps, dimCountries, dimGroups, dimLevels, dimOwners, monthlyCur, monthlyPrior] = await Promise.all([
 		getMarketTotals(db, cur.start, cur.end, filters),
 		getMarketTotals(db, prior.start, prior.end, filters),
@@ -123,32 +123,42 @@ export async function load({ platform, url, cookies, parent }) {
 		...MARKETS.map((m) => widget(m.toLowerCase(), m, companyCur.byMarket[m], companyPrior.byMarket[m])),
 	];
 
-	// Quarterly target tracker — company-wide, only for quarter views with prior-year data.
+	// Quarterly target tracker — scoped to the OWNER only (the admin's selected
+	// owner, or the whole company when none is picked; reps always track
+	// themselves). Deliberately ignores the level/group/country filters so it
+	// mirrors ownership, not the ad-hoc breakdown filters. Quarter views only.
 	let tracker = null;
-	const curRev = companyCur.total.dkk;
-	const priorRev = companyPrior.total.dkk;
-	if (isQuarterRange(cur.start, cur.end, now) && priorRev > 0) {
-		const targetYear = Number(cur.start.slice(0, 4));
-		const rows = await listSalesTargetsForYear(db, targetYear);
-		if (rows.length) {
-			const index = (curRev / priorRev) * 100;
-			const targets = rows.map((t) => {
-				const needed = (t.index_value / 100) * priorRev;
-				return {
-					name: t.name,
-					index: t.index_value,
-					reached: curRev >= needed,
-					gap: Math.max(0, needed - curRev),
+	if (isQuarterRange(cur.start, cur.end, now)) {
+		const ownerFilter = { ownerEmail: filters.ownerEmail };
+		const [ownerCur, ownerPrior] = await Promise.all([
+			getMarketTotals(db, cur.start, cur.end, ownerFilter),
+			getMarketTotals(db, prior.start, prior.end, ownerFilter),
+		]);
+		const curRev = ownerCur.total.dkk;
+		const priorRev = ownerPrior.total.dkk;
+		if (priorRev > 0) {
+			const targetYear = Number(cur.start.slice(0, 4));
+			const rows = await listSalesTargetsForYear(db, targetYear);
+			if (rows.length) {
+				const index = (curRev / priorRev) * 100;
+				const targets = rows.map((t) => {
+					const needed = (t.index_value / 100) * priorRev;
+					return {
+						name: t.name,
+						index: t.index_value,
+						reached: curRev >= needed,
+						gap: Math.max(0, needed - curRev),
+					};
+				});
+				const nextIdx = targets.findIndex((t) => !t.reached);
+				targets.forEach((t, i) => (t.next = i === nextIdx));
+				tracker = {
+					year: targetYear,
+					index: Math.round(index * 10) / 10,
+					allReached: nextIdx === -1,
+					targets,
 				};
-			});
-			const nextIdx = targets.findIndex((t) => !t.reached);
-			targets.forEach((t, i) => (t.next = i === nextIdx));
-			tracker = {
-				year: targetYear,
-				index: Math.round(index * 10) / 10,
-				allReached: nextIdx === -1,
-				targets,
-			};
+			}
 		}
 	}
 
