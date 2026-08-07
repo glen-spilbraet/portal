@@ -29,6 +29,7 @@ export async function PUT({ params, request, cookies, platform }) {
 	if (typeof body.access_stats       === 'boolean') patch.access_stats       = body.access_stats       ? 1 : 0;
 	if (typeof body.access_mail        === 'boolean') patch.access_mail        = body.access_mail        ? 1 : 0;
 	if (typeof body.access_product     === 'boolean') patch.access_product     = body.access_product     ? 1 : 0;
+	if (typeof body.access_forecast    === 'boolean') patch.access_forecast    = body.access_forecast    ? 1 : 0;
 
 	if (Object.keys(patch).length === 0) error(400, 'Nothing to update');
 	await updatePermissionSet(db, params.id, patch);

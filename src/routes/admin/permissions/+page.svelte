@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false });
+	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false });
 	let creating = $state(false);
 	let createError = $state('');
 
@@ -25,6 +25,7 @@
 		{ key: 'orders',      label: 'Orders' },
 		{ key: 'mail',        label: 'Mail' },
 		{ key: 'product',     label: 'Product' },
+		{ key: 'forecast',    label: 'Forecast' },
 	];
 
 	async function createSet() {
@@ -46,6 +47,7 @@
 					access_stats:       newAccess.stats,
 					access_mail:        newAccess.mail,
 					access_product:     newAccess.product,
+					access_forecast:    newAccess.forecast,
 				})
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
@@ -62,9 +64,10 @@
 				access_stats:       newAccess.stats        ? 1 : 0,
 				access_mail:        newAccess.mail         ? 1 : 0,
 				access_product:     newAccess.product      ? 1 : 0,
+				access_forecast:    newAccess.forecast     ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false };
+			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false };
 		} catch (e) {
 			createError = e.message;
 		} finally {

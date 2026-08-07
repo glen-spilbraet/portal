@@ -2,7 +2,7 @@
 	let { active = 'sheets', user = null } = $props();
 
 	// Permissions — default to full access so the nav never breaks if not provided
-	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true });
+	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true });
 
 	const salesItems = $derived([
 		p.sheets       && { href: '/sheets',       label: 'Sheets',      key: 'sheets' },
@@ -13,14 +13,15 @@
 
 	const showSales = $derived(salesItems.length > 0);
 
-	// Stats menu: Overview (stats perm) + Product (product perm). One item → a
-	// plain link; both → a dropdown.
+	// Stats menu: Overview (stats perm) + Product (product perm) + Forecast
+	// (forecast perm). One item → a plain link; more → a dropdown.
 	const statsItems = $derived([
-		p.stats   && { href: '/',        label: 'Overview', key: 'stats' },
-		p.product && { href: '/product', label: 'Product',  key: 'product' },
+		p.stats    && { href: '/',         label: 'Overview', key: 'stats' },
+		p.product  && { href: '/product',  label: 'Product',  key: 'product' },
+		p.forecast && { href: '/forecast', label: 'Forecast', key: 'forecast' },
 	].filter(Boolean));
 	const showStats = $derived(statsItems.length > 0);
-	const statsActive = $derived(active === 'stats' || active === 'product');
+	const statsActive = $derived(active === 'stats' || active === 'product' || active === 'forecast');
 	const showData  = $derived(p.data);
 	const showMail  = $derived(!!p.mail);
 	const showOrders = $derived(!!p.orders);
