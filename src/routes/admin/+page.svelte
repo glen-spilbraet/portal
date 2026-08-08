@@ -31,14 +31,8 @@
 				{ title: 'Translations', href: '/translations', desc: 'Edit global UI labels across languages.', icon: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>' },
 				{ title: 'Item Library', href: '/admin/item-library', desc: 'Reusable items for sheets and catalogues.', icon: '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>' },
 				{ title: 'Sheet Data', href: '/admin/sheet-data', desc: 'Manage data products used in sheets.', icon: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>' },
-				{ title: 'Migrate Images', href: '/admin/migrate-images', desc: 'Bulk image migration utility.', icon: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>' }
-			]
-		},
-		{
-			title: 'Insights',
-			blurb: 'Usage and engagement.',
-			tools: [
-				{ title: 'Analytics', href: '/admin/analytics', desc: 'Catalogue views and engagement analytics.', icon: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>' }
+				{ title: 'Migrate Images', href: '/admin/migrate-images', desc: 'Bulk image migration utility.', icon: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>' },
+				{ title: 'Analytics', href: '/admin/analytics', desc: 'Catalogue views and engagement.', icon: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>' }
 			]
 		}
 	];
