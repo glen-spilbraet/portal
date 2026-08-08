@@ -42,8 +42,8 @@ export function isQuarterRange(startStr, endExcl, now) {
 	const y = now.getUTCFullYear();
 	const q = Math.floor(now.getUTCMonth() / 3);
 	const curQuarterStart = new Date(Date.UTC(y, q * 3, 1)).toISOString().slice(0, 10);
-	const tomorrow = new Date(Date.UTC(y, now.getUTCMonth(), now.getUTCDate()) + 86400000).toISOString().slice(0, 10);
-	return startStr === curQuarterStart && endExcl === tomorrow;
+	const today = new Date(Date.UTC(y, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+	return startStr === curQuarterStart && endExcl === today;
 }
 
 /** Period dropdown options (Year / Quarter / Month groups). */
@@ -88,7 +88,9 @@ export function resolveRange(params, now) {
 	const year = now.getUTCFullYear();
 	const month = now.getUTCMonth();
 	const q = Math.floor(month / 3);
-	const tomorrow = ymdMs(Date.UTC(year, month, now.getUTCDate()) + 86400000);
+	// End bound for "to date" windows: exclusive of today, since today is still
+	// in progress and would otherwise skew totals and YoY comparisons.
+	const today = ymdMs(Date.UTC(year, month, now.getUTCDate()));
 
 	const from = params.get('from');
 	const to = params.get('to');
@@ -106,8 +108,8 @@ export function resolveRange(params, now) {
 	if (selected === 'ytd' || selected === 'this-year' || /^\d{4}$/.test(selected)) {
 		const toDate = selected === 'ytd';
 		const y = selected === 'ytd' || selected === 'this-year' ? year : Number(selected);
-		cur = { start: `${y}-01-01`, end: toDate ? tomorrow : `${y + 1}-01-01` };
-		const prior = { start: `${y - 1}-01-01`, end: toDate ? minusYears(tomorrow, 1) : `${y}-01-01` };
+		cur = { start: `${y}-01-01`, end: toDate ? today : `${y + 1}-01-01` };
+		const prior = { start: `${y - 1}-01-01`, end: toDate ? minusYears(today, 1) : `${y}-01-01` };
 		return { cur, prior, label: toDate ? `${y} to date` : `${y}`, priorLabel: toDate ? `${y - 1} to date` : `${y - 1}`, selected };
 	}
 
@@ -116,7 +118,7 @@ export function resolveRange(params, now) {
 		case 'last-quarter': cur = { start: ymdMs(Date.UTC(year, (q - 1) * 3, 1)), end: ymdMs(Date.UTC(year, q * 3, 1)) }; break;
 		case 'month': cur = { start: ymdMs(Date.UTC(year, month, 1)), end: ymdMs(Date.UTC(year, month + 1, 1)) }; break;
 		case 'last-month': cur = { start: ymdMs(Date.UTC(year, month - 1, 1)), end: ymdMs(Date.UTC(year, month, 1)) }; break;
-		case 'qtd': default: selected = 'qtd'; cur = { start: ymdMs(Date.UTC(year, q * 3, 1)), end: tomorrow }; break;
+		case 'qtd': default: selected = 'qtd'; cur = { start: ymdMs(Date.UTC(year, q * 3, 1)), end: today }; break;
 	}
 	const prior = { start: minusYears(cur.start, 1), end: minusYears(cur.end, 1) };
 	return { cur, prior, label: labelFor(selected, cur.start, false), priorLabel: labelFor(selected, prior.start, true), selected };
