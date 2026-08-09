@@ -36,6 +36,7 @@
 	</div>
 	{#if periods.length}
 		<div class="chart-plot">
+			<div class="chart-baseline"></div>
 			{#each gridLines as gl (gl.pct)}
 				<div class="grid-line" class:main={gl.pct === 100} style="bottom:{gl.bottom}">
 					<span class="grid-label">{gl.pct}%</span>
@@ -77,12 +78,13 @@
 	.sw.red { background: #B42318; }
 
 	.chart-plot { position: relative; display: flex; align-items: flex-end; gap: 10px; height: 172px; padding-top: 8px; padding-left: 28px; }
+	.chart-baseline { position: absolute; left: 0; right: 0; bottom: 0; border-top: 1px solid var(--border); z-index: 0; }
 	.grid-line { position: absolute; left: 28px; right: 0; border-top: 1px dashed rgba(216, 199, 158, 0.55); z-index: 0; }
 	.grid-line.main { border-top-color: #D8C79E; }
 	.grid-label { position: absolute; left: -28px; top: -6px; width: 24px; text-align: right; font-size: 9px; font-weight: 700; color: #C7B78C; }
 	.chart-col { position: relative; flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; }
 	.chart-bars { position: relative; flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
-	.chart-bars .bar { position: relative; width: 56%; max-width: 46px; border-radius: 4px 4px 0 0; transition: height 0.2s, opacity 0.12s; }
+	.chart-bars .bar { position: relative; width: 56%; max-width: 46px; min-height: 4px; border-radius: 4px 4px 0 0; transition: height 0.2s, opacity 0.12s; }
 	.chart-bars .bar.green { background: #16794C; }
 	.chart-bars .bar.orange { background: #C2760C; }
 	.chart-bars .bar.red { background: #B42318; }
@@ -93,10 +95,6 @@
 	.chart-tip { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 9px; width: max-content; max-width: 300px; display: none; z-index: 30; pointer-events: none; background: #fff; border: 1px solid var(--border); border-radius: 11px; box-shadow: 0 8px 24px rgba(0,0,0,0.14); padding: 11px 13px; }
 	.chart-tip::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #fff; filter: drop-shadow(0 1px 0 var(--border)); }
 	.chart-col:hover .chart-tip { display: block; }
-	.chart-col:first-child .chart-tip { left: 0; transform: none; }
-	.chart-col:first-child .chart-tip::after { left: 30px; }
-	.chart-col:last-child .chart-tip { left: auto; right: 0; transform: none; }
-	.chart-col:last-child .chart-tip::after { left: auto; right: 30px; transform: none; }
 	.tip-h { font-size: 11px; font-weight: 800; color: #A88B52; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; }
 	.tip-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 3px 0; }
 	.tip-k { font-size: 12px; font-weight: 600; color: #71717A; white-space: nowrap; }
