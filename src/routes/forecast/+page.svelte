@@ -1,6 +1,7 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
 	import MultiFilter from '$lib/components/MultiFilter.svelte';
+	import ForecastHalfYearChart from '$lib/components/ForecastHalfYearChart.svelte';
 	import { goto } from '$app/navigation';
 
 	let { data } = $props();
@@ -120,6 +121,8 @@
 			<div class="card low"><span class="k">Forecast too low</span><span class="v">{summary.low}</span><span class="k2">bought more than forecast</span></div>
 			<div class="card ok"><span class="k">Accurate (±30%)</span><span class="v">{summary.ok}</span></div>
 		</div>
+
+		<ForecastHalfYearChart periods={data.halfYears} />
 
 		<section class="panel">
 			<div class="dimtabs">

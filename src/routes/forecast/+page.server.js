@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { getForecastOwners, getForecastYears, getSkippedCount, getCompletedAccuracy, getOngoingProgress } from '$lib/forecastStats.js';
+import { getForecastOwners, getForecastYears, getSkippedCount, getCompletedAccuracy, getOngoingProgress, getCompletedHalfYearBreakdown } from '$lib/forecastStats.js';
 
 export async function load({ parent, platform, url }) {
 	const { user } = await parent();
@@ -12,13 +12,14 @@ export async function load({ parent, platform, url }) {
 	const ownerParam = url.searchParams.get('owner') || null;
 	const yearParam = (url.searchParams.get('year') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 
-	const [owners, years, completed, ongoing, skipped] = await Promise.all([
+	const [owners, years, completed, ongoing, skipped, halfYears] = await Promise.all([
 		getForecastOwners(db),
 		getForecastYears(db),
 		getCompletedAccuracy(db, today, ownerParam, yearParam),
 		getOngoingProgress(db, today, ownerParam, yearParam),
-		getSkippedCount(db, ownerParam)
+		getSkippedCount(db, ownerParam),
+		getCompletedHalfYearBreakdown(db, today, ownerParam, yearParam)
 	]);
 
-	return { user, owners, years, ownerParam, yearParam, completed, ongoing, skipped, today };
+	return { user, owners, years, ownerParam, yearParam, completed, ongoing, skipped, halfYears, today };
 }

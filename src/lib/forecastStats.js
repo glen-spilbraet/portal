@@ -207,3 +207,139 @@ function biasTag(att) {
 	if (att < 0.7) return 'high';  // bought much less than forecast → forecasts too high
 	return 'ok';
 }
+
+// --- Half-year breakdown ---------------------------------------------------
+
+function halfKey(dateStr) {
+	const y = dateStr.slice(0, 4);
+	const m = Number(dateStr.slice(5, 7));
+	return `${y}-H${m <= 6 ? 1 : 2}`;
+}
+function halfBounds(key) {
+	const [yStr, hStr] = key.split('-H');
+	const y = Number(yStr);
+	return hStr === '1'
+		? { start: `${y}-01-01`, endExcl: `${y}-07-01` }
+		: { start: `${y}-07-01`, endExcl: `${y + 1}-01-01` };
+}
+function halfLabel(key) {
+	const [y, h] = key.split('-H');
+	return (h === '1' ? '1st half ' : '2nd half ') + y;
+}
+function addDaysStr(dateStr, n) {
+	const d = new Date(dateStr + 'T00:00:00Z');
+	d.setUTCDate(d.getUTCDate() + n);
+	return d.toISOString().slice(0, 10);
+}
+function daysBetween(aStr, bStr) {
+	return Math.round((Date.parse(bStr + 'T00:00:00Z') - Date.parse(aStr + 'T00:00:00Z')) / 86400000);
+}
+function halvesInRange(startStr, endStr) {
+	const keys = [];
+	let k = halfKey(startStr);
+	const rangeEndExcl = addDaysStr(endStr, 1);
+	while (true) {
+		keys.push(k);
+		const { endExcl } = halfBounds(k);
+		if (endExcl >= rangeEndExcl) break;
+		k = halfKey(endExcl);
+	}
+	return keys;
+}
+
+/**
+ * Split a forecast quantity across the half-year periods its [start, end]
+ * window overlaps, proportionally by day count (a deal spanning two halves
+ * contributes to both, weighted by how many of its days fall in each).
+ */
+function allocateForecast(qty, startStr, endStr) {
+	const rangeEndExcl = addDaysStr(endStr, 1);
+	const totalDays = daysBetween(startStr, rangeEndExcl);
+	if (totalDays <= 0) return {};
+	const out = {};
+	for (const k of halvesInRange(startStr, endStr)) {
+		const { start, endExcl } = halfBounds(k);
+		const ovStart = start > startStr ? start : startStr;
+		const ovEndExcl = endExcl < rangeEndExcl ? endExcl : rangeEndExcl;
+		const days = daysBetween(ovStart, ovEndExcl);
+		if (days > 0) out[k] = qty * (days / totalDays);
+	}
+	return out;
+}
+
+/**
+ * Completed forecasts, rolled up by half-year period (SKU-level units, same
+ * population as `getCompletedAccuracy`). A forecast's quantity is divided
+ * across the halves its window spans by day overlap; actual units are
+ * attributed to the half each matching closed purchase's own close_date falls
+ * in (both windows already scoped to the forecast's start/end, as elsewhere).
+ * Only periods with any forecast quantity are returned, oldest first.
+ */
+export async function getCompletedHalfYearBreakdown(db, today, ownerEmail, years) {
+	const f = filterClause(ownerEmail, years);
+	const lines = (await db
+		.prepare(
+			`SELECT f.company_id AS cid, li.sku,
+			        f.forecast_start_date AS fstart, f.forecast_end_date AS fend,
+			        ${FC_QTY} AS forecast_qty
+			 FROM forecast_deals f
+			 JOIN deal_line_items li ON li.deal_id = f.deal_id AND li.deal_kind = 'forecast'
+			 WHERE f.forecast_start_date IS NOT NULL AND f.forecast_end_date IS NOT NULL
+			   AND f.forecast_end_date < ?
+			   AND ${FC_QTY} > 0
+			   ${f.clause}`
+		)
+		.bind(today, ...f.binds)
+		.all()).results ?? [];
+
+	if (!lines.length) return [];
+
+	const cids = [...new Set(lines.map((r) => r.cid).filter(Boolean))];
+	const minStart = lines.reduce((m, r) => (r.fstart < m ? r.fstart : m), lines[0].fstart);
+	const maxEnd = lines.reduce((m, r) => (r.fend > m ? r.fend : m), lines[0].fend);
+
+	const closed = cids.length
+		? (await db
+				.prepare(
+					`SELECT company_id AS cid, sku, close_date, quantity
+					 FROM deal_line_items
+					 WHERE deal_kind = 'closed' AND company_id IN (${cids.map(() => '?').join(',')})
+					   AND close_date >= ? AND close_date <= ?`
+				)
+				.bind(...cids, minStart, maxEnd)
+				.all()).results ?? []
+		: [];
+
+	const closedByKey = new Map();
+	for (const r of closed) {
+		const key = r.cid + ' ' + r.sku;
+		let arr = closedByKey.get(key);
+		if (!arr) { arr = []; closedByKey.set(key, arr); }
+		arr.push(r);
+	}
+
+	const periods = new Map(); // key -> { forecast, actual }
+	function bucket(key) {
+		let p = periods.get(key);
+		if (!p) { p = { forecast: 0, actual: 0 }; periods.set(key, p); }
+		return p;
+	}
+	for (const line of lines) {
+		const split = allocateForecast(line.forecast_qty, line.fstart, line.fend);
+		for (const [k, v] of Object.entries(split)) bucket(k).forecast += v;
+
+		const matches = closedByKey.get(line.cid + ' ' + line.sku) ?? [];
+		for (const c of matches) {
+			if (c.close_date < line.fstart || c.close_date > line.fend) continue;
+			bucket(halfKey(c.close_date)).actual += c.quantity || 0;
+		}
+	}
+
+	return [...periods.entries()]
+		.filter(([, v]) => v.forecast > 0)
+		.map(([key, v]) => {
+			const attainment = v.actual / v.forecast;
+			return { key, label: halfLabel(key), forecastUnits: v.forecast, actualUnits: v.actual, attainment, bias: biasTag(attainment) };
+		})
+		.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
