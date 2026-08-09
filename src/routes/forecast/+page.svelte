@@ -43,6 +43,51 @@
 		{ key: 'products', label: 'Products' }
 	];
 	const activeList = $derived(data.completed[dim] ?? []);
+
+	// --- Sorting ---------------------------------------------------------
+	function cmp(a, b) {
+		if (a === null || a === undefined) return b === null || b === undefined ? 0 : 1;
+		if (b === null || b === undefined) return -1;
+		if (typeof a === 'string') return a.localeCompare(b);
+		return a - b;
+	}
+	function sortRows(rows, sort, getters) {
+		const get = sort.key && getters[sort.key];
+		if (!get) return rows;
+		return [...rows].sort((a, b) => cmp(get(a), get(b)) * sort.dir);
+	}
+	function toggleSort(sort, key, defaultDir = 1) {
+		return sort.key === key ? { key, dir: -sort.dir } : { key, dir: defaultDir };
+	}
+	function sortIndicator(sort, key) {
+		return sort.key !== key ? '' : sort.dir === 1 ? ' ▲' : ' ▼';
+	}
+	const NO_SORT = { key: null, dir: 1 };
+
+	let mainSort = $state(NO_SORT);
+	function selectDim(key) { dim = key; mainSort = NO_SORT; }
+
+	const mainGetters = $derived(
+		dim === 'customers'
+			? { label: (g) => g.label, owner: (g) => g.owner, forecastUnits: (g) => g.forecastUnits, actualUnits: (g) => g.actualUnits, attainment: (g) => g.attainment, bias: (g) => g.bias }
+			: dim === 'owners'
+			? { label: (g) => g.label, childCount: (g) => g.childCount, forecastUnits: (g) => g.forecastUnits, actualUnits: (g) => g.actualUnits, attainment: (g) => g.attainment, bias: (g) => g.bias }
+			: { sku: (g) => g.sku, label: (g) => g.label, forecastUnits: (g) => g.forecastUnits, actualUnits: (g) => g.actualUnits, attainment: (g) => g.attainment, bias: (g) => g.bias }
+	);
+	const sortedActiveList = $derived(sortRows(activeList, mainSort, mainGetters));
+
+	let customerDetailSort = $state(NO_SORT);
+	const customerDetailGetters = { key: (c) => c.key, label: (c) => c.label, forecast: (c) => c.forecast, actual: (c) => c.actual, attainment: (c) => c.attainment, diff: (c) => c.actual - c.forecast };
+
+	let otherDetailSort = $state(NO_SORT);
+	const otherDetailGetters = { label: (c) => c.label, forecast: (c) => c.forecast, actual: (c) => c.actual, attainment: (c) => c.attainment };
+
+	let ongoingSort = $state(NO_SORT);
+	const ongoingGetters = { label: (c) => c.company, owner: (c) => c.owner, window: (c) => c.start, forecastUnits: (c) => c.forecastUnits, actualUnits: (c) => c.actualUnits, attainment: (c) => c.attainment, pace: (c) => c.timeElapsed };
+	const sortedOngoing = $derived(sortRows(data.ongoing ?? [], ongoingSort, ongoingGetters));
+
+	let ongoingDetailSort = $state(NO_SORT);
+	const ongoingDetailGetters = { key: (s) => s.sku, label: (s) => s.name, forecast: (s) => s.forecast, actual: (s) => s.actual, remaining: (s) => Math.max(0, s.forecast - s.actual) };
 </script>
 
 <svelte:head><title>Forecast · Product Portal</title></svelte:head>
@@ -79,9 +124,9 @@
 		<section class="panel">
 			<div class="dimtabs">
 				{#each DIMS as d}
-					<button class="dimtab" class:active={dim === d.key} onclick={() => (dim = d.key)}>{d.label}</button>
+					<button class="dimtab" class:active={dim === d.key} onclick={() => selectDim(d.key)}>{d.label}</button>
 				{/each}
-				<span class="hint">click a row for detail</span>
+				<span class="hint">click a row for detail · click a header to sort</span>
 			</div>
 
 			{#if activeList.length}
@@ -90,14 +135,24 @@
 						<thead>
 							<tr>
 								<th></th>
-								{#if dim === 'customers'}<th>Customer</th><th>Owner</th>
-								{:else if dim === 'owners'}<th>Owner</th><th class="num">Customers</th>
-								{:else}<th>SKU</th><th>Product</th>{/if}
-								<th class="num">Forecast units</th><th class="num">Actual units</th><th class="num">Attainment</th><th>Bias</th>
+								{#if dim === 'customers'}
+									<th class="sortable" onclick={() => (mainSort = toggleSort(mainSort, 'label'))}>Customer{sortIndicator(mainSort, 'label')}</th>
+									<th class="sortable" onclick={() => (mainSort = toggleSort(mainSort, 'owner'))}>Owner{sortIndicator(mainSort, 'owner')}</th>
+								{:else if dim === 'owners'}
+									<th class="sortable" onclick={() => (mainSort = toggleSort(mainSort, 'label'))}>Owner{sortIndicator(mainSort, 'label')}</th>
+									<th class="num sortable" onclick={() => (mainSort = toggleSort(mainSort, 'childCount', -1))}>Customers{sortIndicator(mainSort, 'childCount')}</th>
+								{:else}
+									<th class="sortable" onclick={() => (mainSort = toggleSort(mainSort, 'sku'))}>SKU{sortIndicator(mainSort, 'sku')}</th>
+									<th class="sortable" onclick={() => (mainSort = toggleSort(mainSort, 'label'))}>Product{sortIndicator(mainSort, 'label')}</th>
+								{/if}
+								<th class="num sortable" onclick={() => (mainSort = toggleSort(mainSort, 'forecastUnits', -1))}>Forecast units{sortIndicator(mainSort, 'forecastUnits')}</th>
+								<th class="num sortable" onclick={() => (mainSort = toggleSort(mainSort, 'actualUnits', -1))}>Actual units{sortIndicator(mainSort, 'actualUnits')}</th>
+								<th class="num sortable" onclick={() => (mainSort = toggleSort(mainSort, 'attainment', -1))}>Attainment{sortIndicator(mainSort, 'attainment')}</th>
+								<th class="sortable" onclick={() => (mainSort = toggleSort(mainSort, 'bias'))}>Bias{sortIndicator(mainSort, 'bias')}</th>
 							</tr>
 						</thead>
 						<tbody>
-							{#each activeList as g (g.key)}
+							{#each sortedActiveList as g (g.key)}
 								{@const ek = dim + '-' + g.key}
 								<tr class="clickable" onclick={() => toggle(ek)}>
 									<td class="chev">{expanded[ek] ? '▾' : '▸'}</td>
@@ -117,16 +172,32 @@
 									<tr class="detail-row"><td></td><td colspan="6">
 										<table class="detail">
 											{#if dim === 'customers'}
-												<thead><tr><th>SKU</th><th>Name</th><th class="num">Forecast</th><th class="num">Actual</th><th class="num">Diff</th></tr></thead>
+												<thead>
+													<tr>
+														<th class="sortable" onclick={() => (customerDetailSort = toggleSort(customerDetailSort, 'key'))}>SKU{sortIndicator(customerDetailSort, 'key')}</th>
+														<th class="sortable" onclick={() => (customerDetailSort = toggleSort(customerDetailSort, 'label'))}>Name{sortIndicator(customerDetailSort, 'label')}</th>
+														<th class="num sortable" onclick={() => (customerDetailSort = toggleSort(customerDetailSort, 'forecast', -1))}>Forecast{sortIndicator(customerDetailSort, 'forecast')}</th>
+														<th class="num sortable" onclick={() => (customerDetailSort = toggleSort(customerDetailSort, 'actual', -1))}>Actual{sortIndicator(customerDetailSort, 'actual')}</th>
+														<th class="num sortable" onclick={() => (customerDetailSort = toggleSort(customerDetailSort, 'attainment', -1))}>Attainment{sortIndicator(customerDetailSort, 'attainment')}</th>
+														<th class="num sortable" onclick={() => (customerDetailSort = toggleSort(customerDetailSort, 'diff', -1))}>Diff{sortIndicator(customerDetailSort, 'diff')}</th>
+													</tr>
+												</thead>
 												<tbody>
-													{#each g.children as c (c.key)}
-														<tr><td class="sku">{c.key}</td><td class="muted">{c.label}</td><td class="num">{numFmt.format(c.forecast)}</td><td class="num">{numFmt.format(c.actual)}</td><td class="num" class:pos={c.actual - c.forecast > 0} class:neg={c.actual - c.forecast < 0}>{c.actual - c.forecast > 0 ? '+' : ''}{numFmt.format(c.actual - c.forecast)}</td></tr>
+													{#each sortRows(g.children, customerDetailSort, customerDetailGetters) as c (c.key)}
+														<tr><td class="sku">{c.key}</td><td class="muted">{c.label}</td><td class="num">{numFmt.format(c.forecast)}</td><td class="num">{numFmt.format(c.actual)}</td><td class="num att">{pct(c.attainment)}</td><td class="num" class:pos={c.actual - c.forecast > 0} class:neg={c.actual - c.forecast < 0}>{c.actual - c.forecast > 0 ? '+' : ''}{numFmt.format(c.actual - c.forecast)}</td></tr>
 													{/each}
 												</tbody>
 											{:else}
-												<thead><tr><th>Customer</th><th class="num">Forecast</th><th class="num">Actual</th><th class="num">Attainment</th></tr></thead>
+												<thead>
+													<tr>
+														<th class="sortable" onclick={() => (otherDetailSort = toggleSort(otherDetailSort, 'label'))}>Customer{sortIndicator(otherDetailSort, 'label')}</th>
+														<th class="num sortable" onclick={() => (otherDetailSort = toggleSort(otherDetailSort, 'forecast', -1))}>Forecast{sortIndicator(otherDetailSort, 'forecast')}</th>
+														<th class="num sortable" onclick={() => (otherDetailSort = toggleSort(otherDetailSort, 'actual', -1))}>Actual{sortIndicator(otherDetailSort, 'actual')}</th>
+														<th class="num sortable" onclick={() => (otherDetailSort = toggleSort(otherDetailSort, 'attainment', -1))}>Attainment{sortIndicator(otherDetailSort, 'attainment')}</th>
+													</tr>
+												</thead>
 												<tbody>
-													{#each g.children as c (c.key)}
+													{#each sortRows(g.children, otherDetailSort, otherDetailGetters) as c (c.key)}
 														<tr><td class="muted">{c.label}</td><td class="num">{numFmt.format(c.forecast)}</td><td class="num">{numFmt.format(c.actual)}</td><td class="num att">{pct(c.attainment)}</td></tr>
 													{/each}
 												</tbody>
@@ -153,10 +224,19 @@
 				<div class="table-scroll">
 					<table>
 						<thead>
-							<tr><th></th><th>Customer</th><th>Owner</th><th>Window</th><th class="num">Forecast units</th><th class="num">Bought so far</th><th class="num">Achieved</th><th>Pace</th></tr>
+							<tr>
+								<th></th>
+								<th class="sortable" onclick={() => (ongoingSort = toggleSort(ongoingSort, 'label'))}>Customer{sortIndicator(ongoingSort, 'label')}</th>
+								<th class="sortable" onclick={() => (ongoingSort = toggleSort(ongoingSort, 'owner'))}>Owner{sortIndicator(ongoingSort, 'owner')}</th>
+								<th class="sortable" onclick={() => (ongoingSort = toggleSort(ongoingSort, 'window'))}>Window{sortIndicator(ongoingSort, 'window')}</th>
+								<th class="num sortable" onclick={() => (ongoingSort = toggleSort(ongoingSort, 'forecastUnits', -1))}>Forecast units{sortIndicator(ongoingSort, 'forecastUnits')}</th>
+								<th class="num sortable" onclick={() => (ongoingSort = toggleSort(ongoingSort, 'actualUnits', -1))}>Bought so far{sortIndicator(ongoingSort, 'actualUnits')}</th>
+								<th class="num sortable" onclick={() => (ongoingSort = toggleSort(ongoingSort, 'attainment', -1))}>Achieved{sortIndicator(ongoingSort, 'attainment')}</th>
+								<th class="sortable" onclick={() => (ongoingSort = toggleSort(ongoingSort, 'pace', -1))}>Pace{sortIndicator(ongoingSort, 'pace')}</th>
+							</tr>
 						</thead>
 						<tbody>
-							{#each data.ongoing as c (c.cid ?? c.company)}
+							{#each sortedOngoing as c (c.cid ?? c.company)}
 								{@const ek = 'o-' + (c.cid ?? c.company)}
 								<tr class="clickable" onclick={() => toggle(ek)}>
 									<td class="chev">{expanded[ek] ? '▾' : '▸'}</td>
@@ -171,9 +251,17 @@
 								{#if expanded[ek]}
 									<tr class="detail-row"><td></td><td colspan="7">
 										<table class="detail">
-											<thead><tr><th>SKU</th><th>Name</th><th class="num">Forecast</th><th class="num">Bought</th><th class="num">Remaining</th></tr></thead>
+											<thead>
+												<tr>
+													<th class="sortable" onclick={() => (ongoingDetailSort = toggleSort(ongoingDetailSort, 'key'))}>SKU{sortIndicator(ongoingDetailSort, 'key')}</th>
+													<th class="sortable" onclick={() => (ongoingDetailSort = toggleSort(ongoingDetailSort, 'label'))}>Name{sortIndicator(ongoingDetailSort, 'label')}</th>
+													<th class="num sortable" onclick={() => (ongoingDetailSort = toggleSort(ongoingDetailSort, 'forecast', -1))}>Forecast{sortIndicator(ongoingDetailSort, 'forecast')}</th>
+													<th class="num sortable" onclick={() => (ongoingDetailSort = toggleSort(ongoingDetailSort, 'actual', -1))}>Bought{sortIndicator(ongoingDetailSort, 'actual')}</th>
+													<th class="num sortable" onclick={() => (ongoingDetailSort = toggleSort(ongoingDetailSort, 'remaining', -1))}>Remaining{sortIndicator(ongoingDetailSort, 'remaining')}</th>
+												</tr>
+											</thead>
 											<tbody>
-												{#each c.skus as s (s.sku)}
+												{#each sortRows(c.skus, ongoingDetailSort, ongoingDetailGetters) as s (s.sku)}
 													<tr><td class="sku">{s.sku}</td><td class="muted">{s.name}</td><td class="num">{numFmt.format(s.forecast)}</td><td class="num">{numFmt.format(s.actual)}</td><td class="num">{numFmt.format(Math.max(0, s.forecast - s.actual))}</td></tr>
 												{/each}
 											</tbody>
@@ -228,11 +316,13 @@
 	table { width: 100%; border-collapse: collapse; font-size: 13px; }
 	th { text-align: left; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #A88B52; padding: 10px 16px; background: #FBF7EF; border-bottom: 1px solid var(--border); white-space: nowrap; }
 	th.num { text-align: right; }
+	th.sortable { cursor: pointer; user-select: none; }
+	th.sortable:hover { color: #7B3803; }
 	td { padding: 10px 16px; border-bottom: 1px solid #F1EADB; }
 	tbody tr:last-child td { border-bottom: none; }
 	.clickable { cursor: pointer; }
 	.clickable:hover { background: #FBF7EF; }
-	.chev { width: 22px; color: #C0AC7C; }
+	.chev { width: 24px; color: #8A7550; font-size: 17px; font-weight: 900; }
 	.lbl { color: #18181B; font-weight: 700; }
 	.muted { color: #98876e; }
 	.win { font-variant-numeric: tabular-nums; white-space: nowrap; }
