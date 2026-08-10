@@ -14,7 +14,12 @@ export async function POST({ params, cookies, platform }) {
 	const sheet = await getSheet(db, params.id);
 	if (!sheet) error(404, 'Sheet not found');
 
-	const rb = await fetchRackbeatProductFull(sheet.sku, platform?.env?.RACKBEAT_API_KEY);
+	let rb;
+	try {
+		rb = await fetchRackbeatProductFull(sheet.sku, platform?.env?.RACKBEAT_API_KEY);
+	} catch {
+		rb = null;
+	}
 	if (!rb) error(502, 'Could not fetch product from Rackbeat');
 
 	const su = rb.size_unit  ?? 'cm';
