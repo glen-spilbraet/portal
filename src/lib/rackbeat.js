@@ -5,9 +5,9 @@ const RB_HEADERS = (apiKey) => ({
 	Accept: 'application/json'
 });
 
-const RB_MAX_RETRIES = 4;
-const RB_BASE_DELAY_MS = 400;
-const RB_MAX_DELAY_MS = 4000;
+const RB_MAX_RETRIES = 6;
+const RB_BASE_DELAY_MS = 500;
+const RB_MAX_DELAY_MS = 5000;
 
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -16,9 +16,13 @@ function sleep(ms) {
 /**
  * Fetch from Rackbeat with automatic retry/backoff on rate-limit (429) and
  * transient server errors (5xx) — honors the Retry-After header when
- * Rackbeat sends one. Large exports fire many concurrent requests and were
- * tripping Rackbeat's rate limit; without this, a throttled request looked
- * identical to a genuine 404 to every caller.
+ * Rackbeat sends one, but caps every individual sleep at RB_MAX_DELAY_MS.
+ * Under sustained throttling Rackbeat can send a large Retry-After (tens of
+ * seconds); waiting that long in one shot risked the Worker invocation
+ * itself timing out, which surfaced to callers as a hard failure — visually
+ * indistinguishable from a genuine 404. Spreading the same total wait across
+ * more, individually-capped retries keeps each attempt safely inside the
+ * Worker's execution budget.
  */
 async function rackbeatFetch(url, headers) {
 	for (let attempt = 0; ; attempt++) {
@@ -28,7 +32,7 @@ async function rackbeatFetch(url, headers) {
 
 		const retryAfter = Number(res.headers.get('Retry-After'));
 		const delay = Number.isFinite(retryAfter) && retryAfter > 0
-			? retryAfter * 1000
+			? Math.min(retryAfter * 1000, RB_MAX_DELAY_MS)
 			: Math.min(RB_BASE_DELAY_MS * 2 ** attempt, RB_MAX_DELAY_MS);
 		await sleep(delay + Math.random() * 200);
 	}
