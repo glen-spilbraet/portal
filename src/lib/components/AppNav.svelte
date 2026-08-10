@@ -8,7 +8,6 @@
 		p.sheets       && { href: '/sheets',       label: 'Sheets',      key: 'sheets' },
 		p.catalogues   && { href: '/catalogues',   label: 'Catalogues',  key: 'catalogues' },
 		p.planograms   && { href: '/planograms',   label: 'Planograms',  key: 'planograms' },
-		p.price_lists  && { href: '/price-lists',  label: 'Price List',  key: 'price-lists' },
 	].filter(Boolean));
 
 	const showSales = $derived(salesItems.length > 0);
