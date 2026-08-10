@@ -36,30 +36,36 @@
 	</div>
 	{#if periods.length}
 		<div class="chart-plot">
-			<div class="chart-baseline"></div>
-			{#each gridLines as gl (gl.pct)}
-				<div class="grid-line" class:main={gl.pct === 100} style="bottom:{gl.bottom}">
-					<span class="grid-label">{gl.pct}%</span>
-				</div>
-			{/each}
-			{#each periods as p (p.key)}
-				{@const v = Math.round((p.attainment ?? 0) * 100)}
-				{@const cls = tier(v)}
-				<div class="chart-col">
-					<div class="chart-bars">
-						<div class="bar {cls}" style="height:{barH(v)}">
-							<span class="bar-value">{pct(p.attainment)}</span>
-						</div>
-						<div class="chart-tip" role="tooltip">
-							<div class="tip-h">{p.label}</div>
-							<div class="tip-row"><span class="tip-k">Forecast units</span><span class="tip-v">{numFmt.format(Math.round(p.forecastUnits))}</span></div>
-							<div class="tip-row"><span class="tip-k">Actual units</span><span class="tip-v">{numFmt.format(Math.round(p.actualUnits))}</span></div>
-							<div class="tip-row tip-idx"><span class="tip-k">Attainment</span><span class="index-chip {cls}">{pct(p.attainment)}</span></div>
+			<div class="chart-area">
+				<div class="chart-baseline"></div>
+				{#each gridLines as gl (gl.pct)}
+					<div class="grid-line" class:main={gl.pct === 100} style="bottom:{gl.bottom}">
+						<span class="grid-label">{gl.pct}%</span>
+					</div>
+				{/each}
+				{#each periods as p (p.key)}
+					{@const v = Math.round((p.attainment ?? 0) * 100)}
+					{@const cls = tier(v)}
+					<div class="chart-col">
+						<div class="chart-bars">
+							<div class="bar {cls}" style="height:{barH(v)}">
+								<span class="bar-value">{pct(p.attainment)}</span>
+							</div>
+							<div class="chart-tip" role="tooltip">
+								<div class="tip-h">{p.label}</div>
+								<div class="tip-row"><span class="tip-k">Forecast units</span><span class="tip-v">{numFmt.format(Math.round(p.forecastUnits))}</span></div>
+								<div class="tip-row"><span class="tip-k">Actual units</span><span class="tip-v">{numFmt.format(Math.round(p.actualUnits))}</span></div>
+								<div class="tip-row tip-idx"><span class="tip-k">Attainment</span><span class="index-chip {cls}">{pct(p.attainment)}</span></div>
+							</div>
 						</div>
 					</div>
+				{/each}
+			</div>
+			<div class="chart-labels">
+				{#each periods as p (p.key)}
 					<span class="chart-mlabel">{p.label}</span>
-				</div>
-			{/each}
+				{/each}
+			</div>
 		</div>
 	{:else}
 		<div class="empty">No completed forecasts with dates yet.</div>
@@ -77,20 +83,22 @@
 	.sw.orange { background: #C2760C; }
 	.sw.red { background: #B42318; }
 
-	.chart-plot { position: relative; display: flex; align-items: flex-end; gap: 10px; height: 172px; padding-top: 8px; padding-left: 28px; }
+	.chart-plot { display: flex; flex-direction: column; padding-left: 28px; }
+	.chart-area { position: relative; display: flex; align-items: flex-end; gap: 10px; height: 172px; padding-top: 8px; }
 	.chart-baseline { position: absolute; left: 0; right: 0; bottom: 0; border-top: 1px solid var(--border); z-index: 0; }
-	.grid-line { position: absolute; left: 28px; right: 0; border-top: 1px dashed rgba(216, 199, 158, 0.55); z-index: 0; }
+	.grid-line { position: absolute; left: 0; right: 0; border-top: 1px dashed rgba(216, 199, 158, 0.55); z-index: 0; }
 	.grid-line.main { border-top-color: #D8C79E; }
 	.grid-label { position: absolute; left: -28px; top: -6px; width: 24px; text-align: right; font-size: 9px; font-weight: 700; color: #C7B78C; }
-	.chart-col { position: relative; flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; }
-	.chart-bars { position: relative; flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
+	.chart-col { position: relative; flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; }
+	.chart-bars { position: relative; flex: 1; width: 100%; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
 	.chart-bars .bar { position: relative; width: 56%; max-width: 46px; min-height: 4px; border-radius: 4px 4px 0 0; transition: height 0.2s, opacity 0.12s; }
 	.chart-bars .bar.green { background: #16794C; }
 	.chart-bars .bar.orange { background: #C2760C; }
 	.chart-bars .bar.red { background: #B42318; }
 	.chart-col:hover .bar { opacity: 0.85; }
 	.bar-value { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 3px; font-size: 10px; font-weight: 700; color: #8A7550; white-space: nowrap; }
-	.chart-mlabel { margin-top: 8px; font-size: 11px; font-weight: 700; color: #A88B52; text-align: center; }
+	.chart-labels { display: flex; gap: 10px; margin-top: 8px; }
+	.chart-mlabel { flex: 1; min-width: 0; font-size: 11px; font-weight: 700; color: #A88B52; text-align: center; }
 
 	.chart-tip { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 9px; width: max-content; max-width: 300px; display: none; z-index: 30; pointer-events: none; background: #fff; border: 1px solid var(--border); border-radius: 11px; box-shadow: 0 8px 24px rgba(0,0,0,0.14); padding: 11px 13px; }
 	.chart-tip::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #fff; filter: drop-shadow(0 1px 0 var(--border)); }
