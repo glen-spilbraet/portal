@@ -14,6 +14,10 @@ export async function GET({ url, cookies, platform }) {
 	const apiKey = platform?.env?.RACKBEAT_API_KEY;
 	if (!apiKey) error(500, 'Rackbeat API key not configured');
 
-	const data = await fetchRackbeatProductFull(sku, apiKey);
-	return json({ sku, data });
+	try {
+		const data = await fetchRackbeatProductFull(sku, apiKey);
+		return json({ sku, data });
+	} catch (e) {
+		error(502, e?.message ?? `Failed to fetch SKU ${sku} from Rackbeat`);
+	}
 }

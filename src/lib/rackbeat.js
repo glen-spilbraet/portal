@@ -5,6 +5,35 @@ const RB_HEADERS = (apiKey) => ({
 	Accept: 'application/json'
 });
 
+const RB_MAX_RETRIES = 4;
+const RB_BASE_DELAY_MS = 400;
+const RB_MAX_DELAY_MS = 4000;
+
+function sleep(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Fetch from Rackbeat with automatic retry/backoff on rate-limit (429) and
+ * transient server errors (5xx) — honors the Retry-After header when
+ * Rackbeat sends one. Large exports fire many concurrent requests and were
+ * tripping Rackbeat's rate limit; without this, a throttled request looked
+ * identical to a genuine 404 to every caller.
+ */
+async function rackbeatFetch(url, headers) {
+	for (let attempt = 0; ; attempt++) {
+		const res = await fetch(url, { headers });
+		const transient = res.status === 429 || res.status >= 500;
+		if (!transient || attempt === RB_MAX_RETRIES) return res;
+
+		const retryAfter = Number(res.headers.get('Retry-After'));
+		const delay = Number.isFinite(retryAfter) && retryAfter > 0
+			? retryAfter * 1000
+			: Math.min(RB_BASE_DELAY_MS * 2 ** attempt, RB_MAX_DELAY_MS);
+		await sleep(delay + Math.random() * 200);
+	}
+}
+
 /**
  * Original lightweight fetch — still used by sheets/catalogues.
  */
@@ -40,8 +69,9 @@ export async function fetchRackbeatProductFull(sku, apiKey) {
 	const headers = RB_HEADERS(apiKey);
 
 	// ── Standard product data ──────────────────────────────────────────────────
-	const prodRes = await fetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}`, { headers });
-	if (!prodRes.ok) return null;
+	const prodRes = await rackbeatFetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}`, headers);
+	if (prodRes.status === 404) return null; // genuinely doesn't exist in Rackbeat
+	if (!prodRes.ok) throw new Error(`Rackbeat error ${prodRes.status} fetching SKU ${sku}`);
 
 	const prodData = await prodRes.json();
 	const item = prodData.product ?? prodData.item ?? prodData;
@@ -71,8 +101,8 @@ export async function fetchRackbeatProductFull(sku, apiKey) {
 	const prices = {};
 	try {
 		const [fieldsRes, pricesRes] = await Promise.all([
-			fetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}/fields`, { headers }),
-			fetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}/prices`, { headers })
+			rackbeatFetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}/fields`, headers),
+			rackbeatFetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}/prices`, headers)
 		]);
 
 		if (fieldsRes.ok) {
@@ -119,8 +149,8 @@ export async function fetchRackbeatFieldDefinitions(sku, apiKey) {
 	const priceFields  = [];
 	try {
 		const [fieldsRes, pricesRes] = await Promise.all([
-			fetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}/fields`, { headers }),
-			fetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}/prices`, { headers })
+			rackbeatFetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}/fields`, headers),
+			rackbeatFetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}/prices`, headers)
 		]);
 
 		if (fieldsRes.ok) {

@@ -20,7 +20,12 @@ export const actions = {
 		await createSheet(db, id, sku, primaryLanguage, createdBy);
 
 		// Pre-fill from Rackbeat if available (into primary language only)
-		const rb = await fetchRackbeatProductFull(sku, platform?.env?.RACKBEAT_API_KEY);
+		let rb;
+		try {
+			rb = await fetchRackbeatProductFull(sku, platform?.env?.RACKBEAT_API_KEY);
+		} catch {
+			rb = null;
+		}
 		if (rb) {
 			await setTranslation(db, id, primaryLanguage, 'product_name', rb.name ?? '');
 
