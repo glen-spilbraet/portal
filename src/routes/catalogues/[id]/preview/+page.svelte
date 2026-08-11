@@ -651,22 +651,24 @@
 	.product-desc { font-size: 15px; font-weight: 500; color: #374151; line-height: 1.5; margin: 0 0 4px; }
 
 	/* ── Product grid section (2x2 / 2x3) ───────────────────────────────── */
-	.grid-half { padding: 40px 40px; box-sizing: border-box; }
+	.grid-half { padding: 40px; box-sizing: border-box; }
+	/* Fill the whole half-page: two equal rows, gaps matching the 40px side
+	   padding, so products sit in an even grid with no wasted space. */
 	.grid-section {
 		display: grid;
-		gap: 22px 24px;
+		gap: 40px;
 		height: 100%;
-		align-content: center;
+		grid-template-rows: repeat(2, 1fr);
 	}
-	.grid-cell { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+	.grid-cell { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 0; }
+	/* Box flexes to fill the cell (minus the name), giving a tall, ~square card. */
 	.grid-cell-box {
-		width: 100%; height: 170px;
+		width: 100%; flex: 1; min-height: 0;
 		background: white; border-radius: 16px;
 		box-shadow: 0 10px 32px rgba(0,0,0,0.10);
 		display: flex; align-items: center; justify-content: center;
 		overflow: hidden; box-sizing: border-box; padding: 12px;
 	}
-	.grid-section.grid-6 .grid-cell-box { height: 132px; }
 	.grid-cell-img { width: 100%; height: 100%; object-fit: contain; }
 	.grid-cell-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 	.grid-cell-name { font-size: 14px; font-weight: 700; color: #18181B; text-align: center; line-height: 1.25; margin: 0; }
