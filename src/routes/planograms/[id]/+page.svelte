@@ -190,7 +190,21 @@
 	}
 
 	// ── Shelf math ─────────────────────────────────────────────────────────────
-	function computeShelf(savedPositions = null, keepPlacements = false) {
+	function evenlySpacedPositions(nS, intH, thC) {
+		const compH = intH / nS;
+		const positions = [];
+		for (let i = 1; i < nS; i++) positions.push(compH * i - thC / 2);
+		return positions;
+	}
+
+	function isValidPositionSet(arr, intH, thC) {
+		return arr.every((p, i) => {
+			const minY = i > 0 ? arr[i - 1] + thC + MIN_GAP_CM : MIN_GAP_CM;
+			return p >= minY && p <= intH - thC - MIN_GAP_CM;
+		});
+	}
+
+	function computeShelf(savedPositions = null) {
 		errorMsg = '';
 		const wC = parseFloat(width), hC = parseFloat(height);
 		const thC = parseFloat(thickness), ftC = parseFloat(frameThickness);
@@ -207,23 +221,49 @@
 
 		scale = s; framePx = fP; boardPx = bP; boardCm = thC; frameCm = ftC; interiorHCm = intH;
 
-		const compH = intH / nS;
-		let positions = [];
-		for (let i = 1; i < nS; i++) positions.push(compH * i - thC / 2);
+		const prevPositions = shelfPositions;
+		let positions = null;
+		let restoring = false;
 
-		if (savedPositions && savedPositions.length === nS - 1) {
-			const valid = savedPositions.every((p, i) => {
-				const minY = i > 0 ? savedPositions[i - 1] + thC + MIN_GAP_CM : MIN_GAP_CM;
-				return p >= minY && p <= intH - thC - MIN_GAP_CM;
-			});
-			if (valid) positions = savedPositions;
+		if (savedPositions && savedPositions.length === nS - 1 && isValidPositionSet(savedPositions, intH, thC)) {
+			// Restoring an explicit set of positions (e.g. loading a saved project) —
+			// trust the placements that were saved alongside these positions as-is.
+			positions = savedPositions;
+			restoring = true;
+		} else if (prevPositions.length === nS - 1 && isValidPositionSet(prevPositions, intH, thC)) {
+			// Shelf count unchanged — leave the boards where they are.
+			positions = prevPositions;
+		} else if (nS - 1 > prevPositions.length && isValidPositionSet(prevPositions, intH, thC)) {
+			// Adding shelves: keep existing boards in place and add the new ones to the bottom.
+			const addCount = (nS - 1) - prevPositions.length;
+			const bottomStart = prevPositions.length ? prevPositions[prevPositions.length - 1] + thC : 0;
+			const bottomH = intH - bottomStart;
+			const compH = bottomH / (addCount + 1);
+			const added = [];
+			for (let i = 1; i <= addCount; i++) added.push(bottomStart + compH * i - thC / 2);
+			const candidate = [...prevPositions, ...added];
+			positions = isValidPositionSet(candidate, intH, thC) ? candidate : evenlySpacedPositions(nS, intH, thC);
+		} else if (nS - 1 < prevPositions.length) {
+			// Removing shelves: drop from the bottom, keep the remaining boards untouched.
+			const candidate = prevPositions.slice(0, nS - 1);
+			positions = isValidPositionSet(candidate, intH, thC) ? candidate : evenlySpacedPositions(nS, intH, thC);
+		} else {
+			positions = evenlySpacedPositions(nS, intH, thC);
 		}
+
 		shelfPositions = positions;
 
-		if (!keepPlacements) {
-			placedProducts = [];
-			saveState();
+		// Disconnect (but keep) any placement whose shelf moved or no longer exists,
+		// rather than deleting placed products outright. Not applicable when restoring
+		// a saved project — those placements are trusted as-is.
+		if (!restoring) {
+			placedProducts = placedProducts.map(p => {
+				if (p.snapShelf === null || p.snapShelf === undefined) return p;
+				const stillAligned = positions[p.snapShelf] !== undefined && positions[p.snapShelf] === prevPositions[p.snapShelf];
+				return stillAligned ? p : { ...p, snapShelf: null };
+			});
 		}
+
 		requestAnimationFrame(zoomToFit);
 	}
 
@@ -1093,7 +1133,7 @@
 				if (p.id >= placedIdCounter) placedIdCounter = p.id;
 			});
 
-			computeShelf(s.shelfPositions ?? null, true);
+			computeShelf(s.shelfPositions ?? null);
 			renderSvg();
 		} catch {
 			alert('Project not found. Redirecting…');
