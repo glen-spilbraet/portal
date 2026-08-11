@@ -337,10 +337,6 @@
 								<div class="grid-section" class:grid-6={gridSize === 6} style="grid-template-columns: repeat({gridSize === 6 ? 3 : 2}, 1fr);">
 									{#each gridProducts as product}
 										{#if product}
-											{@const gridFields = getDataFields(product.data_fields)}
-											{@const gridAge = fieldVal(gridFields, 'age')}
-											{@const gridTime = fieldVal(gridFields, 'time')}
-											{@const gridPlayers = fieldVal(gridFields, 'players')}
 											<div class="grid-cell">
 												<div class="grid-cell-box">
 													{#if product.box_image_key}
@@ -353,13 +349,6 @@
 														</div>
 													{/if}
 												</div>
-												{#if gridSize === 4 && (gridAge || gridTime || gridPlayers)}
-													<div class="grid-cell-badges">
-														{#if gridAge}<div class="badge-hex-wrap">{@html SVG_AGE}<span class="badge-val">{gridAge}</span></div>{/if}
-														{#if gridTime}<div class="badge-hex-wrap">{@html SVG_TIME}<span class="badge-val">{gridTime}</span></div>{/if}
-														{#if gridPlayers}<div class="badge-hex-wrap">{@html SVG_PLAYERS}<span class="badge-val">{gridPlayers}</span></div>{/if}
-													</div>
-												{/if}
 												<p class="grid-cell-name">{product.product_name ?? ''}</p>
 											</div>
 										{:else}
@@ -676,9 +665,6 @@
 	.grid-cell-img { width: 100%; height: 100%; object-fit: contain; }
 	.grid-cell-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 	.grid-cell-name { font-size: 14px; font-weight: 700; color: #18181B; text-align: center; line-height: 1.25; margin: 0; }
-	.grid-cell-badges { display: flex; gap: 6px; justify-content: center; }
-	.grid-cell-badges .badge-hex-wrap { position: relative; width: 26px; flex-shrink: 0; }
-	.grid-cell-badges .badge-val { font-size: 8px; bottom: 6px; }
 
 	/* USPs — exact match */
 	.usp-list { list-style: none; display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; }
