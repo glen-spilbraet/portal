@@ -41,8 +41,9 @@ export async function POST({ params, cookies, platform }) {
 		await db.prepare(`
 			INSERT INTO catalogue_items
 				(id, catalogue_id, sheet_id, display_order, type,
-				 section_image_key, section_crop_x, section_crop_y, section_text)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				 section_image_key, section_crop_x, section_crop_y, section_text,
+				 section_grid_size, section_grid_items)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`).bind(
 			crypto.randomUUID(),
 			newId,
@@ -53,6 +54,8 @@ export async function POST({ params, cookies, platform }) {
 			item.section_crop_x     ?? null,
 			item.section_crop_y     ?? null,
 			item.section_text       ?? null,
+			item.section_grid_size  ?? null,
+			item.section_grid_items ?? null,
 		).run();
 	}
 

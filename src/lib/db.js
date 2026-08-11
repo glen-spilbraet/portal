@@ -352,6 +352,7 @@ export async function getCatalogueItemsWithTranslations(db, catalogueId, languag
 	const rows = await db.prepare(`
     SELECT ci.id, ci.sheet_id, ci.display_order,
            ci.type, ci.section_image_key, ci.section_crop_x, ci.section_crop_y, ci.section_text,
+           ci.section_grid_size, ci.section_grid_items,
            s.box_image_key, s.data_fields, s.hidden_elements, s.primary_language,
            s.usp_count, s.youtube_url,
            COALESCE(t_name_lang.value, t_name_primary.value, '') as product_name,
@@ -386,7 +387,44 @@ export async function getCatalogueItemsWithTranslations(db, catalogueId, languag
 			.map(r => r.value)
 			.filter(v => v && v.trim());
 	}
+
+	// Resolve the referenced products for grid sections (box photo + name + data fields)
+	const gridItems = items.filter(item => item.type === 'grid');
+	if (gridItems.length > 0) {
+		const referencedIds = new Set();
+		for (const item of gridItems) {
+			for (const sheetId of parseGridSlots(item.section_grid_items)) {
+				if (sheetId) referencedIds.add(sheetId);
+			}
+		}
+		const idList = [...referencedIds];
+		const productMap = {};
+		if (idList.length > 0) {
+			const placeholders = idList.map(() => '?').join(',');
+			const productRows = await db.prepare(`
+        SELECT s.id, s.box_image_key, s.data_fields,
+               COALESCE(t_lang.value, t_primary.value, '') as product_name
+        FROM sales_sheets s
+        LEFT JOIN translations t_lang ON t_lang.sheet_id = s.id AND t_lang.language = ? AND t_lang.key = 'product_name'
+        LEFT JOIN translations t_primary ON t_primary.sheet_id = s.id AND t_primary.language = s.primary_language AND t_primary.key = 'product_name'
+        WHERE s.id IN (${placeholders})
+      `).bind(language, ...idList).all();
+			for (const row of productRows.results) {
+				productMap[row.id] = { box_image_key: row.box_image_key, data_fields: row.data_fields, product_name: row.product_name };
+			}
+		}
+		for (const item of gridItems) {
+			item.grid_products = parseGridSlots(item.section_grid_items).map(sheetId =>
+				sheetId ? (productMap[sheetId] ?? null) : null
+			);
+		}
+	}
+
 	return items;
+}
+
+function parseGridSlots(raw) {
+	try { return JSON.parse(raw || '[]'); } catch { return []; }
 }
 
 export async function addCatalogueItem(db, id, catalogueId, sheetId) {
@@ -409,6 +447,13 @@ export async function reorderCatalogueItems(db, catalogueId, orderedIds) {
 export async function addImageSection(db, id, catalogueId, type) {
 	const max = await db.prepare('SELECT COALESCE(MAX(display_order), -1) as m FROM catalogue_items WHERE catalogue_id = ?').bind(catalogueId).first();
 	await db.prepare('INSERT INTO catalogue_items (id, catalogue_id, sheet_id, display_order, type) VALUES (?, ?, NULL, ?, ?)').bind(id, catalogueId, (max?.m ?? -1) + 1, type).run();
+	await db.prepare('UPDATE catalogues SET updated_at = ? WHERE id = ?').bind(Math.floor(Date.now() / 1000), catalogueId).run();
+}
+
+export async function addGridSection(db, id, catalogueId, gridSize) {
+	const max = await db.prepare('SELECT COALESCE(MAX(display_order), -1) as m FROM catalogue_items WHERE catalogue_id = ?').bind(catalogueId).first();
+	const slots = JSON.stringify(Array(gridSize).fill(null));
+	await db.prepare('INSERT INTO catalogue_items (id, catalogue_id, sheet_id, display_order, type, section_grid_size, section_grid_items) VALUES (?, ?, NULL, ?, ?, ?, ?)').bind(id, catalogueId, (max?.m ?? -1) + 1, 'grid', gridSize, slots).run();
 	await db.prepare('UPDATE catalogues SET updated_at = ? WHERE id = ?').bind(Math.floor(Date.now() / 1000), catalogueId).run();
 }
 

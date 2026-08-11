@@ -503,6 +503,108 @@
 		e.target.value = '';
 	}
 
+	// ── Grid sections ─────────────────────────────────────────────────────────
+	let addingGridSize = $state(null); // 4 | 6
+
+	async function addGridSection(size) {
+		if (addingGridSize !== null || addingSectionType !== null) return;
+		addingGridSize = size;
+		try {
+			const res = await fetch(`/api/catalogues/${data.catalogue.id}/items`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ type: 'grid', gridSize: size })
+			});
+			if (res.ok) {
+				const { id } = await res.json();
+				items = [...items, {
+					id,
+					catalogue_id: data.catalogue.id,
+					sheet_id: null,
+					type: 'grid',
+					section_grid_size: size,
+					section_grid_items: JSON.stringify(Array(size).fill(null)),
+					display_order: items.length
+				}];
+			}
+		} finally {
+			addingGridSize = null;
+		}
+	}
+
+	function parseGridSlots(item) {
+		try {
+			const slots = JSON.parse(item.section_grid_items || '[]');
+			const size = item.section_grid_size ?? slots.length ?? 4;
+			return Array.from({ length: size }, (_, i) => slots[i] ?? null);
+		} catch {
+			return Array(item.section_grid_size ?? 4).fill(null);
+		}
+	}
+
+	function sheetById(sheetId) {
+		return sheetId ? data.sheets.find(s => s.id === sheetId) : null;
+	}
+
+	function sheetDisplayName(sheet) {
+		if (!sheet) return '';
+		return sheet.name_en || sheet.name_da || sheet.name_sv || sheet.name_no || '(untitled)';
+	}
+
+	// Grid slot editor modal
+	let editingGridId = $state(null);
+	let editingGridSlots = $state([]);
+	let gridSlotSearchIndex = $state(-1);
+	let gridSlotQuery = $state('');
+
+	let gridSlotResults = $derived(
+		gridSlotQuery.trim().length < 1
+			? []
+			: sheetIndex.filter(s => s._search.includes(gridSlotQuery.toLowerCase().trim())).slice(0, 8)
+	);
+
+	function openGridModal(item) {
+		editingGridId = item.id;
+		editingGridSlots = parseGridSlots(item);
+		gridSlotSearchIndex = -1;
+		gridSlotQuery = '';
+	}
+
+	function closeGridModal() {
+		editingGridId = null;
+		editingGridSlots = [];
+		gridSlotSearchIndex = -1;
+		gridSlotQuery = '';
+	}
+
+	async function saveGridSlots() {
+		const id = editingGridId;
+		const slotsJson = JSON.stringify(editingGridSlots);
+		items = items.map(i => i.id === id ? { ...i, section_grid_items: slotsJson } : i);
+		await fetch(`/api/catalogues/${data.catalogue.id}/items/${id}`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ section_grid_items: slotsJson })
+		});
+	}
+
+	function openGridSlotSearch(index) {
+		gridSlotSearchIndex = index;
+		gridSlotQuery = '';
+	}
+
+	function chooseGridSlotSheet(sheetId) {
+		editingGridSlots = editingGridSlots.map((s, i) => i === gridSlotSearchIndex ? sheetId : s);
+		gridSlotSearchIndex = -1;
+		gridSlotQuery = '';
+		saveGridSlots();
+	}
+
+	function clearGridSlot(index) {
+		editingGridSlots = editingGridSlots.map((s, i) => i === index ? null : s);
+		saveGridSlots();
+	}
+
 	// Drag-and-drop reorder
 	let dragIndex = $state(-1);
 	let dragOverIndex = $state(-1);
@@ -934,6 +1036,26 @@
 									onclick={() => toggleSectionType(item)}
 									title={item.type === 'image_full' ? 'Switch to half page' : 'Switch to full page'}
 								>{item.type === 'image_full' ? 'Full' : '½'}</button>
+								{:else if item.type === 'grid'}
+									{@const gridSlots = parseGridSlots(item)}
+									<!-- Grid section item -->
+									<div class="item-grid-preview">
+										{#each gridSlots as sheetId}
+											{@const sheet = sheetById(sheetId)}
+											{#if sheet?.box_image_key}
+												<img src="/api/img/{sheet.box_image_key}?size=150" alt="" class="item-grid-thumb" />
+											{:else}
+												<div class="item-grid-thumb-empty"></div>
+											{/if}
+										{/each}
+									</div>
+									<div class="item-info">
+										<button class="section-text-btn" onclick={() => openGridModal(item)}>
+											<span class="section-text-value">Edit products…</span>
+										</button>
+										<span class="item-sku">{item.section_grid_size === 6 ? '2×3 grid' : '2×2 grid'} · Half page</span>
+									</div>
+									<span class="item-type-badge grid">{item.section_grid_size ?? 4}</span>
 								{:else}
 									<!-- Sheet item -->
 									{#if item.box_image_key}
@@ -1002,6 +1124,44 @@
 						Full page image
 					</button>
 				</div>
+				<div class="add-section-row">
+					<button
+						class="btn-add-section"
+						onclick={() => addGridSection(4)}
+						disabled={addingGridSize !== null}
+						title="Add a half-page 2×2 product grid"
+					>
+						{#if addingGridSize === 4}
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="animation: spin 0.7s linear infinite">
+								<path d="M21 12a9 9 0 11-6.219-8.56"/>
+							</svg>
+						{:else}
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+								<rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+							</svg>
+						{/if}
+						2×2 grid (4)
+					</button>
+					<button
+						class="btn-add-section"
+						onclick={() => addGridSection(6)}
+						disabled={addingGridSize !== null}
+						title="Add a half-page 2×3 product grid"
+					>
+						{#if addingGridSize === 6}
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="animation: spin 0.7s linear infinite">
+								<path d="M21 12a9 9 0 11-6.219-8.56"/>
+							</svg>
+						{:else}
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<rect x="2" y="3" width="6" height="7" rx="1"/><rect x="9" y="3" width="6" height="7" rx="1"/><rect x="16" y="3" width="6" height="7" rx="1"/>
+								<rect x="2" y="14" width="6" height="7" rx="1"/><rect x="9" y="14" width="6" height="7" rx="1"/><rect x="16" y="14" width="6" height="7" rx="1"/>
+							</svg>
+						{/if}
+						2×3 grid (6)
+					</button>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -1023,6 +1183,72 @@
 		<div class="text-modal-actions">
 			<button class="text-modal-cancel" onclick={closeSectionTextModal}>Cancel</button>
 			<button class="text-modal-save" onclick={saveSectionText}>Save</button>
+		</div>
+	</div>
+{/if}
+
+<!-- Grid section slot editor modal -->
+{#if editingGridId}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="grid-modal-backdrop" onclick={closeGridModal}></div>
+	<div class="grid-modal">
+		<div class="grid-modal-header">
+			<p class="text-modal-label">Grid products</p>
+			<button class="settings-close" onclick={closeGridModal} aria-label="Close">
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+			</button>
+		</div>
+		<div class="grid-modal-slots">
+			{#each editingGridSlots as sheetId, i}
+				{@const sheet = sheetById(sheetId)}
+				<div class="grid-modal-slot">
+					{#if sheet}
+						{#if sheet.box_image_key}
+							<img src="/api/img/{sheet.box_image_key}?size=150" alt="" class="grid-modal-slot-thumb" />
+						{:else}
+							<div class="grid-modal-slot-thumb-empty"></div>
+						{/if}
+						<span class="grid-modal-slot-name">{sheetDisplayName(sheet)}</span>
+						<button class="grid-modal-slot-change" onclick={() => openGridSlotSearch(i)}>Change</button>
+						<button class="icon-btn danger" onclick={() => clearGridSlot(i)} title="Clear slot">
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+							</svg>
+						</button>
+					{:else if gridSlotSearchIndex === i}
+						<div class="grid-modal-slot-search">
+							<input
+								class="text-modal-input"
+								type="text"
+								placeholder="Search sheets by SKU or name…"
+								bind:value={gridSlotQuery}
+								autofocus
+							/>
+							{#if gridSlotResults.length > 0}
+								<div class="grid-modal-search-results">
+									{#each gridSlotResults as result}
+										<button class="result-item" onclick={() => chooseGridSlotSheet(result.id)}>
+											{#if result.box_image_key}
+												<img src="/api/img/{result.box_image_key}?size=150" alt="" class="result-thumb" />
+											{:else}
+												<div class="result-thumb-empty"></div>
+											{/if}
+											<div class="result-info">
+												<span class="result-name">{result._display}</span>
+												<span class="result-sku">{result.sku}</span>
+											</div>
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{:else}
+						<div class="grid-modal-slot-thumb-empty"></div>
+						<span class="grid-modal-slot-empty">Empty slot</span>
+						<button class="grid-modal-slot-change" onclick={() => openGridSlotSearch(i)}>Choose…</button>
+					{/if}
+				</div>
+			{/each}
 		</div>
 	</div>
 {/if}
@@ -2260,4 +2486,102 @@
 		border-color: #A1A1AA;
 	}
 	.btn-add-section:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	/* ── Grid section item row ───────────────────────────────────────────── */
+	.item-grid-preview {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 2px;
+		width: 36px;
+		height: 36px;
+		border-radius: 6px;
+		overflow: hidden;
+		flex-shrink: 0;
+		border: 1px solid var(--border);
+	}
+	.item-grid-thumb { width: 100%; height: 100%; object-fit: contain; background: #F9F7F3; display: block; }
+	.item-grid-thumb-empty { width: 100%; height: 100%; background: #F4F4F5; }
+	.item-type-badge.grid { background: #ECFDF5; color: #059669; }
+	.item-type-badge.grid:hover { background: #D1FAE5; color: #047857; }
+
+	/* ── Grid slot editor modal ──────────────────────────────────────────── */
+	.grid-modal-backdrop {
+		position: fixed; inset: 0; z-index: 200;
+		background: rgba(0,0,0,0.25);
+	}
+	.grid-modal {
+		position: fixed; z-index: 201;
+		top: 50%; left: 50%;
+		transform: translate(-50%, -50%);
+		background: white;
+		border-radius: 14px;
+		box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+		padding: 18px;
+		width: 460px;
+		max-height: 80vh;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+	.grid-modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.grid-modal-slots {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.grid-modal-slot {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px;
+		border-radius: 10px;
+		background: #F9F7F3;
+	}
+	.grid-modal-slot-thumb, .grid-modal-slot-thumb-empty {
+		width: 40px; height: 40px;
+		border-radius: 6px;
+		flex-shrink: 0;
+		object-fit: contain;
+		background: #FFFFFF;
+		border: 1px solid var(--border);
+	}
+	.grid-modal-slot-name {
+		flex: 1;
+		min-width: 0;
+		font-size: 13px;
+		font-weight: 600;
+		color: #18181B;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.grid-modal-slot-empty {
+		flex: 1;
+		font-size: 13px;
+		color: #A1A1AA;
+	}
+	.grid-modal-slot-change {
+		font-size: 12px;
+		font-weight: 700;
+		color: #6366F1;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 4px 6px;
+		flex-shrink: 0;
+	}
+	.grid-modal-slot-change:hover { color: #4338CA; }
+	.grid-modal-slot-search { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+	.grid-modal-search-results {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		max-height: 200px;
+		overflow-y: auto;
+	}
 </style>

@@ -18,7 +18,8 @@ export async function PATCH({ params, request, cookies, platform }) {
 	if (body.section_crop_x !== undefined) patch.section_crop_x = body.section_crop_x;
 	if (body.section_crop_y !== undefined) patch.section_crop_y = body.section_crop_y;
 	if (body.section_text !== undefined) patch.section_text = body.section_text;
-	if (body.type === 'image_half' || body.type === 'image_full') patch.type = body.type;
+	if (body.section_grid_items !== undefined) patch.section_grid_items = body.section_grid_items;
+	if (body.type === 'image_half' || body.type === 'image_full' || body.type === 'grid') patch.type = body.type;
 
 	if (Object.keys(patch).length === 0) error(400, 'Nothing to update');
 	await updateCatalogueItemSection(db, params.itemId, patch);

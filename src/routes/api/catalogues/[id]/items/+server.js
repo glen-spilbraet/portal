@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
-import { getCatalogueItems, addCatalogueItem, addImageSection, removeCatalogueItem, reorderCatalogueItems } from '$lib/db.js';
+import { getCatalogueItems, addCatalogueItem, addImageSection, addGridSection, removeCatalogueItem, reorderCatalogueItems } from '$lib/db.js';
 
 async function checkAuth(cookies, platform) {
 	const token = cookies.get('session');
@@ -23,6 +23,12 @@ export async function POST({ params, request, cookies, platform }) {
 
 	if (body.type === 'image_half' || body.type === 'image_full') {
 		await addImageSection(db, id, params.id, body.type);
+		return json({ id });
+	}
+
+	if (body.type === 'grid') {
+		const gridSize = body.gridSize === 6 ? 6 : 4;
+		await addGridSection(db, id, params.id, gridSize);
 		return json({ id });
 	}
 

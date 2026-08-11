@@ -329,6 +329,41 @@
 									<div class="section-text-pill">{item.section_text}</div>
 								{/if}
 							</div>
+						{:else if item.type === 'grid'}
+							{@const gridSize = item.section_grid_size ?? 4}
+							{@const gridProducts = item.grid_products ?? Array(gridSize).fill(null)}
+							<!-- Product grid section (2x2 or 2x3) -->
+							<div class="product-half grid-half" class:divider-above={slotIdx === 1}>
+								<div class="grid-section" class:grid-6={gridSize === 6} style="grid-template-columns: repeat({gridSize === 6 ? 3 : 2}, 1fr);">
+									{#each gridProducts as product}
+										{@const gridFields = getDataFields(product?.data_fields)}
+										{@const gridAge = fieldVal(gridFields, 'age')}
+										{@const gridTime = fieldVal(gridFields, 'time')}
+										{@const gridPlayers = fieldVal(gridFields, 'players')}
+										<div class="grid-cell">
+											<div class="grid-cell-box">
+												{#if product?.box_image_key}
+													<img src="/api/img/{product.box_image_key}?size=600" alt={product.product_name ?? ''} class="grid-cell-img" />
+												{:else}
+													<div class="grid-cell-placeholder">
+														<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.2">
+															<path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+														</svg>
+													</div>
+												{/if}
+											</div>
+											{#if gridSize === 4 && (gridAge || gridTime || gridPlayers)}
+												<div class="grid-cell-badges">
+													{#if gridAge}<div class="badge-hex-wrap">{@html SVG_AGE}<span class="badge-val">{gridAge}</span></div>{/if}
+													{#if gridTime}<div class="badge-hex-wrap">{@html SVG_TIME}<span class="badge-val">{gridTime}</span></div>{/if}
+													{#if gridPlayers}<div class="badge-hex-wrap">{@html SVG_PLAYERS}<span class="badge-val">{gridPlayers}</span></div>{/if}
+												</div>
+											{/if}
+											<p class="grid-cell-name">{product?.product_name ?? ''}</p>
+										</div>
+									{/each}
+								</div>
+							</div>
 						{:else}
 							{@const fields = getDataFields(item.data_fields)}
 							{@const hidden = getHidden(item.hidden_elements)}
@@ -614,6 +649,30 @@
 	.list-price strong { font-weight: 800; }
 
 	.product-desc { font-size: 15px; font-weight: 500; color: #374151; line-height: 1.5; margin: 0 0 4px; }
+
+	/* ── Product grid section (2x2 / 2x3) ───────────────────────────────── */
+	.grid-half { padding: 40px 40px; box-sizing: border-box; }
+	.grid-section {
+		display: grid;
+		gap: 22px 24px;
+		height: 100%;
+		align-content: center;
+	}
+	.grid-cell { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+	.grid-cell-box {
+		width: 100%; height: 170px;
+		background: white; border-radius: 16px;
+		box-shadow: 0 10px 32px rgba(0,0,0,0.10);
+		display: flex; align-items: center; justify-content: center;
+		overflow: hidden; box-sizing: border-box; padding: 12px;
+	}
+	.grid-section.grid-6 .grid-cell-box { height: 132px; }
+	.grid-cell-img { width: 100%; height: 100%; object-fit: contain; }
+	.grid-cell-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+	.grid-cell-name { font-size: 14px; font-weight: 700; color: #18181B; text-align: center; line-height: 1.25; margin: 0; }
+	.grid-cell-badges { display: flex; gap: 6px; justify-content: center; }
+	.grid-cell-badges .badge-hex-wrap { position: relative; width: 26px; flex-shrink: 0; }
+	.grid-cell-badges .badge-val { font-size: 8px; bottom: 6px; }
 
 	/* USPs — exact match */
 	.usp-list { list-style: none; display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; }
