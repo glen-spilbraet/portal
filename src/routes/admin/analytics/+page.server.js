@@ -82,7 +82,7 @@ export async function load({ parent, platform, url, cookies }) {
 		dimBreakdown(db, "COALESCE(NULLIF(s.device_type,''),'Unknown')", "COALESCE(NULLIF(s.device_type,''),'Unknown')", s0, s1),
 		dimBreakdown(db, "COALESCE(NULLIF(c.language,''),'—')", "COALESCE(NULLIF(c.language,''),'—')", s0, s1),
 		db.prepare(
-			`SELECT e.event_type AS type, e.page, e.created_at AS ts,
+			`SELECT e.id AS id, e.event_type AS type, e.page, e.created_at AS ts,
 			        COALESCE(c.name,'(deleted)') AS catalogue,
 			        COALESCE(NULLIF(u.first_name,''), c.created_by, '—') AS owner,
 			        s.country, s.device_type AS device

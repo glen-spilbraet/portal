@@ -150,7 +150,7 @@
 	<div class="panel">
 		<div class="panel-head"><h2>Recent events</h2><span class="hint">latest 50</span></div>
 		<div class="feed">
-			{#each data.feed as e (e.ts + e.type + e.catalogue)}
+			{#each data.feed as e (e.id)}
 				{@const m = eventMeta(e.type, e.page)}
 				<div class="frow">
 					<span class="fbadge {m.tone}">{m.label}</span>
