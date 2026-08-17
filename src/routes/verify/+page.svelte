@@ -13,6 +13,7 @@
 
 	let running = $state(false);
 	let err = $state('');
+	let progress = $state(null); // { resolved, remaining } while a big run backfills
 	let filter = $state(null); // 'amount' | 'date' | 'not_found' | 'multiple' | null
 
 	const YEARS = [2026, 2025, 2024];
@@ -142,18 +143,33 @@
 	async function rerun() {
 		running = true;
 		err = '';
+		progress = null;
 		try {
-			const res = await fetch('/api/stats/run-verification', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ from: range.from, to: range.to }),
-			});
-			if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message ?? `Failed (${res.status})`);
+			// Each call resolves invoices within a server-side time budget and returns
+			// {partial:true, remaining} until done — keeps every request under
+			// Cloudflare's ~100s edge timeout. Loop (each call caches more) till done.
+			let guard = 0;
+			for (;;) {
+				const res = await fetch('/api/stats/run-verification', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ from: range.from, to: range.to }),
+				});
+				if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message ?? `Failed (${res.status})`);
+				const body = await res.json();
+				if (body.partial && guard++ < 200) {
+					progress = { resolved: body.resolved ?? 0, remaining: body.remaining ?? 0 };
+					continue;
+				}
+				break;
+			}
+			progress = null;
 			await invalidateAll();
 		} catch (e) {
 			err = e.message;
 		} finally {
 			running = false;
+			progress = null;
 		}
 	}
 
@@ -263,7 +279,7 @@
 					{#each MONTHS as mo, i}<option value={String(i + 1)}>{mo}</option>{/each}
 				</optgroup>
 			</select>
-			<button class="run-btn" onclick={rerun} disabled={running}>{running ? 'Running…' : 'Run check'}</button>
+			<button class="run-btn" onclick={rerun} disabled={running}>{running ? (progress ? `Resolving… ${progress.remaining} left` : 'Running…') : 'Run check'}</button>
 		</div>
 	</header>
 

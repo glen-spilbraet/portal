@@ -159,7 +159,10 @@ export default {
 				// &force=1 re-resolves every deal, ignoring the invoice cache (use after
 				// a partial-shipment invoice may have been added to an already-resolved order).
 				const force = url.searchParams.get('force') === '1';
-				return json({ ok: true, ...(await runVerification(env, range, { force })) });
+				// &bulk=1 (curl/cron only — no edge timeout) warms the cache with one
+				// window fetch for a large first backfill instead of per-deal lookups.
+				const bulk = url.searchParams.get('bulk') === '1';
+				return json({ ok: true, ...(await runVerification(env, range, { force, bulk })) });
 			}
 			let summary;
 			if (url.searchParams.get('reconcile') === '1') {
@@ -371,12 +374,21 @@ function figuresFromInvoices(invs) {
 /** Load cached invoice figures for a set of rackbeat_ids. */
 async function loadInvoiceCache(env, ids) {
 	const map = new Map();
+	const STALE_MS = 14 * 86400 * 1000; // re-attempt not-found deals after 14 days
+	const now = Date.now();
 	for (const batch of chunks([...new Set(ids)], 100)) {
 		const ph = batch.map(() => '?').join(',');
 		const rows = await env.DB.prepare(`SELECT * FROM resolved_invoices WHERE rackbeat_id IN (${ph})`).bind(...batch).all();
 		for (const r of rows.results || []) {
+			const numbers = r.invoice_numbers ? String(r.invoice_numbers).split(',') : [];
+			if (numbers.length === 0) {
+				// Not-found sentinel: keep as a cache hit only while fresh, so a late
+				// invoice is re-checked after the TTL (found invoices never expire).
+				const age = now - Date.parse(r.resolved_at || '');
+				if (!(age >= 0) || age > STALE_MS) continue;
+			}
 			map.set(r.rackbeat_id, {
-				numbers: r.invoice_numbers ? String(r.invoice_numbers).split(',') : [],
+				numbers,
 				subtotal: r.subtotal,
 				dates: r.invoice_dates ? String(r.invoice_dates).split(',') : [],
 				currency: r.currency,
@@ -392,9 +404,12 @@ async function saveInvoiceCache(env, entries) {
 	const now = new Date().toISOString();
 	const sql = `INSERT OR REPLACE INTO resolved_invoices (rackbeat_id, invoice_numbers, subtotal, invoice_dates, currency, currency_rate, resolved_at) VALUES (?,?,?,?,?,?,?)`;
 	for (const batch of chunks(entries, 50)) {
-		await env.DB.batch(batch.map((e) => env.DB.prepare(sql).bind(
-			e.rackbeat_id, e.figures.numbers.join(','), e.figures.subtotal, e.figures.dates.join(','), e.figures.currency, e.figures.currency_rate ?? null, now
-		)));
+		await env.DB.batch(batch.map((e) => {
+			const f = e.figures; // null = not-found sentinel (empty invoice_numbers)
+			return env.DB.prepare(sql).bind(
+				e.rackbeat_id, f ? f.numbers.join(',') : '', f ? f.subtotal : null, f ? f.dates.join(',') : '', f ? f.currency : null, f ? (f.currency_rate ?? null) : null, now
+			);
+		}));
 	}
 }
 
@@ -503,17 +518,23 @@ async function runVerification(env, range, opts = {}) {
 		.all();
 	const deals = dealsRes.results || [];
 
-	// Resolve invoice figures. Cache hits cost 0 Rackbeat calls. Unresolved deals
-	// use one bulk window fetch when there are many (first backfill), else
-	// targeted per-order lookups. Targeted lookups (order_number / invoice
-	// number) have NO date window, so late invoices are never missed. Newly
-	// resolved figures are cached and their invoice number written to HubSpot.
+	// Resolve invoice figures. Cache hits (incl. not-found sentinels) cost 0
+	// Rackbeat calls. Unresolved deals are resolved by targeted order_number /
+	// invoice-number lookups — NO date window, so late invoices are never missed.
+	// Work is TIME-BUDGETED so a single request stays well under Cloudflare's
+	// ~100s edge timeout; if not everything fits, we return {partial:true} and
+	// the client calls again (each call caches more — resumable). `opts.bulk`
+	// (curl/cron only, no edge timeout) uses one window fetch to warm the cache
+	// cheaply for a large first backfill.
 	const cache = opts.force ? new Map() : await loadInvoiceCache(env, deals.map((d) => d.rackbeat_id));
 	const unresolved = deals.filter((d) => !cache.has(d.rackbeat_id));
-	const bulk = unresolved.length > BULK_THRESHOLD ? await fetchAllInvoices(env, range.invFrom, range.invTo) : null;
+	const bulk = (opts.bulk && unresolved.length > BULK_THRESHOLD) ? await fetchAllInvoices(env, range.invFrom, range.invTo) : null;
 
-	const newlyResolved = [];
+	const SENTINEL = { numbers: [], subtotal: null, dates: [], currency: null, currency_rate: null };
+	const budgetMs = opts.budgetMs ?? 65000;
+	const newly = [];
 	const hsWrites = [];
+	let attempted = 0;
 	const resolveOne = async (d) => {
 		const rid = d.rackbeat_id;
 		const isDoc = rid.startsWith('IN-') || rid.startsWith('CN-');
@@ -523,23 +544,31 @@ async function runVerification(env, range, opts = {}) {
 			else invs = (bulk.byOrder.get(rid) || []).filter((i) => !i.is_creditnote);
 		}
 		if (!invs || !invs.length) {
-			// Targeted fallback — no date window, so it also catches late invoices.
 			const found = await fetchInvoicesByOrder(env, rid);
 			invs = isDoc ? found : found.filter((i) => !i.is_creditnote);
 		}
 		const fig = figuresFromInvoices(invs);
-		if (fig) {
-			cache.set(rid, fig);
-			newlyResolved.push({ rackbeat_id: rid, figures: fig });
-			hsWrites.push({ dealId: d.deal_id, invoiceId: fig.numbers.join(',') });
-		}
+		cache.set(rid, fig || SENTINEL);
+		newly.push({ rackbeat_id: rid, figures: fig });
+		if (fig) hsWrites.push({ dealId: d.deal_id, invoiceId: fig.numbers.join(',') });
 	};
 	for (let i = 0; i < unresolved.length; i += 5) {
-		await Promise.all(unresolved.slice(i, i + 5).map(resolveOne));
+		if (!bulk && Date.now() - tStart > budgetMs) break; // time budget (interactive)
+		const slice = unresolved.slice(i, i + 5);
+		await Promise.all(slice.map(resolveOne));
+		attempted += slice.length;
 	}
-	if (newlyResolved.length) await saveInvoiceCache(env, newlyResolved);
+	if (newly.length) await saveInvoiceCache(env, newly);
 	const written = hsWrites.length ? await writeInvoiceIds(env, hsWrites) : 0;
-	console.log(`verify ${range.label}: ${deals.length} deals, ${cache.size} resolved (${newlyResolved.length} new, bulk=${!!bulk}), ${written} invoice_ids written in ${Date.now() - tStart}ms`);
+	const remaining = unresolved.length - attempted;
+	console.log(`verify ${range.label}: ${deals.length} deals, attempted ${attempted}/${unresolved.length} (${written} invoice_ids), remaining ${remaining} in ${Date.now() - tStart}ms`);
+
+	// Not everything resolved within the budget — persist nothing, ask the client
+	// to call again. Status stays 'running' so the UI keeps its progress state.
+	if (remaining > 0) {
+		await setVerifyStatus(env.DB, 'running');
+		return { ok: true, partial: true, checked: deals.length, resolved: deals.length - remaining, remaining, invoiceIdsWritten: written };
+	}
 
 	const issues = [];
 	let ok = 0, amountMis = 0, dateMis = 0, rateMis = 0, notFound = 0, multiple = 0;
@@ -547,7 +576,7 @@ async function runVerification(env, range, opts = {}) {
 
 	for (const d of deals) {
 		const fig = cache.get(d.rackbeat_id);
-		if (!fig) {
+		if (!fig || !fig.numbers || fig.numbers.length === 0) {
 			notFound++;
 			issues.push({ deal_id: d.deal_id, deal_name: d.deal_name, rackbeat_id: d.rackbeat_id, owner_name: d.owner_name, company_name: d.company_name, close_date: d.close_date, amount_raw: d.amount_raw, currency: d.currency, invoice_number: null, rb_date: null, rb_subtotal: null, hs_rate: null, rb_rate: null, rb_currency: null, amount_match: 0, date_match: 0, rate_match: 0, issue: 'not_found' });
 			continue;
@@ -606,7 +635,7 @@ async function runVerification(env, range, opts = {}) {
 		.bind(finished, deals.length, ok, amountMis, dateMis, rateMis, notFound, multiple, `${range.label} · ${cache.size} invoices resolved`)
 		.run();
 
-	return { scope: range.label, checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, rate_mismatch: rateMis, not_found: notFound, multiple, invoiceCount: cache.size, newlyResolved: newlyResolved.length, invoiceIdsWritten: written, issues: issues.length };
+	return { scope: range.label, checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, rate_mismatch: rateMis, not_found: notFound, multiple, invoiceCount: cache.size, newlyResolved: newly.length, invoiceIdsWritten: written, partial: false, issues: issues.length };
 }
 
 /**
