@@ -156,7 +156,10 @@ export default {
 				const today = new Date().toISOString().slice(0, 10);
 				const invTo = to > today ? to : today;
 				const range = { dealFrom: from, dealTo: to, invFrom: addDaysYmd(from, -31), invTo, label: `${from} → ${to}` };
-				return json({ ok: true, ...(await runVerification(env, range)) });
+				// &force=1 re-resolves every deal, ignoring the invoice cache (use after
+				// a partial-shipment invoice may have been added to an already-resolved order).
+				const force = url.searchParams.get('force') === '1';
+				return json({ ok: true, ...(await runVerification(env, range, { force })) });
 			}
 			let summary;
 			if (url.searchParams.get('reconcile') === '1') {
@@ -304,6 +307,116 @@ async function enrichDeals(env, deals) {
 
 const RB = 'https://app.rackbeat.com/api';
 const AMOUNT_TOLERANCE = 0.5; // kr, absorbs rounding
+// Above this many unresolved deals, one bulk window fetch beats N targeted calls.
+const BULK_THRESHOLD = 80;
+
+/** Shared Rackbeat GET with timeout + retry (honours 429 backoff). */
+async function rbGet(env, path, tries = 4) {
+	const headers = { Authorization: `Bearer ${env.RACKBEAT_API_KEY}`, Accept: 'application/json' };
+	for (let a = 0; a < tries; a++) {
+		const ctrl = new AbortController();
+		const timer = setTimeout(() => ctrl.abort(), 20000);
+		try {
+			const res = await fetch(`${RB}${path}`, { headers, signal: ctrl.signal });
+			clearTimeout(timer);
+			if (res.status === 429) { await sleep(1000 * (a + 1)); continue; }
+			if (!res.ok) return null;
+			return await res.json();
+		} catch (_e) {
+			clearTimeout(timer);
+			await sleep(500 * (a + 1));
+		}
+	}
+	return null;
+}
+
+/** Compact invoice record used for matching + caching. */
+function invRecord(inv) {
+	return {
+		number: inv.number,
+		invoice_date: inv.invoice_date,
+		total_subtotal: inv.total_subtotal,
+		currency: inv.currency,
+		currency_rate: inv.currency_rate,
+		is_creditnote: inv.is_creditnote,
+	};
+}
+
+/**
+ * Targeted invoice lookup — NO date window, so a late invoice is never missed.
+ * Order refs → Rackbeat's order_number filter; IN-/CN- refs → search by number.
+ */
+async function fetchInvoicesByOrder(env, ref) {
+	if (ref.startsWith('IN-') || ref.startsWith('CN-')) {
+		const num = ref.slice(3);
+		const body = await rbGet(env, `/customer-invoices?limit=100&search=${encodeURIComponent(num)}`);
+		return (body?.customer_invoices || []).filter((i) => String(i.number) === num).map(invRecord);
+	}
+	const body = await rbGet(env, `/customer-invoices?limit=100&order_number=${encodeURIComponent(ref)}`);
+	return (body?.customer_invoices || []).map(invRecord);
+}
+
+/** Reduce a set of invoices into the figures we verify + cache. */
+function figuresFromInvoices(invs) {
+	if (!invs || !invs.length) return null;
+	return {
+		numbers: invs.map((i) => i.number),
+		subtotal: invs.reduce((s, i) => s + (i.total_subtotal || 0), 0),
+		dates: invs.map((i) => i.invoice_date),
+		currency: invs[0].currency || null,
+		currency_rate: invs[0].currency_rate ?? null,
+	};
+}
+
+/** Load cached invoice figures for a set of rackbeat_ids. */
+async function loadInvoiceCache(env, ids) {
+	const map = new Map();
+	for (const batch of chunks([...new Set(ids)], 100)) {
+		const ph = batch.map(() => '?').join(',');
+		const rows = await env.DB.prepare(`SELECT * FROM resolved_invoices WHERE rackbeat_id IN (${ph})`).bind(...batch).all();
+		for (const r of rows.results || []) {
+			map.set(r.rackbeat_id, {
+				numbers: r.invoice_numbers ? String(r.invoice_numbers).split(',') : [],
+				subtotal: r.subtotal,
+				dates: r.invoice_dates ? String(r.invoice_dates).split(',') : [],
+				currency: r.currency,
+				currency_rate: r.currency_rate,
+			});
+		}
+	}
+	return map;
+}
+
+/** Upsert resolved invoice figures. entries: [{rackbeat_id, figures}]. */
+async function saveInvoiceCache(env, entries) {
+	const now = new Date().toISOString();
+	const sql = `INSERT OR REPLACE INTO resolved_invoices (rackbeat_id, invoice_numbers, subtotal, invoice_dates, currency, currency_rate, resolved_at) VALUES (?,?,?,?,?,?,?)`;
+	for (const batch of chunks(entries, 50)) {
+		await env.DB.batch(batch.map((e) => env.DB.prepare(sql).bind(
+			e.rackbeat_id, e.figures.numbers.join(','), e.figures.subtotal, e.figures.dates.join(','), e.figures.currency, e.figures.currency_rate ?? null, now
+		)));
+	}
+}
+
+/** Write resolved invoice numbers to the HubSpot deal's `invoice_id` property. */
+async function writeInvoiceIds(env, updates) {
+	let written = 0;
+	for (const batch of chunks(updates, 100)) {
+		const inputs = batch.map((u) => ({ id: u.dealId, properties: { invoice_id: u.invoiceId } }));
+		try {
+			await hsPost(env, `${HS}/crm/v3/objects/deals/batch/update`, { inputs });
+			written += inputs.length;
+		} catch (_batchErr) {
+			// A batch fails atomically (e.g. a unique-constraint clash). Fall back
+			// to per-item so good writes still land and only the clash is skipped.
+			for (const inp of inputs) {
+				try { await hsPatch(env, `${HS}/crm/v3/objects/deals/${inp.id}`, { properties: inp.properties }); written++; }
+				catch (e) { console.log(`invoice_id write failed for deal ${inp.id}: ${String(e?.message ?? e).slice(0, 160)}`); }
+			}
+		}
+	}
+	return written;
+}
 
 /**
  * Bulk-fetch all customer invoices since 2023-12 and index them by invoice
@@ -376,7 +489,7 @@ async function fetchAllInvoices(env, invFrom, invTo) {
  * Amount = amount_raw vs invoice total_subtotal (own currency, ±0.5).
  * Date = close_date vs invoice_date (exact). Stores only discrepancies.
  */
-async function runVerification(env, range) {
+async function runVerification(env, range, opts = {}) {
 	if (!env.RACKBEAT_API_KEY) throw new Error('No RACKBEAT_API_KEY on worker');
 	await setVerifyStatus(env.DB, 'running');
 
@@ -389,48 +502,74 @@ async function runVerification(env, range) {
 		.bind(range.dealFrom, range.dealTo)
 		.all();
 	const deals = dealsRes.results || [];
-	const { byNumber, byOrder, invoiceCount } = await fetchAllInvoices(env, range.invFrom, range.invTo);
-	console.log(`verify ${range.label}: ${deals.length} deals, ${invoiceCount} invoices in ${Date.now() - tStart}ms`);
+
+	// Resolve invoice figures. Cache hits cost 0 Rackbeat calls. Unresolved deals
+	// use one bulk window fetch when there are many (first backfill), else
+	// targeted per-order lookups. Targeted lookups (order_number / invoice
+	// number) have NO date window, so late invoices are never missed. Newly
+	// resolved figures are cached and their invoice number written to HubSpot.
+	const cache = opts.force ? new Map() : await loadInvoiceCache(env, deals.map((d) => d.rackbeat_id));
+	const unresolved = deals.filter((d) => !cache.has(d.rackbeat_id));
+	const bulk = unresolved.length > BULK_THRESHOLD ? await fetchAllInvoices(env, range.invFrom, range.invTo) : null;
+
+	const newlyResolved = [];
+	const hsWrites = [];
+	const resolveOne = async (d) => {
+		const rid = d.rackbeat_id;
+		const isDoc = rid.startsWith('IN-') || rid.startsWith('CN-');
+		let invs = null;
+		if (bulk) {
+			if (isDoc) { const inv = bulk.byNumber.get(rid.slice(3)); invs = inv ? [inv] : []; }
+			else invs = (bulk.byOrder.get(rid) || []).filter((i) => !i.is_creditnote);
+		}
+		if (!invs || !invs.length) {
+			// Targeted fallback — no date window, so it also catches late invoices.
+			const found = await fetchInvoicesByOrder(env, rid);
+			invs = isDoc ? found : found.filter((i) => !i.is_creditnote);
+		}
+		const fig = figuresFromInvoices(invs);
+		if (fig) {
+			cache.set(rid, fig);
+			newlyResolved.push({ rackbeat_id: rid, figures: fig });
+			hsWrites.push({ dealId: d.deal_id, invoiceId: fig.numbers.join(',') });
+		}
+	};
+	for (let i = 0; i < unresolved.length; i += 5) {
+		await Promise.all(unresolved.slice(i, i + 5).map(resolveOne));
+	}
+	if (newlyResolved.length) await saveInvoiceCache(env, newlyResolved);
+	const written = hsWrites.length ? await writeInvoiceIds(env, hsWrites) : 0;
+	console.log(`verify ${range.label}: ${deals.length} deals, ${cache.size} resolved (${newlyResolved.length} new, bulk=${!!bulk}), ${written} invoice_ids written in ${Date.now() - tStart}ms`);
 
 	const issues = [];
 	let ok = 0, amountMis = 0, dateMis = 0, rateMis = 0, notFound = 0, multiple = 0;
 	const round4 = (x) => (x == null ? null : Math.round(x * 10000) / 10000);
 
 	for (const d of deals) {
-		const rid = d.rackbeat_id;
-		let invs;
-		if (rid.startsWith('IN-') || rid.startsWith('CN-')) {
-			// Exact document by number (IN- = invoice, CN- = credit note).
-			const inv = byNumber.get(rid.slice(3));
-			invs = inv ? [inv] : [];
-		} else {
-			// Order: compare against its sales invoice(s); ignore linked credit notes.
-			invs = (byOrder.get(rid) || []).filter((i) => !i.is_creditnote);
-		}
-
-		if (!invs.length) {
+		const fig = cache.get(d.rackbeat_id);
+		if (!fig) {
 			notFound++;
-			issues.push({ ...d, invoice_number: null, rb_date: null, rb_subtotal: null, hs_rate: null, rb_rate: null, rb_currency: null, amount_match: 0, date_match: 0, rate_match: 0, issue: 'not_found' });
+			issues.push({ deal_id: d.deal_id, deal_name: d.deal_name, rackbeat_id: d.rackbeat_id, owner_name: d.owner_name, company_name: d.company_name, close_date: d.close_date, amount_raw: d.amount_raw, currency: d.currency, invoice_number: null, rb_date: null, rb_subtotal: null, hs_rate: null, rb_rate: null, rb_currency: null, amount_match: 0, date_match: 0, rate_match: 0, issue: 'not_found' });
 			continue;
 		}
 
 		// Sum across invoices when an order has several (partial shipments).
-		const rbSubtotal = invs.reduce((s, i) => s + (i.total_subtotal || 0), 0);
+		const rbSubtotal = fig.subtotal || 0;
 		const amount_match = Math.abs((d.amount_raw || 0) - rbSubtotal) <= AMOUNT_TOLERANCE ? 1 : 0;
-		const dates = invs.map((i) => i.invoice_date);
-		const date_match = dates.includes(d.close_date) ? 1 : 0;
+		const date_match = fig.dates.includes(d.close_date) ? 1 : 0;
 
 		// Currency rate: HubSpot's effective rate (home DKK per unit of deal
 		// currency) vs the invoice's currency_rate, exact to 4 decimals. Skipped
 		// (treated as OK) when the deal has no amount or the invoice no rate.
-		const rbCurrency = invs[0].currency || null;
-		const rbRate = round4(invs[0].currency_rate);
+		const rbCurrency = fig.currency || null;
+		const rbRate = round4(fig.currency_rate);
 		const hsRate = d.amount_raw ? round4(d.amount_dkk / d.amount_raw) : null;
 		const currencyOk = !rbCurrency || !d.currency || rbCurrency === d.currency;
 		const rate_match = hsRate == null || rbRate == null ? 1 : currencyOk && hsRate === rbRate ? 1 : 0;
+		const multi = fig.numbers.length > 1;
 
 		if (amount_match && date_match && rate_match) { ok++; continue; }
-		if (invs.length > 1) multiple++;
+		if (multi) multiple++;
 		if (!amount_match) amountMis++;
 		if (!date_match) dateMis++;
 		if (!rate_match) rateMis++;
@@ -438,13 +577,12 @@ async function runVerification(env, range) {
 		if (!amount_match) parts.push('amount');
 		if (!date_match) parts.push('date');
 		if (!rate_match) parts.push('rate');
-		const issue = invs.length > 1 ? 'multiple' : parts.join('+');
 		issues.push({
-			deal_id: d.deal_id, deal_name: d.deal_name, rackbeat_id: rid, owner_name: d.owner_name, company_name: d.company_name,
+			deal_id: d.deal_id, deal_name: d.deal_name, rackbeat_id: d.rackbeat_id, owner_name: d.owner_name, company_name: d.company_name,
 			close_date: d.close_date, amount_raw: d.amount_raw, currency: d.currency,
-			invoice_number: invs.map((i) => i.number).join(','), rb_date: dates.join(','), rb_subtotal: rbSubtotal,
+			invoice_number: fig.numbers.join(','), rb_date: fig.dates.join(','), rb_subtotal: rbSubtotal,
 			hs_rate: hsRate, rb_rate: rbRate, rb_currency: rbCurrency,
-			amount_match, date_match, rate_match, issue,
+			amount_match, date_match, rate_match, issue: multi ? 'multiple' : parts.join('+'),
 		});
 	}
 
@@ -465,10 +603,10 @@ async function runVerification(env, range) {
 			   amount_mismatch=excluded.amount_mismatch, date_mismatch=excluded.date_mismatch, rate_mismatch=excluded.rate_mismatch, not_found=excluded.not_found,
 			   multiple=excluded.multiple, status='ok', message=excluded.message`
 		)
-		.bind(finished, deals.length, ok, amountMis, dateMis, rateMis, notFound, multiple, `${range.label} · invoices indexed ${invoiceCount}`)
+		.bind(finished, deals.length, ok, amountMis, dateMis, rateMis, notFound, multiple, `${range.label} · ${cache.size} invoices resolved`)
 		.run();
 
-	return { scope: range.label, checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, rate_mismatch: rateMis, not_found: notFound, multiple, invoiceCount, issues: issues.length };
+	return { scope: range.label, checked: deals.length, ok, amount_mismatch: amountMis, date_mismatch: dateMis, rate_mismatch: rateMis, not_found: notFound, multiple, invoiceCount: cache.size, newlyResolved: newlyResolved.length, invoiceIdsWritten: written, issues: issues.length };
 }
 
 /**
