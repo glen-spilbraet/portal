@@ -125,7 +125,6 @@
 	.dim-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.12); }
 	.dim-search svg { color: #B7A579; flex-shrink: 0; }
 	.dim-search input { flex: 1; min-width: 0; border: none; background: none; outline: none; font-family: inherit; font-size: 13px; color: #3f3a33; }
-	.dim-search input::placeholder { color: #B7A579; }
 	.clear { flex-shrink: 0; border: none; background: none; cursor: pointer; color: #A88B52; font-size: 16px; line-height: 1; }
 	.hint { margin: 0; font-size: 12px; color: #A88B52; }
 	.table-scroll { max-height: 620px; overflow: auto; }

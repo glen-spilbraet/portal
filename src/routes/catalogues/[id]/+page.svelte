@@ -1841,7 +1841,6 @@
 		line-height: 1.15;
 		box-sizing: border-box;
 	}
-	.title-input::placeholder { color: #C4B99A; }
 
 	/* ── Panel column ────────────────────────────────────────────────────── */
 	.panel-col {
@@ -1886,7 +1885,6 @@
 		outline: none;
 		transition: border-color 0.15s, box-shadow 0.15s;
 	}
-	.search-input::placeholder { color: #A1A1AA; }
 	.search-input:focus {
 		border-color: #A1A1AA;
 		box-shadow: 0 0 0 3px rgba(0,0,0,0.05);
@@ -2270,7 +2268,6 @@
 		border-color: #F57832;
 		box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.12);
 	}
-	.share-tracking-input::placeholder { color: #D4D4D8; }
 
 	.share-hint {
 		font-size: 12px;
@@ -2420,7 +2417,6 @@
 		transition: border-color 0.12s, background 0.12s;
 	}
 	.text-modal-input:focus { border-color: #A1A1AA; background: white; }
-	.text-modal-input::placeholder { color: #C4C4C4; }
 	.text-modal-actions {
 		display: flex;
 		justify-content: flex-end;

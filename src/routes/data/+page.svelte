@@ -203,7 +203,6 @@
 		transition: border-color 0.15s;
 	}
 	.search-input:focus { border-color: #A1A1AA; }
-	.search-input::placeholder { color: #A1A1AA; }
 
 	.btn-new {
 		display: inline-flex;

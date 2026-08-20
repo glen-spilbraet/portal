@@ -333,7 +333,6 @@
 	}
 	.name-cell-input:hover { background: #F4F4F5; }
 	.name-cell-input:focus { border-color: #F57832; background: white; box-shadow: 0 0 0 3px rgba(245,120,50,0.10); }
-	.name-cell-input::placeholder { color: #D1D5DB; }
 	.send-from-input { width: 170px; }
 
 	.role-select {

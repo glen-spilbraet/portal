@@ -322,7 +322,6 @@
 		outline: none;
 		transition: border-color 0.15s, box-shadow 0.15s;
 	}
-	.search-input::placeholder { color: #A1A1AA; }
 	.search-input:focus {
 		border-color: #A1A1AA;
 		box-shadow: 0 0 0 3px rgba(0,0,0,0.05);

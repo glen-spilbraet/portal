@@ -1121,7 +1121,6 @@
 		font-size: 13px;
 		color: #3f3a33;
 	}
-	.dim-search input::placeholder { color: #B7A579; }
 	.dim-search-clear {
 		flex-shrink: 0;
 		border: none;

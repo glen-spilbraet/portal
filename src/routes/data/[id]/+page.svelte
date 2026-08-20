@@ -1315,7 +1315,6 @@
 		box-sizing: border-box;
 	}
 	.sku-textarea:focus { border-color: #A1A1AA; }
-	.sku-textarea::placeholder { color: #C4C4C4; }
 
 	.count-badge {
 		font-size: 11px; font-weight: 700; padding: 1px 7px;
@@ -1464,7 +1463,6 @@
 		transition: border-color 0.15s;
 	}
 	.sku-field-input:focus { border-color: #A1A1AA; }
-	.sku-field-input::placeholder { color: #C4C4C4; }
 
 	.btn-load-fields {
 		display: inline-flex; align-items: center; gap: 5px;
@@ -1520,7 +1518,6 @@
 		transition: border-color 0.15s;
 	}
 	.custom-header-input:focus { border-color: #A1A1AA; }
-	.custom-header-input::placeholder { color: #C4C4C4; }
 
 	.btn-add-header {
 		display: inline-flex; align-items: center; gap: 5px;

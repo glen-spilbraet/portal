@@ -205,7 +205,6 @@
 		transition: border-color 0.15s, box-shadow 0.15s;
 	}
 	textarea:focus { border-color: #A1A1AA; box-shadow: 0 0 0 3px rgba(0,0,0,0.05); }
-	textarea::placeholder { color: #A1A1AA; }
 	textarea:disabled { background: #FAFAFA; color: #71717A; }
 
 	.actions {

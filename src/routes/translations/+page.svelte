@@ -228,7 +228,6 @@
 	.label-input { width: 100%; border: 1px solid transparent; border-radius: 6px; padding: 6px 8px; font-size: 13px; font-family: inherit; color: #18181B; background: transparent; transition: border-color 0.15s, background 0.15s; outline: none; }
 	.label-input:hover { background: #F4F4F5; border-color: var(--border); }
 	.label-input:focus { background: white; border-color: #A1A1AA; box-shadow: 0 0 0 3px rgba(0,0,0,0.04); }
-	.label-input::placeholder { color: #C4C4C4; }
 	.label-textarea { resize: vertical; min-height: 52px; line-height: 1.5; vertical-align: top; box-sizing: border-box; }
 
 	.section-header { display: flex; align-items: flex-start; justify-content: space-between; margin: 36px 0 16px; }
