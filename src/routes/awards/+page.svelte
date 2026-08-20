@@ -34,6 +34,9 @@
 	// ── Instance editor ────────────────────────────────────────────────────────
 	let open = $state(false);
 	let saving = $state(false);
+	let showProof = $state(false);
+	let showNotes = $state(false);
+	function initSections() { showProof = !!(form.proof_url || form.proof_key); showNotes = !!((form.notes || '').trim()); }
 	function blank() {
 		return { id: null, media_id: '', sku: '', is_nominated: false, award_category: '', is_winner: false,
 			disclosure_date: '', instance_date: today, statements: [], proof_url: '', proof_key: '', proof_name: '',
@@ -53,9 +56,9 @@
 	let form = $state(blank());
 	const selMedia = $derived(data.media.find((m) => m.id === form.media_id) ?? null);
 
-	function openNew() { form = blank(); skuResults = []; open = true; }
-	function openEdit(i) { form = fromInstance(i); skuResults = []; open = true; }
-	function createSimilar(i) { form = fromInstance(i, { newId: true, clearSku: true }); skuResults = []; open = true; }
+	function openNew() { form = blank(); skuResults = []; initSections(); open = true; }
+	function openEdit(i) { form = fromInstance(i); skuResults = []; initSections(); open = true; }
+	function createSimilar(i) { form = fromInstance(i, { newId: true, clearSku: true }); skuResults = []; initSections(); open = true; }
 	function close() { open = false; }
 	function addStatement() { form.statements = [...form.statements, { statement: '', score: '' }]; }
 	function removeStatement(i) { form.statements = form.statements.filter((_, x) => x !== i); }
@@ -196,71 +199,104 @@
 	<div class="modal">
 		<div class="modal-head"><h2>{form.id ? 'Edit instance' : 'New instance'}</h2><button class="x" onclick={close}>✕</button></div>
 		<div class="modal-body">
-			<div class="row2">
-				<label class="fld"><span>Media *</span>
-					<select bind:value={form.media_id} class:invalid={!form.media_id}>
-						<option value="" disabled>Select media…</option>
-						{#each data.media as m}<option value={m.id}>{m.name}{m.country ? ` (${m.country})` : ''}</option>{/each}
-					</select>
-				</label>
-				<label class="fld"><span>Date</span><input type="date" bind:value={form.instance_date} /></label>
-			</div>
-
-			<label class="fld sku-fld"><span>SKU (product is taken from the matching sheet)</span>
-				<input bind:value={form.sku} oninput={onSku} placeholder="Type SKU or name…" autocomplete="off" />
-				{#if skuResults.length}
-					<div class="sku-drop">
-						{#each skuResults as r}<button class="sku-opt" onclick={() => pickSku(r)}><b>{r.sku}</b> {r.name}</button>{/each}
-					</div>
-				{/if}
-			</label>
-
-			<label class="chk"><input type="checkbox" bind:checked={form.is_nominated} /> Nominated (for an award)</label>
-
-			{#if form.is_nominated}
-				<label class="fld"><span>Award category</span><input bind:value={form.award_category} placeholder="e.g. Best Family Game 2026" /></label>
-				<div class="row2">
-					<div class="badge-fld">
-						<span class="fld-label">Nominee badge (PNG/SVG)</span>
-						<div class="badge-up">
-							{#if form.nominee_badge_key}<img class="bdg-lg" src="/api/img/{form.nominee_badge_key}" alt="nominee badge" /><button class="x sm" onclick={() => { form.nominee_badge_key = ''; }}>✕</button>{/if}
-							<label class="btn sm">Upload<input type="file" hidden accept="image/*,.svg" onchange={(e) => upload(e, 'nominee_badge_key', 'nominee_badge_name')} /></label>
-						</div>
-					</div>
-					<label class="chk"><input type="checkbox" bind:checked={form.is_winner} /> Award winner</label>
-				</div>
-
-				{#if form.is_winner}
+			<!-- General -->
+			<section class="sect">
+				<div class="sect-head"><span>General</span></div>
+				<div class="sect-body">
 					<div class="row2">
-						<label class="fld"><span>Disclosure date (when a win may be announced)</span><input type="date" bind:value={form.disclosure_date} /></label>
-						<div class="badge-fld">
-							<span class="fld-label">Winner badge (PNG/SVG)</span>
-							<div class="badge-up">
-								{#if form.winner_badge_key}<img class="bdg-lg" src="/api/img/{form.winner_badge_key}" alt="winner badge" /><button class="x sm" onclick={() => { form.winner_badge_key = ''; }}>✕</button>{/if}
-								<label class="btn sm">Upload<input type="file" hidden accept="image/*,.svg" onchange={(e) => upload(e, 'winner_badge_key', 'winner_badge_name')} /></label>
+						<label class="fld"><span>Media *</span>
+							<select bind:value={form.media_id} class:invalid={!form.media_id}>
+								<option value="" disabled>Select media…</option>
+								{#each data.media as m}<option value={m.id}>{m.name}{m.country ? ` (${m.country})` : ''}</option>{/each}
+							</select>
+						</label>
+						<label class="fld"><span>Date</span><input type="date" bind:value={form.instance_date} /></label>
+					</div>
+					<label class="fld sku-fld"><span>SKU (product is taken from the matching sheet)</span>
+						<input bind:value={form.sku} oninput={onSku} placeholder="Type SKU or name…" autocomplete="off" />
+						{#if skuResults.length}
+							<div class="sku-drop">
+								{#each skuResults as r}<button class="sku-opt" onclick={() => pickSku(r)}><b>{r.sku}</b> {r.name}</button>{/each}
 							</div>
+						{/if}
+					</label>
+				</div>
+			</section>
+
+			<!-- Award / nomination -->
+			<section class="sect">
+				<div class="sect-head"><span>Award / nomination</span>
+					<label class="chk inline"><input type="checkbox" bind:checked={form.is_nominated} /> Nominated</label>
+				</div>
+				{#if form.is_nominated}
+					<div class="sect-body">
+						<label class="fld"><span>Award category</span><input bind:value={form.award_category} placeholder="e.g. Best Family Game 2026" /></label>
+						<div class="row2">
+							<div class="badge-fld">
+								<span class="fld-label">Nominee badge (PNG/SVG)</span>
+								<div class="badge-up">
+									{#if form.nominee_badge_key}<img class="bdg-lg" src="/api/img/{form.nominee_badge_key}" alt="nominee badge" /><button class="x sm" onclick={() => { form.nominee_badge_key = ''; }}>✕</button>{/if}
+									<label class="btn sm">Upload<input type="file" hidden accept="image/*,.svg" onchange={(e) => upload(e, 'nominee_badge_key', 'nominee_badge_name')} /></label>
+								</div>
+							</div>
+							<label class="chk"><input type="checkbox" bind:checked={form.is_winner} /> Award winner</label>
+						</div>
+						{#if form.is_winner}
+							<div class="row2">
+								<label class="fld"><span>Disclosure date (when a win may be announced)</span><input type="date" bind:value={form.disclosure_date} /></label>
+								<div class="badge-fld">
+									<span class="fld-label">Winner badge (PNG/SVG)</span>
+									<div class="badge-up">
+										{#if form.winner_badge_key}<img class="bdg-lg" src="/api/img/{form.winner_badge_key}" alt="winner badge" /><button class="x sm" onclick={() => { form.winner_badge_key = ''; }}>✕</button>{/if}
+										<label class="btn sm">Upload<input type="file" hidden accept="image/*,.svg" onchange={(e) => upload(e, 'winner_badge_key', 'winner_badge_name')} /></label>
+									</div>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{:else}
+					<div class="sect-body"><p class="hint">Not a nomination — this instance is a press statement only.</p></div>
+				{/if}
+			</section>
+
+			<!-- Statements -->
+			<section class="sect">
+				<div class="sect-head"><span>Review statements{selMedia?.review_scale ? ` · 0–${selMedia.review_scale}` : ''}</span><button class="link" onclick={addStatement}>+ Add statement</button></div>
+				<div class="sect-body">
+					{#if !form.statements.length}<p class="hint">No statements yet. Add press quotes (with an optional score).</p>{/if}
+					{#each form.statements as s, i (i)}
+						<div class="stmt-row">
+							<textarea bind:value={s.statement} rows="2" placeholder="Quote / statement"></textarea>
+							<input class="score-in" type="number" step="0.5" min="0" max={selMedia?.review_scale ?? undefined} bind:value={s.score} placeholder="Score" />
+							<button class="x sm" onclick={() => removeStatement(i)}>✕</button>
+						</div>
+					{/each}
+				</div>
+			</section>
+
+			<!-- Proof (collapsible) -->
+			<section class="sect">
+				<button type="button" class="sect-head toggle" onclick={() => (showProof = !showProof)}>
+					<span>Proof{#if !showProof && (form.proof_url || form.proof_key)}<span class="dot">•</span>{/if}</span><span class="chev">{showProof ? '▾' : '▸'}</span>
+				</button>
+				{#if showProof}
+					<div class="sect-body">
+						<label class="fld"><span>Link</span><input bind:value={form.proof_url} placeholder="https://…" /></label>
+						<div class="proof-file">
+							<label class="btn sm">Upload file<input type="file" hidden onchange={(e) => upload(e, 'proof_key', 'proof_name')} /></label>
+							{#if form.proof_key}<span class="proof-name">{form.proof_name} <button class="x sm" onclick={() => { form.proof_key = ''; form.proof_name = ''; }}>✕</button></span>{/if}
 						</div>
 					</div>
 				{/if}
-			{/if}
+			</section>
 
-			<div class="sub-head"><span>Review statements{selMedia?.review_scale ? ` (scale 0–${selMedia.review_scale})` : ''}</span><button class="link" onclick={addStatement}>+ Add statement</button></div>
-			{#each form.statements as s, i (i)}
-				<div class="stmt-row">
-					<textarea bind:value={s.statement} rows="2" placeholder="Quote / statement"></textarea>
-					<input class="score-in" type="number" step="0.5" min="0" max={selMedia?.review_scale ?? undefined} bind:value={s.score} placeholder="Score" />
-					<button class="x sm" onclick={() => removeStatement(i)}>✕</button>
-				</div>
-			{/each}
-
-			<div class="sub-head"><span>Proof</span></div>
-			<label class="fld"><span>Link</span><input bind:value={form.proof_url} placeholder="https://…" /></label>
-			<div class="proof-file">
-				<label class="btn sm">Upload file<input type="file" hidden onchange={(e) => upload(e, 'proof_key', 'proof_name')} /></label>
-				{#if form.proof_key}<span class="proof-name">{form.proof_name} <button class="x sm" onclick={() => { form.proof_key = ''; form.proof_name = ''; }}>✕</button></span>{/if}
-			</div>
-
-			<label class="fld"><span>Notes</span><textarea bind:value={form.notes} rows="2"></textarea></label>
+			<!-- Notes (collapsible) -->
+			<section class="sect">
+				<button type="button" class="sect-head toggle" onclick={() => (showNotes = !showNotes)}>
+					<span>Notes{#if !showNotes && (form.notes || '').trim()}<span class="dot">•</span>{/if}</span><span class="chev">{showNotes ? '▾' : '▸'}</span>
+				</button>
+				{#if showNotes}<div class="sect-body"><textarea bind:value={form.notes} rows="2"></textarea></div>{/if}
+			</section>
 		</div>
 		<div class="modal-foot">
 			<button class="btn" onclick={close}>Cancel</button>
@@ -329,7 +365,15 @@
 	.fld select.invalid { border-color: #F1B0A0; background: #FEF6F3; }
 	.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 	.chk { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #524431; align-self: end; padding-bottom: 8px; }
-	.sub-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #A88B52; margin-top: 4px; }
+	.sect { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: #fff; }
+	.sect-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 10px 14px; background: #FBF7EF; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #A88B52; }
+	.sect-head.toggle { cursor: pointer; border: none; font-family: inherit; text-align: left; }
+	.sect-head.toggle:hover { background: #F5EEDD; }
+	.sect-head .chev { color: #C0AC7C; font-size: 11px; }
+	.sect-head .dot { color: var(--accent); margin-left: 6px; }
+	.sect-body { padding: 13px 14px; display: flex; flex-direction: column; gap: 12px; }
+	.chk.inline { align-self: center; padding: 0; text-transform: none; letter-spacing: 0; font-weight: 700; color: #524431; }
+	.hint { margin: 0; font-size: 13px; color: #98876e; font-style: italic; }
 	.stmt-row { display: grid; grid-template-columns: 1fr 90px auto; gap: 6px; align-items: start; }
 	.stmt-row textarea { font-family: inherit; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 	.score-in { font-family: inherit; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
