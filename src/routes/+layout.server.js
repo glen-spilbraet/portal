@@ -14,6 +14,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/orders'))                      return 'orders';
 	if (pathname.startsWith('/product'))                     return 'product';
 	if (pathname.startsWith('/forecast'))                    return 'forecast';
+	if (pathname.startsWith('/awards'))                      return 'awards';
 	return null;
 }
 
@@ -70,6 +71,7 @@ export async function load({ cookies, url, platform }) {
 		const fallback = [
 			['product', '/product'],
 			['forecast', '/forecast'],
+			['awards', '/awards'],
 			['sheets', '/sheets'],
 			['catalogues', '/catalogues'],
 			['planograms', '/planograms'],

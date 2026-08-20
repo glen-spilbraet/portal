@@ -38,6 +38,7 @@ export async function POST({ request, cookies, platform }) {
 		mail:        body.access_mail        === true,
 		product:     body.access_product     === true,
 		forecast:    body.access_forecast    === true,
+		awards:      body.access_awards      === true,
 	};
 	await createPermissionSet(db, id, name, access);
 	return json({ id, name, ...body }, { status: 201 });

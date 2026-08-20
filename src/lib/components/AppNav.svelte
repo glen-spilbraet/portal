@@ -2,12 +2,13 @@
 	let { active = 'sheets', user = null } = $props();
 
 	// Permissions — default to full access so the nav never breaks if not provided
-	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true });
+	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true });
 
 	const salesItems = $derived([
 		p.sheets       && { href: '/sheets',       label: 'Sheets',      key: 'sheets' },
 		p.catalogues   && { href: '/catalogues',   label: 'Catalogues',  key: 'catalogues' },
 		p.planograms   && { href: '/planograms',   label: 'Planograms',  key: 'planograms' },
+		p.awards       && { href: '/awards',       label: 'Awards & Press', key: 'awards' },
 	].filter(Boolean));
 
 	const showSales = $derived(salesItems.length > 0);
