@@ -119,6 +119,7 @@
 	const PEN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 	const COPY = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
 	const BIN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+	const CHEV = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>';
 </script>
 
 <svelte:head><title>Awards &amp; Press · Product Portal</title></svelte:head>
@@ -145,7 +146,7 @@
 				<div class="grp">
 					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 					<div class="grp-row" onclick={() => toggle(g.key)}>
-						<span class="chev">{expanded[g.key] ? '▾' : '▸'}</span>
+						<span class="chev" class:open={expanded[g.key]}>{@html CHEV}</span>
 						<span class="grp-date">{fdate(g.date)}</span>
 						<span class="grp-media">{g.media_name}{#if g.country}<span class="cc"> ({g.country})</span>{/if}</span>
 						<span class="counts">
@@ -157,7 +158,7 @@
 					{#if expanded[g.key]}
 						<div class="items">
 							<div class="items-bar">
-								<button class="link" onclick={() => editBlockDate(g)}>✎ Edit date for all</button>
+								<button class="btn sm" onclick={() => editBlockDate(g)}>✎ Edit date for all</button>
 							</div>
 							<div class="tbl-scroll">
 								<table class="tbl">
@@ -213,7 +214,7 @@
 						<label class="fld"><span>Date</span><input type="date" bind:value={form.instance_date} /></label>
 					</div>
 					<label class="fld sku-fld"><span>SKU (product is taken from the matching sheet)</span>
-						<input bind:value={form.sku} oninput={onSku} placeholder="Type SKU or name…" autocomplete="off" />
+						<input bind:value={form.sku} oninput={onSku} placeholder="Type SKU" autocomplete="off" />
 						{#if skuResults.length}
 							<div class="sku-drop">
 								{#each skuResults as r}<button class="sku-opt" onclick={() => pickSku(r)}><b>{r.sku}</b> {r.name}</button>{/each}
@@ -261,7 +262,7 @@
 
 			<!-- Statements -->
 			<section class="sect">
-				<div class="sect-head"><span>Review statements{selMedia?.review_scale ? ` · 0–${selMedia.review_scale}` : ''}</span><button class="link" onclick={addStatement}>+ Add statement</button></div>
+				<div class="sect-head"><span>Review statements{selMedia?.review_scale ? ` · 0–${selMedia.review_scale}` : ''}</span><button class="btn sm" onclick={addStatement}>+ Add statement</button></div>
 				<div class="sect-body">
 					{#if !form.statements.length}<p class="hint">No statements yet. Add press quotes (with an optional score).</p>{/if}
 					{#each form.statements as s, i (i)}
@@ -277,7 +278,7 @@
 			<!-- Proof (collapsible) -->
 			<section class="sect">
 				<button type="button" class="sect-head toggle" onclick={() => (showProof = !showProof)}>
-					<span>Proof{#if !showProof && (form.proof_url || form.proof_key)}<span class="dot">•</span>{/if}</span><span class="chev">{showProof ? '▾' : '▸'}</span>
+					<span>Proof{#if !showProof && (form.proof_url || form.proof_key)}<span class="dot">•</span>{/if}</span><span class="chev" class:open={showProof}>{@html CHEV}</span>
 				</button>
 				{#if showProof}
 					<div class="sect-body">
@@ -293,9 +294,9 @@
 			<!-- Notes (collapsible) -->
 			<section class="sect">
 				<button type="button" class="sect-head toggle" onclick={() => (showNotes = !showNotes)}>
-					<span>Notes{#if !showNotes && (form.notes || '').trim()}<span class="dot">•</span>{/if}</span><span class="chev">{showNotes ? '▾' : '▸'}</span>
+					<span>Notes{#if !showNotes && (form.notes || '').trim()}<span class="dot">•</span>{/if}</span><span class="chev" class:open={showNotes}>{@html CHEV}</span>
 				</button>
-				{#if showNotes}<div class="sect-body"><textarea bind:value={form.notes} rows="2"></textarea></div>{/if}
+				{#if showNotes}<div class="sect-body"><textarea class="notes-ta" bind:value={form.notes} rows="3" placeholder="Internal notes…"></textarea></div>{/if}
 			</section>
 		</div>
 		<div class="modal-foot">
@@ -322,7 +323,8 @@
 	.grp { background: #fff; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 8px; overflow: hidden; }
 	.grp-row { display: flex; align-items: center; gap: 12px; padding: 13px 16px; cursor: pointer; }
 	.grp-row:hover { background: #FBF7EF; }
-	.chev { color: #C0AC7C; width: 14px; }
+	.chev { color: #C0AC7C; display: inline-flex; align-items: center; transition: transform 0.18s ease; }
+	.chev.open { transform: rotate(90deg); }
 	.grp-date { font-weight: 700; color: #18181B; white-space: nowrap; }
 	.grp-media { color: #524431; font-weight: 600; flex: 1; }
 	.cc { color: #98876e; font-weight: 500; }
@@ -351,8 +353,8 @@
 	.icon:hover { background: #FFF1D6; color: #7B3803; }
 	.icon.danger:hover { background: #FEF2F2; color: #C4381B; }
 
-	.backdrop { position: fixed; inset: 0; background: rgba(40,25,0,0.35); z-index: 40; }
-	.modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 50; width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(50,30,0,0.28); }
+	.backdrop { position: fixed; inset: 0; background: rgba(40,25,0,0.35); z-index: 300; }
+	.modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 310; width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(50,30,0,0.28); }
 	.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
 	.modal-head h2 { font-size: 15px; font-weight: 800; margin: 0; color: #18181B; }
 	.x { background: none; border: none; font-size: 15px; color: #8A7550; cursor: pointer; } .x.sm { font-size: 12px; }
@@ -360,8 +362,8 @@
 	.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--border); flex-wrap: wrap; }
 	.fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: #6b5e4e; position: relative; }
 	.fld-label { font-size: 12px; font-weight: 700; color: #6b5e4e; }
-	.fld input, .fld select, .fld textarea { font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
-	.fld input:focus, .fld select:focus, .fld textarea:focus { outline: none; border-color: var(--accent); }
+	.fld input, .fld select, .notes-ta { font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; width: 100%; }
+	.fld input:focus, .fld select:focus, .notes-ta:focus { outline: none; border-color: var(--accent); }
 	.fld select.invalid { border-color: #F1B0A0; background: #FEF6F3; }
 	.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 	.chk { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #524431; align-self: end; padding-bottom: 8px; }
@@ -369,7 +371,7 @@
 	.sect-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 10px 14px; background: #FBF7EF; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #A88B52; }
 	.sect-head.toggle { cursor: pointer; border: none; font-family: inherit; text-align: left; }
 	.sect-head.toggle:hover { background: #F5EEDD; }
-	.sect-head .chev { color: #C0AC7C; font-size: 11px; }
+	.sect-head .chev { color: #C0AC7C; }
 	.sect-head .dot { color: var(--accent); margin-left: 6px; }
 	.sect-body { padding: 13px 14px; display: flex; flex-direction: column; gap: 12px; }
 	.chk.inline { align-self: center; padding: 0; text-transform: none; letter-spacing: 0; font-weight: 700; color: #524431; }

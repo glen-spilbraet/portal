@@ -138,8 +138,8 @@
 	.link:hover { text-decoration: underline; } .link.danger { color: #C4381B; }
 	.empty { padding: 40px; text-align: center; color: #98876e; background: #fff; border: 1px solid var(--border); border-radius: 14px; }
 
-	.backdrop { position: fixed; inset: 0; background: rgba(40,25,0,0.35); z-index: 40; }
-	.modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 50; width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(50,30,0,0.28); }
+	.backdrop { position: fixed; inset: 0; background: rgba(40,25,0,0.35); z-index: 300; }
+	.modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 310; width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(50,30,0,0.28); }
 	.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
 	.modal-head h2 { font-size: 15px; font-weight: 800; margin: 0; color: #18181B; }
 	.x { background: none; border: none; font-size: 15px; color: #8A7550; cursor: pointer; } .x.sm { font-size: 12px; }
