@@ -59,7 +59,7 @@ export async function deleteMedia(db, id) {
 }
 
 // ── Instances ────────────────────────────────────────────────────────────
-const INST_FIELDS = ['media_id', 'sku', 'product_name', 'award_category', 'is_winner', 'disclosure_date', 'instance_date', 'proof_url', 'proof_key', 'notes'];
+const INST_FIELDS = ['media_id', 'sku', 'award_category', 'is_nominated', 'is_winner', 'disclosure_date', 'instance_date', 'proof_url', 'proof_key', 'nominee_badge_key', 'winner_badge_key', 'notes'];
 
 async function replaceStatements(db, instanceId, statements) {
 	await db.prepare('DELETE FROM award_statement WHERE instance_id = ?').bind(instanceId).run();
@@ -72,9 +72,18 @@ async function replaceStatements(db, instanceId, statements) {
 }
 
 function instBinds(d) {
-	return [d.media_id, d.sku || null, d.product_name || null, d.award_category || null,
-		d.is_winner ? 1 : 0, d.disclosure_date || null, d.instance_date || null,
-		d.proof_url || null, d.proof_key || null, d.notes || null];
+	return [d.media_id, d.sku || null, d.award_category || null,
+		d.is_nominated ? 1 : 0, d.is_winner ? 1 : 0, d.disclosure_date || null, d.instance_date || null,
+		d.proof_url || null, d.proof_key || null, d.nominee_badge_key || null, d.winner_badge_key || null, d.notes || null];
+}
+
+/** Set the same instance_date on many instances (edit a whole block's date). */
+export async function setInstancesDate(db, ids, date) {
+	const clean = (ids ?? []).filter(Boolean);
+	if (!clean.length) return;
+	for (const b of chunk(clean, 25)) {
+		await db.batch(b.map((id) => db.prepare('UPDATE press_instance SET instance_date = ? WHERE id = ?').bind(date || null, id)));
+	}
 }
 
 export async function createInstance(db, d) {
@@ -100,9 +109,16 @@ export async function deleteInstance(db, id) {
 
 /** Every instance (newest first) with media info + its review statements. */
 export async function listAllInstances(db) {
+	// Product name comes ONLY from a matching sales sheet (null → shown as N/A).
 	const instances = (await db.prepare(
-		`SELECT i.*, m.name AS media_name, m.country AS media_country, m.review_scale
-		 FROM press_instance i JOIN award_media m ON m.id = i.media_id
+		`SELECT i.*, m.name AS media_name, m.country AS media_country, m.review_scale,
+		        sh.id AS sheet_id,
+		        (SELECT t.value FROM translations t
+		          WHERE t.sheet_id = sh.id AND t.key = 'product_name' AND t.value != ''
+		          ORDER BY CASE t.language WHEN 'en' THEN 0 WHEN 'da' THEN 1 WHEN 'sv' THEN 2 WHEN 'no' THEN 3 ELSE 4 END LIMIT 1) AS product_name
+		 FROM press_instance i
+		 JOIN award_media m ON m.id = i.media_id
+		 LEFT JOIN sales_sheets sh ON sh.sku = i.sku
 		 ORDER BY i.instance_date DESC, m.name COLLATE NOCASE, i.created_at DESC`
 	).all()).results ?? [];
 	const stmts = (await db.prepare('SELECT * FROM award_statement ORDER BY rowid').all()).results ?? [];
