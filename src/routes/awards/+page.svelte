@@ -7,7 +7,13 @@
 	const today = new Date().toISOString().slice(0, 10);
 	const dFmt = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 	function fdate(s) { if (!s) return 'Undated'; const d = new Date(s + 'T00:00:00Z'); return isNaN(d) ? s : dFmt.format(d); }
+	const myFmt = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' });
+	function monthYear(s) { if (!s) return 'Undated'; const d = new Date(s + 'T00:00:00Z'); return isNaN(d) ? s : myFmt.format(d); }
 	const proofHref = (i) => (i.proof_url ? i.proof_url : i.proof_key ? `/api/img/${i.proof_key}` : null);
+
+	// Country → flag emoji (media country is free text, incl. Danish variants).
+	const FLAGS = { denmark: '🇩🇰', danmark: '🇩🇰', sweden: '🇸🇪', sverige: '🇸🇪', norway: '🇳🇴', norge: '🇳🇴', finland: '🇫🇮', suomi: '🇫🇮', iceland: '🇮🇸', island: '🇮🇸', 'faroe islands': '🇫🇴', færøerne: '🇫🇴', germany: '🇩🇪', tyskland: '🇩🇪', netherlands: '🇳🇱', belgium: '🇧🇪', belgien: '🇧🇪', france: '🇫🇷', frankrig: '🇫🇷', 'united kingdom': '🇬🇧', uk: '🇬🇧', england: '🇬🇧', storbritannien: '🇬🇧', ireland: '🇮🇪', austria: '🇦🇹', østrig: '🇦🇹', switzerland: '🇨🇭', schweiz: '🇨🇭', italy: '🇮🇹', italien: '🇮🇹', spain: '🇪🇸', spanien: '🇪🇸', portugal: '🇵🇹', poland: '🇵🇱', polen: '🇵🇱', usa: '🇺🇸', 'united states': '🇺🇸' };
+	function flag(c) { return c ? (FLAGS[c.trim().toLowerCase()] ?? '') : ''; }
 
 	// ── Group: year → (media + date), newest first ─────────────────────────────
 	const years = $derived.by(() => {
@@ -147,8 +153,8 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 					<div class="grp-row" onclick={() => toggle(g.key)}>
 						<span class="chev" class:open={expanded[g.key]}>{@html CHEV}</span>
-						<span class="grp-date">{fdate(g.date)}</span>
-						<span class="grp-media">{g.media_name}{#if g.country}<span class="cc"> ({g.country})</span>{/if}</span>
+						<span class="grp-date">{monthYear(g.date)}</span>
+						<span class="grp-media">{g.media_name}{#if flag(g.country)}<span class="flag" title={g.country}>{flag(g.country)}</span>{:else if g.country}<span class="cc"> ({g.country})</span>{/if}</span>
 						<span class="counts">
 							{#if g.nominees}<span class="pill nom">{g.nominees} nominee{g.nominees === 1 ? '' : 's'}</span>{/if}
 							{#if g.winners}<span class="pill win">{g.winners} winner{g.winners === 1 ? '' : 's'}</span>{/if}
@@ -328,6 +334,7 @@
 	.grp-date { font-weight: 700; color: #18181B; white-space: nowrap; }
 	.grp-media { color: #524431; font-weight: 600; flex: 1; }
 	.cc { color: #98876e; font-weight: 500; }
+	.flag { margin-left: 8px; font-size: 15px; line-height: 1; }
 	.counts { display: flex; gap: 6px; flex-wrap: wrap; }
 	.pill { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 100px; white-space: nowrap; }
 	.pill.nom { background: #FFF1D6; color: #9A6100; }
