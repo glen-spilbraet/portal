@@ -111,12 +111,17 @@
 		await fetch(`/api/awards/instances/${i.id}`, { method: 'DELETE' });
 		await invalidateAll();
 	}
-	async function editBlockDate(g) {
-		const nd = prompt(`New date for ALL ${g.items.length} instances in this block (YYYY-MM-DD):`, g.date || today);
-		if (nd == null) return;
-		if (!/^\d{4}-\d{2}-\d{2}$/.test(nd)) { alert('Use format YYYY-MM-DD'); return; }
-		await fetch('/api/awards/instances/bulk-date', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: g.items.map((x) => x.id), date: nd }) });
-		await invalidateAll();
+	let dateEdit = $state(null); // { ids, value, count } while the date-edit modal is open
+	let savingDate = $state(false);
+	function openDateEdit(g) { dateEdit = { ids: g.items.map((x) => x.id), value: g.date || today, count: g.items.length }; }
+	async function saveBlockDate() {
+		if (!dateEdit || savingDate || !dateEdit.value) return;
+		savingDate = true;
+		try {
+			await fetch('/api/awards/instances/bulk-date', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: dateEdit.ids, date: dateEdit.value }) });
+			dateEdit = null;
+			await invalidateAll();
+		} finally { savingDate = false; }
 	}
 	const reviewsLabel = (s) => (s.score != null && s.score !== '' ? `${s.score}★ ` : '') + (s.statement ?? '');
 
@@ -162,7 +167,7 @@
 					{#if expanded[g.key]}
 						<div class="items">
 							<div class="items-bar">
-								<button class="btn sm" onclick={() => editBlockDate(g)}>✎ Edit date for all</button>
+								<button class="btn sm" onclick={() => openDateEdit(g)}>✎ Edit date for all</button>
 							</div>
 							<div class="tbl-scroll">
 								<table class="tbl">
@@ -311,6 +316,21 @@
 	</div>
 {/if}
 
+{#if dateEdit}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="backdrop" onclick={() => (dateEdit = null)}></div>
+	<div class="modal sm">
+		<div class="modal-head"><h2>Edit date · {dateEdit.count} instance{dateEdit.count === 1 ? '' : 's'}</h2><button class="x" onclick={() => (dateEdit = null)}>✕</button></div>
+		<div class="modal-body">
+			<label class="fld"><span>New date (applies to all instances in this block)</span><input type="date" bind:value={dateEdit.value} /></label>
+		</div>
+		<div class="modal-foot">
+			<button class="btn" onclick={() => (dateEdit = null)}>Cancel</button>
+			<button class="btn primary" onclick={saveBlockDate} disabled={savingDate || !dateEdit.value}>{savingDate ? 'Saving…' : 'Save date'}</button>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.wrap { max-width: 1140px; margin: 0 auto; padding: 22px 28px 64px; }
 	.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
@@ -361,6 +381,7 @@
 
 	.backdrop { position: fixed; inset: 0; background: rgba(40,25,0,0.35); z-index: 300; }
 	.modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 310; width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(50,30,0,0.28); }
+	.modal.sm { width: min(400px, calc(100vw - 32px)); }
 	.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
 	.modal-head h2 { font-size: 15px; font-weight: 800; margin: 0; color: #18181B; }
 	.x { background: none; border: none; font-size: 15px; color: #8A7550; cursor: pointer; } .x.sm { font-size: 12px; }
