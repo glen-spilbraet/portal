@@ -8,13 +8,34 @@
 	let editingId = $state(null);
 	let saving = $state(false);
 	let form = $state(blank());
-	function blank() { return { name: '', country: '', review_scale: '', notes: '', contacts: [] }; }
+	function blank() { return { name: '', country: '', review_scale: '', notes: '', contacts: [], badge_placement: 'bottom-right', badge_pad_x: true, badge_pad_y: true, badge_size_pct: 15, badge_pad_pct: 3 }; }
+
+	const CORNERS = [
+		{ v: 'top-left', label: 'Top left' }, { v: 'top-right', label: 'Top right' },
+		{ v: 'bottom-left', label: 'Bottom left' }, { v: 'bottom-right', label: 'Bottom right' }
+	];
+
+	// Live preview: badge sized/positioned as % of the box, respecting padding toggles.
+	const badgeStyle = $derived.by(() => {
+		const size = Number(form.badge_size_pct) || 15;
+		const p = Number(form.badge_pad_pct) || 0;
+		const px = form.badge_pad_x ? p : 0;
+		const py = form.badge_pad_y ? p : 0;
+		const [vy, vx] = form.badge_placement.split('-');
+		const parts = [`width:${size}%`, `${vy}:${py}%`, `${vx}:${px}%`];
+		return parts.join(';');
+	});
 
 	function openNew() { editingId = null; form = blank(); open = true; }
 	async function openEdit(id) {
 		editingId = id; open = true; form = blank();
 		const m = await (await fetch(`/api/awards/media/${id}`)).json();
-		form = { name: m.name ?? '', country: m.country ?? '', review_scale: m.review_scale ?? '', notes: m.notes ?? '', contacts: m.contacts?.map((c) => ({ name: c.name ?? '', email: c.email ?? '', phone: c.phone ?? '', role: c.role ?? '' })) ?? [] };
+		form = {
+			name: m.name ?? '', country: m.country ?? '', review_scale: m.review_scale ?? '', notes: m.notes ?? '',
+			contacts: m.contacts?.map((c) => ({ name: c.name ?? '', email: c.email ?? '', phone: c.phone ?? '', role: c.role ?? '' })) ?? [],
+			badge_placement: m.badge_placement ?? 'bottom-right', badge_pad_x: !!m.badge_pad_x, badge_pad_y: !!m.badge_pad_y,
+			badge_size_pct: m.badge_size_pct ?? 15, badge_pad_pct: m.badge_pad_pct ?? 3
+		};
 	}
 	function close() { open = false; }
 	function addContact() { form.contacts = [...form.contacts, { name: '', email: '', phone: '', role: '' }]; }
@@ -105,6 +126,32 @@
 				</div>
 			{/each}
 
+			<div class="sub-head"><span>Badge placement</span></div>
+			<p class="hint">How this media's award / review badge sits on a product box, on sheets &amp; catalogues.</p>
+			<div class="badge-cfg">
+				<div class="corner-grid">
+					{#each CORNERS as c (c.v)}
+						<button type="button" class="corner" class:sel={form.badge_placement === c.v} title={c.label}
+							onclick={() => (form.badge_placement = c.v)}>
+							<span class="cbox" data-pos={c.v}><span class="cdot"></span></span>
+						</button>
+					{/each}
+				</div>
+				<div class="preview">
+					<div class="pbox">
+						<span class="pbadge" style={badgeStyle}>badge</span>
+					</div>
+				</div>
+			</div>
+			<div class="row2">
+				<label class="chk"><input type="checkbox" bind:checked={form.badge_pad_y} /> Padding top / bottom</label>
+				<label class="chk"><input type="checkbox" bind:checked={form.badge_pad_x} /> Padding left / right</label>
+			</div>
+			<div class="row2">
+				<label class="fld"><span>Badge size (% of box)</span><input type="number" min="1" max="100" step="0.5" bind:value={form.badge_size_pct} /></label>
+				<label class="fld"><span>Padding (% of box)</span><input type="number" min="0" max="30" step="0.5" bind:value={form.badge_pad_pct} /></label>
+			</div>
+
 			<label class="fld"><span>Notes</span><textarea bind:value={form.notes} rows="2"></textarea></label>
 		</div>
 		<div class="modal-foot">
@@ -152,4 +199,23 @@
 	.sub-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #A88B52; margin-top: 4px; }
 	.contact-row { display: grid; grid-template-columns: 1fr 1fr 0.8fr 0.8fr auto; gap: 6px; align-items: center; }
 	.contact-row input { font-family: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; }
+
+	.hint { font-size: 12px; color: #98876e; margin: -4px 0 2px; }
+	.chk { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #524431; }
+	.chk input { width: 15px; height: 15px; accent-color: var(--accent); }
+	.badge-cfg { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; }
+	.corner-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+	.corner { width: 46px; height: 46px; padding: 0; border: 1px solid var(--border); border-radius: 9px; background: #fff; cursor: pointer; }
+	.corner:hover { border-color: var(--accent); }
+	.corner.sel { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(245,120,50,0.25); }
+	.cbox { position: relative; display: block; width: 100%; height: 100%; }
+	.cdot { position: absolute; width: 12px; height: 12px; border-radius: 3px; background: #C0AC7C; }
+	.corner.sel .cdot { background: var(--accent); }
+	.cbox[data-pos='top-left'] .cdot { top: 6px; left: 6px; }
+	.cbox[data-pos='top-right'] .cdot { top: 6px; right: 6px; }
+	.cbox[data-pos='bottom-left'] .cdot { bottom: 6px; left: 6px; }
+	.cbox[data-pos='bottom-right'] .cdot { bottom: 6px; right: 6px; }
+	.preview { display: flex; justify-content: center; }
+	.pbox { position: relative; width: 150px; height: 100px; background: #FBF7EF; border: 1px dashed #C0AC7C; border-radius: 6px; }
+	.pbadge { position: absolute; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; background: var(--accent); color: #fff; border-radius: 50%; font-size: 9px; font-weight: 800; }
 </style>

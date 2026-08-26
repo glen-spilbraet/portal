@@ -35,17 +35,28 @@ async function replaceContacts(db, mediaId, contacts) {
 	}
 }
 
+const PLACEMENTS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+function badgeBinds(d) {
+	return [
+		PLACEMENTS.includes(d.badge_placement) ? d.badge_placement : 'bottom-right',
+		d.badge_pad_x ? 1 : 0,
+		d.badge_pad_y ? 1 : 0,
+		Number(d.badge_size_pct) || 15,
+		Number(d.badge_pad_pct) || 3,
+	];
+}
+
 export async function createMedia(db, d) {
 	const id = uid();
-	await db.prepare('INSERT INTO award_media (id, name, country, review_scale, notes) VALUES (?,?,?,?,?)')
-		.bind(id, d.name, d.country || null, d.review_scale ? Number(d.review_scale) : null, d.notes || null).run();
+	await db.prepare('INSERT INTO award_media (id, name, country, review_scale, notes, badge_placement, badge_pad_x, badge_pad_y, badge_size_pct, badge_pad_pct) VALUES (?,?,?,?,?,?,?,?,?,?)')
+		.bind(id, d.name, d.country || null, d.review_scale ? Number(d.review_scale) : null, d.notes || null, ...badgeBinds(d)).run();
 	await replaceContacts(db, id, d.contacts);
 	return id;
 }
 
 export async function updateMedia(db, id, d) {
-	await db.prepare('UPDATE award_media SET name = ?, country = ?, review_scale = ?, notes = ? WHERE id = ?')
-		.bind(d.name, d.country || null, d.review_scale ? Number(d.review_scale) : null, d.notes || null, id).run();
+	await db.prepare('UPDATE award_media SET name = ?, country = ?, review_scale = ?, notes = ?, badge_placement = ?, badge_pad_x = ?, badge_pad_y = ?, badge_size_pct = ?, badge_pad_pct = ? WHERE id = ?')
+		.bind(d.name, d.country || null, d.review_scale ? Number(d.review_scale) : null, d.notes || null, ...badgeBinds(d), id).run();
 	if (d.contacts) await replaceContacts(db, id, d.contacts);
 }
 
