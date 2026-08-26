@@ -7,6 +7,7 @@
  *     --header "Authorization: Bearer <MCP_API_KEY>"
  */
 import { searchProducts, getProductBySku, getProductImageBytes } from '$lib/server/mcpProducts.js';
+import { getProductPress, listPress, listMediaOutlets, getMediaDetail } from '$lib/server/mcpAwards.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_INFO = { name: 'spilbraet-portal', version: '1.0.0' };
@@ -44,6 +45,42 @@ const TOOLS = [
 			},
 			required: ['sku']
 		}
+	},
+	{
+		name: 'get_product_press',
+		description: 'Get all awards & press for a product by SKU: nominations, wins and reviews. Each entry has the media outlet, award category, whether it was nominated / won, the event and disclosure dates, a proof link, badge image URLs, and any review statements with their scores.',
+		inputSchema: {
+			type: 'object',
+			properties: { sku: { type: 'string', description: 'Exact product SKU.' } },
+			required: ['sku']
+		}
+	},
+	{
+		name: 'list_press',
+		description: 'List recent awards & press instances across all products (newest first). Optionally filter by date range and/or media outlet name.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				from: { type: 'string', description: 'Only include instances on/after this date (YYYY-MM-DD).' },
+				to: { type: 'string', description: 'Only include instances on/before this date (YYYY-MM-DD).' },
+				media: { type: 'string', description: 'Filter by media outlet name (partial match).' },
+				limit: { type: 'number', description: 'Max results (default 50, max 200).' }
+			}
+		}
+	},
+	{
+		name: 'list_media',
+		description: 'List the media outlets (award shows / press) with their country, review scale and how many contacts and press instances each has.',
+		inputSchema: { type: 'object', properties: {} }
+	},
+	{
+		name: 'get_media',
+		description: 'Get one media outlet by id: details, review scale, badge-placement config and contacts (name, email, phone, role).',
+		inputSchema: {
+			type: 'object',
+			properties: { id: { type: 'string', description: 'Media id (from list_media).' } },
+			required: ['id']
+		}
 	}
 ];
 
@@ -67,6 +104,25 @@ async function callTool(name, args, { db, platform, origin }) {
 		const img = await getProductImageBytes(platform, db, args.sku, args.which ?? 'box');
 		if (img.error) return { ...textContent(img.error), isError: true };
 		return { content: [{ type: 'image', data: img.base64, mimeType: img.mimeType }] };
+	}
+	if (name === 'get_product_press') {
+		if (!args?.sku) return { ...textContent('Missing required argument: sku'), isError: true };
+		const press = await getProductPress(db, args.sku, origin);
+		return textContent({ sku: args.sku, count: press.length, press });
+	}
+	if (name === 'list_press') {
+		const press = await listPress(db, { from: args?.from, to: args?.to, media: args?.media, limit: args?.limit }, origin);
+		return textContent({ count: press.length, press });
+	}
+	if (name === 'list_media') {
+		const media = await listMediaOutlets(db);
+		return textContent({ count: media.length, media });
+	}
+	if (name === 'get_media') {
+		if (!args?.id) return { ...textContent('Missing required argument: id'), isError: true };
+		const media = await getMediaDetail(db, args.id);
+		if (!media) return { ...textContent(`No media found with id ${args.id}`), isError: true };
+		return textContent(media);
 	}
 	return { ...textContent(`Unknown tool: ${name}`), isError: true };
 }
