@@ -385,7 +385,8 @@
 	.stmt-row { display: grid; grid-template-columns: 1fr 90px auto; gap: 6px; align-items: start; }
 	.stmt-row textarea { font-family: inherit; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 	.score-in { font-family: inherit; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
-	.sku-drop { position: absolute; top: 100%; left: 0; right: 0; z-index: 5; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(80,50,0,0.14); margin-top: 2px; max-height: 220px; overflow-y: auto; }
+	/* In-flow (not absolute) so the section card's overflow:hidden can't clip it. */
+	.sku-drop { background: #fff; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; max-height: 200px; overflow-y: auto; }
 	.sku-opt { display: block; width: 100%; text-align: left; background: none; border: none; font-family: inherit; font-size: 13px; padding: 7px 10px; cursor: pointer; color: #3f3a33; }
 	.sku-opt:hover { background: #FFF5D2; }
 	.badge-fld { display: flex; flex-direction: column; gap: 5px; }
