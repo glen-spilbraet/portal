@@ -8,6 +8,8 @@
  */
 import { searchProducts, getProductBySku, getProductImageBytes } from '$lib/server/mcpProducts.js';
 import { getProductPress, listPress, listMediaOutlets, getMediaDetail } from '$lib/server/mcpAwards.js';
+import { validateAccessToken } from '$lib/server/mcpOauth.js';
+import { getAllowedUser, getUserPermissions } from '$lib/db.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_INFO = { name: 'spilbraet-portal', version: '1.0.0' };
@@ -88,7 +90,21 @@ function rpc(id, result) { return { jsonrpc: '2.0', id, result }; }
 function rpcError(id, code, message) { return { jsonrpc: '2.0', id, error: { code, message } }; }
 function textContent(obj) { return { content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] }; }
 
-async function callTool(name, args, { db, platform, origin }) {
+// Which permission each tool requires. `perms === null` means full access
+// (legacy MCP_API_KEY); otherwise gate by the OAuth user's portal permissions.
+const SHEET_TOOLS = new Set(['search_products', 'get_product', 'get_product_image']);
+const AWARDS_TOOLS = new Set(['get_product_press', 'list_press', 'list_media', 'get_media']);
+function toolAllowed(name, perms) {
+	if (!perms) return true;
+	if (SHEET_TOOLS.has(name)) return !!perms.sheets;
+	if (AWARDS_TOOLS.has(name)) return !!perms.awards;
+	return true;
+}
+
+async function callTool(name, args, { db, platform, origin, perms }) {
+	if (!toolAllowed(name, perms)) {
+		return { ...textContent(`Your account does not have access to "${name}".`), isError: true };
+	}
 	if (name === 'search_products') {
 		const results = await searchProducts(db, args?.query ?? '');
 		return textContent({ count: results.length, results });
@@ -155,7 +171,8 @@ async function handleMessage(msg, ctx) {
 const CORS = {
 	'Access-Control-Allow-Origin': '*',
 	'Access-Control-Allow-Methods': 'POST, OPTIONS',
-	'Access-Control-Allow-Headers': 'Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version'
+	'Access-Control-Allow-Headers': 'Content-Type, Authorization, Mcp-Session-Id, MCP-Protocol-Version',
+	'Access-Control-Expose-Headers': 'WWW-Authenticate, Mcp-Session-Id'
 };
 
 export async function OPTIONS() {
@@ -168,20 +185,40 @@ export async function GET() {
 }
 
 export async function POST({ request, platform, url }) {
-	const expected = platform?.env?.MCP_API_KEY;
-	const auth = request.headers.get('authorization') ?? '';
-	if (!expected || auth !== `Bearer ${expected}`) {
-		return new Response(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Unauthorized' } }), {
-			status: 401,
-			headers: { 'Content-Type': 'application/json', ...CORS }
-		});
-	}
-
 	const db = platform?.env?.DB;
 	if (!db) {
 		return new Response(JSON.stringify(rpcError(null, -32603, 'Database unavailable')), {
 			status: 500,
 			headers: { 'Content-Type': 'application/json', ...CORS }
+		});
+	}
+
+	// Auth: OAuth bearer token (claude.ai / Desktop) OR the legacy shared key
+	// (Claude Code). `perms === null` → full access (shared key); an OAuth token
+	// resolves to a portal user whose permissions gate the tools.
+	const expected = platform?.env?.MCP_API_KEY;
+	const auth = request.headers.get('authorization') ?? '';
+	const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+
+	let perms = null;
+	let authed = false;
+	if (bearer && expected && bearer === expected) {
+		authed = true; // legacy shared key → full access
+	} else if (bearer) {
+		const tok = await validateAccessToken(db, bearer);
+		if (tok) {
+			const user = await getAllowedUser(db, tok.email);
+			if (user) { perms = await getUserPermissions(db, user); authed = true; }
+		}
+	}
+	if (!authed) {
+		return new Response(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Unauthorized' } }), {
+			status: 401,
+			headers: {
+				'Content-Type': 'application/json',
+				'WWW-Authenticate': `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`,
+				...CORS
+			}
 		});
 	}
 
@@ -193,7 +230,7 @@ export async function POST({ request, platform, url }) {
 		});
 	}
 
-	const ctx = { db, platform, origin: url.origin };
+	const ctx = { db, platform, origin: url.origin, perms };
 	const isBatch = Array.isArray(body);
 	const messages = isBatch ? body : [body];
 	const responses = [];
