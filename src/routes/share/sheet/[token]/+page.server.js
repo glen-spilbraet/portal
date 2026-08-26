@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { getSheetByShareToken, getTranslations, getImages, getGlobalLabels, getCtaVersionTranslations } from '$lib/db.js';
 import { fetchSalesPrices } from '$lib/server/rackbeat.js';
+import { getBadgesForSku } from '$lib/server/awards.js';
 
 const LANGUAGES = [
 	{ code: 'en', label: 'English' },
@@ -23,6 +24,7 @@ export async function load({ params, url, platform }) {
 		getGlobalLabels(db),
 		fetchSalesPrices(sheet.sku, apiKey),
 	]);
+	const awardBadges = await getBadgesForSku(db, sheet.sku, new Date().toISOString().slice(0, 10));
 
 	if (sheet.cta_version_id) {
 		const ctaT = await getCtaVersionTranslations(db, sheet.cta_version_id);
@@ -53,6 +55,7 @@ export async function load({ params, url, platform }) {
 		languages: availableLanguages,
 		globalLabels,
 		salesPrices,
+		awardBadges,
 		token: params.token,
 	};
 }

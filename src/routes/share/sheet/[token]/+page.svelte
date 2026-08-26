@@ -89,6 +89,7 @@
 			globalLabels={data.globalLabels}
 			hiddenElements={JSON.parse(data.sheet.hidden_elements || '{}')}
 			salesPrices={data.salesPrices}
+			awardBadges={data.awardBadges}
 		/>
 	</div>
 </div>

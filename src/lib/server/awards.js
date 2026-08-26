@@ -118,6 +118,45 @@ export async function deleteInstance(db, id) {
 	]);
 }
 
+/**
+ * Resolve the award / press badges to overlay on a product box, for one or more
+ * SKUs. The winner badge shows once the disclosure_date has passed (or none is
+ * set); before that the nominee badge shows. Returns a map { sku: [badge, ...] }.
+ * `today` is an ISO date string (YYYY-MM-DD).
+ */
+export async function getBadgesForSkus(db, skus, today) {
+	const clean = [...new Set((skus ?? []).filter(Boolean))];
+	if (!clean.length) return {};
+	const out = {};
+	for (const b of chunk(clean, 40)) {
+		const rows = (await db.prepare(
+			`SELECT i.sku, i.is_winner, i.disclosure_date, i.nominee_badge_key, i.winner_badge_key,
+			        i.instance_date, i.created_at,
+			        m.badge_placement, m.badge_pad_x, m.badge_pad_y, m.badge_size_pct, m.badge_pad_pct
+			 FROM press_instance i JOIN award_media m ON m.id = i.media_id
+			 WHERE i.sku IN (${b.map(() => '?').join(',')})
+			 ORDER BY i.instance_date DESC, i.created_at DESC`
+		).bind(...b).all()).results ?? [];
+		for (const r of rows) {
+			const disclosed = !r.disclosure_date || r.disclosure_date <= today;
+			const key = (r.is_winner && r.winner_badge_key && disclosed) ? r.winner_badge_key : r.nominee_badge_key;
+			if (!key) continue;
+			(out[r.sku] ??= []).push({
+				image_key: key,
+				placement: r.badge_placement || 'bottom-right',
+				pad_x: !!r.badge_pad_x, pad_y: !!r.badge_pad_y,
+				size_pct: r.badge_size_pct ?? 15, pad_pct: r.badge_pad_pct ?? 3
+			});
+		}
+	}
+	return out;
+}
+
+/** Convenience: badges for a single SKU (array, possibly empty). */
+export async function getBadgesForSku(db, sku, today) {
+	return (await getBadgesForSkus(db, [sku], today))[sku] ?? [];
+}
+
 /** Every instance (newest first) with media info + its review statements. */
 export async function listAllInstances(db) {
 	// Product name comes ONLY from a matching sales sheet (null → shown as N/A).

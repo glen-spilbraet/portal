@@ -271,6 +271,7 @@
 			{globalLabels}
 			{hiddenElements}
 			salesPrices={data.salesPrices}
+			awardBadges={data.awardBadges}
 			{youtubeUrl}
 			onvideoclick={() => videoModalOpen = true}
 		/>

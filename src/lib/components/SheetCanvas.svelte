@@ -16,7 +16,24 @@
 		salesPrices = null,      // { DKK: number, SEK: number, NOK: number, EUR: number, ... } | null
 	youtubeUrl = null,       // YouTube URL string or null
 	onvideoclick = null,     // callback when play button clicked
+	awardBadges = [],        // [{ image_key, placement, pad_x, pad_y, size_pct, pad_pct }] — award/press badges overlaid on the box
 	} = $props();
+
+	// Award badges positioned as % of the box; multiple in the same corner stack inward.
+	const BADGE_GAP = 2;
+	const badgeLayout = $derived.by(() => {
+		const seen = {};
+		return (awardBadges ?? []).map((b) => {
+			const corner = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(b.placement) ? b.placement : 'bottom-right';
+			const n = seen[corner] ?? 0; seen[corner] = n + 1;
+			const size = Number(b.size_pct) || 15;
+			const p = Number(b.pad_pct) || 0;
+			const px = (b.pad_x ? p : 0) + n * (size + BADGE_GAP);
+			const py = b.pad_y ? p : 0;
+			const [vy, vx] = corner.split('-');
+			return { key: b.image_key, style: `width:${size}%;${vy}:${py}%;${vx}:${px}%` };
+		});
+	});
 
 	// ── YouTube helpers ───────────────────────────────────────────────────
 	const youtubeId = $derived(extractYouTubeId(youtubeUrl));
@@ -459,6 +476,9 @@
 				{:else}
 					<div class="box-placeholder">📦</div>
 				{/if}
+				{#each badgeLayout as b (b.key)}
+					<img class="award-badge" src="/api/img/{b.key}?size=400" style={b.style} alt="Award badge" />
+				{/each}
 				{#if youtubeId && onvideoclick}
 					<button class="video-pill-btn no-print" onclick={onvideoclick} title="Watch video">
 						<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -818,6 +838,8 @@
 	}
 
 	.box-area.no-padding { padding: 0; }
+
+	.award-badge { position: absolute; height: auto; z-index: 3; pointer-events: none; object-fit: contain; }
 
 	@media print {
 		.video-pill-btn { display: none !important; }

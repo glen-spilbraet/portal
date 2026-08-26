@@ -5,7 +5,23 @@
 
 	let { data } = $props();
 
-	const { catalogue, items, globalLabels, itemPrices } = data;
+	const { catalogue, items, globalLabels, itemPrices, badgesBySku } = data;
+
+	// Award / press badges for a SKU, sized/positioned as % of the box (same rules as SheetCanvas).
+	const BADGE_GAP = 2;
+	function badgeLayoutFor(sku) {
+		const seen = {};
+		return (badgesBySku?.[sku] ?? []).map((b) => {
+			const corner = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(b.placement) ? b.placement : 'bottom-right';
+			const n = seen[corner] ?? 0; seen[corner] = n + 1;
+			const size = Number(b.size_pct) || 15;
+			const p = Number(b.pad_pct) || 0;
+			const px = (b.pad_x ? p : 0) + n * (size + BADGE_GAP);
+			const py = b.pad_y ? p : 0;
+			const [vy, vx] = corner.split('-');
+			return { key: b.image_key, style: `width:${size}%;${vy}:${py}%;${vx}:${px}%` };
+		});
+	}
 
 	let downloading = $state(false);
 	let exportingExcel = $state(false);
@@ -385,6 +401,9 @@
 														</svg>
 													</div>
 												{/if}
+												{#each badgeLayoutFor(fieldVal(fields, 'sku')) as b (b.key)}
+													<img class="award-badge" src="/api/img/{b.key}?size=400" style={b.style} alt="Award badge" />
+												{/each}
 											</div>
 											{#if !hidden.badges && (age || time || players)}
 												<div class="badges-side">
@@ -607,10 +626,11 @@
 		background: white; border-radius: 24px;
 		box-shadow: 0 16px 56px rgba(0,0,0,0.10);
 		padding: 20px; aspect-ratio: 1 / 1; width: 100%;
-		box-sizing: border-box;
+		box-sizing: border-box; position: relative;
 		display: flex; align-items: center; justify-content: center; overflow: hidden;
 	}
 	.box-img { width: 100%; height: 100%; object-fit: contain; }
+	.award-badge { position: absolute; height: auto; z-index: 3; pointer-events: none; object-fit: contain; }
 	.box-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 
 	/* ATA badges — vertically stacked on left edge of box frame */

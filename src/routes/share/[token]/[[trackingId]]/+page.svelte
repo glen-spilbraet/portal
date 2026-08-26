@@ -4,7 +4,23 @@
 	import { zipSync } from 'fflate';
 
 	let { data } = $props();
-	const { catalogue, items, globalLabels, itemPrices, token, trackingId } = data;
+	const { catalogue, items, globalLabels, itemPrices, badgesBySku, token, trackingId } = data;
+
+	// Award / press badges for a SKU, sized/positioned as % of the box (same rules as SheetCanvas).
+	const BADGE_GAP = 2;
+	function badgeLayoutFor(sku) {
+		const seen = {};
+		return (badgesBySku?.[sku] ?? []).map((b) => {
+			const corner = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(b.placement) ? b.placement : 'bottom-right';
+			const n = seen[corner] ?? 0; seen[corner] = n + 1;
+			const size = Number(b.size_pct) || 15;
+			const p = Number(b.pad_pct) || 0;
+			const px = (b.pad_x ? p : 0) + n * (size + BADGE_GAP);
+			const py = b.pad_y ? p : 0;
+			const [vy, vx] = corner.split('-');
+			return { key: b.image_key, style: `width:${size}%;${vy}:${py}%;${vx}:${px}%` };
+		});
+	}
 
 	let downloading = $state(false);
 	let exportingExcel = $state(false);
@@ -486,6 +502,9 @@
 														</svg>
 													</div>
 												{/if}
+												{#each badgeLayoutFor(fieldVal(fields, 'sku')) as b (b.key)}
+													<img class="award-badge" src="/api/img/{b.key}?size=400" style={b.style} alt="Award badge" />
+												{/each}
 												{#if item.youtube_url && extractYouTubeId(item.youtube_url)}
 													<button class="video-pill-btn no-print" onclick={() => videoModal = item.youtube_url} title="Watch video">
 														<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -652,6 +671,7 @@
 	.product-image-col { flex: 0 0 45%; display: flex; flex-direction: column; align-items: stretch; }
 	.box-frame { position: relative; width: 100%; }
 	.box-area { background: white; border-radius: 24px; box-shadow: 0 16px 56px rgba(0,0,0,0.10); padding: 20px; aspect-ratio: 1/1; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; overflow: hidden; opacity: 0; transition: opacity 0.15s; position: relative; }
+	.award-badge { position: absolute; height: auto; z-index: 3; pointer-events: none; object-fit: contain; }
 	.box-area.box-detected { opacity: 1; }
 	.box-area.no-padding { padding: 0; }
 	.box-img { width: 100%; height: 100%; object-fit: contain; }
