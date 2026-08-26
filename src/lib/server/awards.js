@@ -132,17 +132,20 @@ export async function getBadgesForSkus(db, skus, today) {
 		const rows = (await db.prepare(
 			`SELECT i.sku, i.is_winner, i.disclosure_date, i.nominee_badge_key, i.winner_badge_key,
 			        i.instance_date, i.created_at,
-			        m.badge_placement, m.badge_pad_x, m.badge_pad_y, m.badge_size_pct, m.badge_pad_pct
+			        m.name AS media_name, m.badge_placement, m.badge_pad_x, m.badge_pad_y, m.badge_size_pct, m.badge_pad_pct
 			 FROM press_instance i JOIN award_media m ON m.id = i.media_id
 			 WHERE i.sku IN (${b.map(() => '?').join(',')})
 			 ORDER BY i.instance_date DESC, i.created_at DESC`
 		).bind(...b).all()).results ?? [];
 		for (const r of rows) {
 			const disclosed = !r.disclosure_date || r.disclosure_date <= today;
-			const key = (r.is_winner && r.winner_badge_key && disclosed) ? r.winner_badge_key : r.nominee_badge_key;
+			const isWinner = !!(r.is_winner && r.winner_badge_key && disclosed);
+			const key = isWinner ? r.winner_badge_key : r.nominee_badge_key;
 			if (!key) continue;
 			(out[r.sku] ??= []).push({
 				image_key: key,
+				kind: isWinner ? 'winner' : 'nominee',
+				media: r.media_name ?? null,
 				placement: r.badge_placement || 'bottom-right',
 				pad_x: !!r.badge_pad_x, pad_y: !!r.badge_pad_y,
 				size_pct: r.badge_size_pct ?? 15, pad_pct: r.badge_pad_pct ?? 3

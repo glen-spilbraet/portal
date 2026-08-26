@@ -159,8 +159,10 @@
 		zippingPhotos = true;
 		zipProgress = 0;
 		try {
-			const photoItems = items.filter(item => (!item.type || item.type === 'sheet') && item.box_image_key);
-			if (!photoItems.length) { alert('No product photos found in this catalogue.'); return; }
+			const sheetItems = items.filter(item => !item.type || item.type === 'sheet');
+			const photoItems = sheetItems.filter(item => item.box_image_key);
+			const hasBadges  = sheetItems.some(item => (badgesBySku?.[fieldVal(getDataFields(item.data_fields), 'sku')] ?? []).length);
+			if (!photoItems.length && !hasBadges) { alert('No product photos or badges found in this catalogue.'); return; }
 
 			const files = {};
 			for (let i = 0; i < photoItems.length; i++) {
@@ -175,8 +177,28 @@
 				if (!res.ok) continue;
 				const buf = await res.arrayBuffer();
 				files[filename] = new Uint8Array(buf);
-				zipProgress = Math.round(((i + 1) / photoItems.length) * 90);
+				zipProgress = Math.round(((i + 1) / photoItems.length) * 80);
 			}
+
+			// Award / press badges shown on products → a Badges/ subfolder.
+			const badgeCache = {};
+			for (const item of sheetItems) {
+				const fields = getDataFields(item.data_fields);
+				const sku = fieldVal(fields, 'sku');
+				const name = item.product_name?.trim() || '';
+				for (const b of badgesBySku?.[sku] ?? []) {
+					if (!badgeCache[b.image_key]) {
+						const res = await fetch(`/api/img/${b.image_key}`);
+						if (!res.ok) continue;
+						badgeCache[b.image_key] = new Uint8Array(await res.arrayBuffer());
+					}
+					const ext = b.image_key.split('.').pop() || 'png';
+					const parts = [sku || 'product', name, b.kind, b.media].filter(Boolean);
+					files[`Badges/${parts.join(' – ')}.${ext}`] = badgeCache[b.image_key];
+				}
+			}
+
+			if (!Object.keys(files).length) { alert('Nothing to download.'); return; }
 
 			const zipped = zipSync(files, { level: 0 });
 			zipProgress = 100;
@@ -219,6 +241,11 @@
 			const badgeOrdered    = EXCEL_BADGE.filter(k => allKeys.has(k));
 			const dataKeys        = [...priorityOrdered, ...otherKeys, ...badgeOrdered];
 
+			// List price column — only when this catalogue shows list prices.
+			const showPrice = !!catalogue.show_list_price;
+			const priceCurrency = ({ da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' })[lang] ?? 'EUR';
+			const priceLabel = `${globalLabel('listpris') ?? 'List price'} (${priceCurrency})`;
+
 			const headers = [];
 			let nameInserted = false;
 			for (const k of dataKeys) {
@@ -226,6 +253,7 @@
 				if (k === 'sku') { headers.push('Product Name'); nameInserted = true; }
 			}
 			if (!nameInserted) headers.unshift('Product Name');
+			if (showPrice) headers.push(priceLabel);
 
 			const hasDesc    = sheetItems.some(i => i.product_description?.trim());
 			if (hasDesc) headers.push('Short description');
@@ -242,6 +270,10 @@
 					if (k === 'sku') { row.push(item.product_name ?? ''); namePushed = true; }
 				}
 				if (!namePushed) row.unshift(item.product_name ?? '');
+				if (showPrice) {
+					const price = itemPrices?.[fieldVal(fields, 'sku')];
+					row.push(price != null ? Number(price.toFixed(2)) : '');
+				}
 				if (hasDesc) row.push(item.product_description ?? '');
 				const usps = item.usps ?? [];
 				for (let i = 0; i < maxBullets; i++) row.push(usps[i] ?? '');
