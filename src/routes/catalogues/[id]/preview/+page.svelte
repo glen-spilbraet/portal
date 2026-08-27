@@ -716,7 +716,7 @@
 	}
 	.grid-cell-img { width: 100%; height: 100%; object-fit: contain; }
 	.grid-cell-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
-	.grid-cell-name { font-size: 14px; font-weight: 700; color: #18181B; text-align: center; line-height: 1.25; margin: 0; }
+	.grid-cell-name { font-size: 14px; font-weight: 700; color: #18181B; text-align: center; line-height: 1.25; margin: 0; width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 	/* USPs — exact match */
 	.usp-list { list-style: none; display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; }
