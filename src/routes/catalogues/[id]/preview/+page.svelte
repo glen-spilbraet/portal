@@ -382,7 +382,7 @@
 							{@const gridProducts = item.grid_products ?? Array(gridSize).fill(null)}
 							<!-- Product grid section (2x2 or 2x3) -->
 							<div class="product-half grid-half" class:divider-above={slotIdx === 1}>
-								<div class="grid-section" class:grid-6={gridSize === 6} style="grid-template-columns: repeat({gridSize === 6 ? 3 : 2}, 1fr);">
+								<div class="grid-section" class:grid-6={gridSize === 6} style="grid-template-columns: repeat({gridSize === 6 ? 3 : 2}, minmax(0, 1fr));">
 									{#each gridProducts as product}
 										{#if product}
 											<div class="grid-cell">
@@ -705,7 +705,7 @@
 		height: 100%;
 		grid-template-rows: repeat(2, 1fr);
 	}
-	.grid-cell { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 0; }
+	.grid-cell { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 0; min-width: 0; }
 	/* Box flexes to fill the cell (minus the name), giving a tall, ~square card. */
 	.grid-cell-box {
 		width: 100%; flex: 1; min-height: 0;
