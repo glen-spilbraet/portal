@@ -396,8 +396,11 @@
 															</svg>
 														</div>
 													{/if}
+													{#each badgeLayoutFor(fieldVal(getDataFields(product.data_fields), 'sku')) as b (b.key)}
+														<img class="award-badge" src="/api/img/{b.key}?size=400" style={b.style} alt="Award badge" />
+													{/each}
 												</div>
-												<p class="grid-cell-name">{product.product_name ?? ''}</p>
+												{#if gridSize !== 4}<p class="grid-cell-name">{product.product_name ?? ''}</p>{/if}
 											</div>
 										{:else}
 											<div class="grid-cell grid-cell-empty"></div>
@@ -713,6 +716,7 @@
 		box-shadow: 0 10px 32px rgba(0,0,0,0.10);
 		display: flex; align-items: center; justify-content: center;
 		overflow: hidden; box-sizing: border-box; padding: 12px;
+		position: relative;
 	}
 	.grid-cell-img { width: 100%; height: 100%; object-fit: contain; }
 	.grid-cell-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
