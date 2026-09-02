@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { effectiveParams, resolveRange, getPeriodOptions, addDaysStr } from '$lib/server/statsRange.js';
+import { resolveRange, getPeriodOptions, addDaysStr } from '$lib/server/statsRange.js';
 
 /** YYYY-MM-DD (UTC midnight) → unix seconds. */
 function toEpoch(ymd) {
@@ -41,7 +41,7 @@ async function dimBreakdown(db, groupExpr, labelExpr, s0, s1) {
 	}));
 }
 
-export async function load({ parent, platform, url, cookies }) {
+export async function load({ parent, platform, url }) {
 	const { user } = await parent();
 	if (user?.role !== 'admin') error(403, 'Admins only');
 
@@ -50,7 +50,11 @@ export async function load({ parent, platform, url, cookies }) {
 
 	const now = new Date();
 	const { yearOptions, quarterOptions, monthOptions } = getPeriodOptions(now);
-	const { cur, label, selected } = resolveRange(effectiveParams(url, cookies), now);
+	// Default to "This Year to date" on entry (don't inherit the shared stats
+	// cookie); an explicit picker choice always rides in the URL query.
+	const sp = url.searchParams;
+	const hasExplicit = sp.get('period') || (sp.get('from') && sp.get('to'));
+	const { cur, label, selected } = resolveRange(hasExplicit ? sp : new URLSearchParams('period=ytd'), now);
 	const range = { start: cur.start, endInclusive: addDaysStr(cur.end, -1) };
 	const s0 = toEpoch(cur.start);
 	const s1 = toEpoch(cur.end);
