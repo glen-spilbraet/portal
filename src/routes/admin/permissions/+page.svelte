@@ -90,6 +90,8 @@
 			access_stats:       !!set.access_stats,
 			access_mail:        !!set.access_mail,
 			access_product:     !!set.access_product,
+			access_forecast:    !!set.access_forecast,
+			access_awards:      !!set.access_awards,
 		};
 	}
 
@@ -117,6 +119,8 @@
 					access_stats:       e.access_stats,
 					access_mail:        e.access_mail,
 					access_product:     e.access_product,
+					access_forecast:    e.access_forecast,
+					access_awards:      e.access_awards,
 				})
 			});
 			if (!res.ok) throw new Error('Failed to save');
@@ -132,6 +136,8 @@
 				access_stats:       e.access_stats       ? 1 : 0,
 				access_mail:        e.access_mail        ? 1 : 0,
 				access_product:     e.access_product      ? 1 : 0,
+				access_forecast:    e.access_forecast    ? 1 : 0,
+				access_awards:      e.access_awards      ? 1 : 0,
 			});
 			cancelEdit(id);
 		} catch (err) {
