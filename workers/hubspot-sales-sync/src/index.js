@@ -1312,21 +1312,20 @@ async function sendRestEmail(env, settings, subject, html) {
 	return res.ok;
 }
 
-function buildRestEmail(env, { order, customerName, restDeals, lineItems }) {
+function buildRestEmail(env, { order, customerName, lineItems }) {
 	const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 	const rbUrl = rbOrderUrl(env, order.orderNumber);
-	const dealsHtml = restDeals.map((d) => { const u = hsDealUrl(env, d.id); return u ? `<a href="${u}">${esc(d.name)}</a>` : esc(d.name); }).join(', ');
 	const rows = lineItems.map((li) => {
 		const on = li.available_quantity > 0;
 		const bg = on ? ' style="background:#E9F7EC"' : '';
 		const stk = on ? `<b style="color:#1E7A34">${esc(li.available_quantity)}</b>` : esc(li.available_quantity ?? 0);
-		return `<tr${bg}><td>${esc(li.deal_name)}</td><td>${esc(li.sku)}</td><td>${esc(li.product_name)}</td><td align="right">${esc(li.quantity)}</td><td align="right">${stk}</td></tr>`;
+		const deal = li.deal_url ? `<a href="${li.deal_url}">${esc(li.deal_name)}</a>` : esc(li.deal_name);
+		return `<tr${bg}><td>${deal}</td><td>${esc(li.sku)}</td><td>${esc(li.product_name)}</td><td align="right">${esc(li.quantity)}</td><td align="right">${stk}</td></tr>`;
 	}).join('');
 	return `<div style="font-family:system-ui,Arial,sans-serif;max-width:760px;color:#18181B">
 	<h2 style="margin:0 0 10px">Restordre-tjek</h2>
 	<p style="margin:0 0 12px"><b>Kunde:</b> ${esc(customerName || order.customerNumber)}<br>
-	<b>Ny Rackbeat-ordre:</b> ${rbUrl ? `<a href="${rbUrl}">${esc(order.orderNumber)}</a>` : esc(order.orderNumber)}<br>
-	<b>Restordre(r) i HubSpot:</b> ${dealsHtml || '—'}</p>
+	<b>Ny Rackbeat-ordre:</b> ${rbUrl ? `<a href="${rbUrl}">${esc(order.orderNumber)}</a>` : esc(order.orderNumber)}</p>
 	<table cellpadding="6" cellspacing="0" border="0" style="border-collapse:collapse;font-size:13px;width:100%;border:1px solid #ECD9A0">
 		<thead><tr style="background:#FBF7EF;text-align:left"><th>Deal</th><th>SKU</th><th>Produkt</th><th align="right">Antal</th><th align="right">Lager</th></tr></thead>
 		<tbody>${rows}</tbody>
@@ -1367,7 +1366,7 @@ async function processRackbeatOrder(env, orderNumber, { source = 'manual', sendE
 
 		for (const d of restDeals) {
 			const lis = await fetchRestDealLineItems(env, d.id);
-			for (const li of lis) lineItems.push({ deal_name: d.name, ...li });
+			for (const li of lis) lineItems.push({ deal_name: d.name, deal_id: d.id, deal_url: hsDealUrl(env, d.id), ...li });
 		}
 		const stockCache = {};
 		for (const li of lineItems) {

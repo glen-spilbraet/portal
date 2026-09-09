@@ -95,7 +95,7 @@
 						<tbody>
 							{#each result.line_items as li}
 								<tr class:in-stock={li.available_quantity > 0}>
-									<td>{li.deal_name}</td><td class="mono">{li.sku}</td><td>{li.product_name}</td>
+									<td>{#if li.deal_url}<a href={li.deal_url} target="_blank" rel="noreferrer">{li.deal_name}</a>{:else}{li.deal_name}{/if}</td><td class="mono">{li.sku}</td><td>{li.product_name}</td>
 									<td class="num">{li.quantity}</td><td class="num stock">{li.available_quantity}</td>
 								</tr>
 							{/each}
@@ -138,7 +138,7 @@
 										<tbody>
 											{#each items as li}
 												<tr class:in-stock={li.available_quantity > 0}>
-													<td>{li.deal_name}</td><td class="mono">{li.sku}</td><td>{li.product_name}</td>
+													<td>{#if li.deal_url}<a href={li.deal_url} target="_blank" rel="noreferrer">{li.deal_name}</a>{:else}{li.deal_name}{/if}</td><td class="mono">{li.sku}</td><td>{li.product_name}</td>
 													<td class="num">{li.quantity}</td><td class="num stock">{li.available_quantity}</td>
 												</tr>
 											{/each}
