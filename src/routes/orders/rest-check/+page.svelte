@@ -94,7 +94,7 @@
 						<thead><tr><th>Deal</th><th>SKU</th><th>Produkt</th><th class="num">Antal</th><th class="num">Lager</th></tr></thead>
 						<tbody>
 							{#each result.line_items as li}
-								<tr class:in-stock={li.available_quantity > 0}>
+								<tr class:full={li.available_quantity > 0 && li.available_quantity >= li.quantity} class:partial={li.available_quantity > 0 && li.available_quantity < li.quantity}>
 									<td>{#if li.deal_url}<a href={li.deal_url} target="_blank" rel="noreferrer">{li.deal_name}</a>{:else}{li.deal_name}{/if}</td><td class="mono">{li.sku}</td><td>{li.product_name}</td>
 									<td class="num">{li.quantity}</td><td class="num stock">{li.available_quantity}</td>
 								</tr>
@@ -137,7 +137,7 @@
 										<thead><tr><th>Deal</th><th>SKU</th><th>Produkt</th><th class="num">Antal</th><th class="num">Lager</th></tr></thead>
 										<tbody>
 											{#each items as li}
-												<tr class:in-stock={li.available_quantity > 0}>
+												<tr class:full={li.available_quantity > 0 && li.available_quantity >= li.quantity} class:partial={li.available_quantity > 0 && li.available_quantity < li.quantity}>
 													<td>{#if li.deal_url}<a href={li.deal_url} target="_blank" rel="noreferrer">{li.deal_name}</a>{:else}{li.deal_name}{/if}</td><td class="mono">{li.sku}</td><td>{li.product_name}</td>
 													<td class="num">{li.quantity}</td><td class="num stock">{li.available_quantity}</td>
 												</tr>
@@ -208,8 +208,10 @@
 	.detail-row td { background: #FBF7EF; padding: 8px 12px; }
 	.li { margin: 0; }
 	.li th { background: #fff; }
-	tr.in-stock td { background: #E9F7EC; }
-	tr.in-stock td.stock { font-weight: 800; color: #1E7A34; }
+	tr.full td { background: #E9F7EC; }
+	tr.full td.stock { font-weight: 800; color: #1E7A34; }
+	tr.partial td { background: #FDECD8; }
+	tr.partial td.stock { font-weight: 800; color: #C05621; }
 
 	.settings { display: flex; flex-direction: column; gap: 12px; max-width: 460px; }
 	.fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: #6b5e4e; }

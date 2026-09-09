@@ -1316,9 +1316,12 @@ function buildRestEmail(env, { order, customerName, lineItems }) {
 	const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 	const rbUrl = rbOrderUrl(env, order.orderNumber);
 	const rows = lineItems.map((li) => {
-		const on = li.available_quantity > 0;
-		const bg = on ? ' style="background:#E9F7EC"' : '';
-		const stk = on ? `<b style="color:#1E7A34">${esc(li.available_quantity)}</b>` : esc(li.available_quantity ?? 0);
+		const avail = Number(li.available_quantity ?? 0);
+		const qty = Number(li.quantity ?? 0);
+		const level = avail > 0 && avail >= qty ? 'full' : avail > 0 ? 'partial' : 'none';
+		const bg = level === 'full' ? ' style="background:#E9F7EC"' : level === 'partial' ? ' style="background:#FDECD8"' : '';
+		const col = level === 'full' ? '#1E7A34' : level === 'partial' ? '#C05621' : null;
+		const stk = col ? `<b style="color:${col}">${esc(li.available_quantity)}</b>` : esc(li.available_quantity ?? 0);
 		const deal = li.deal_url ? `<a href="${li.deal_url}">${esc(li.deal_name)}</a>` : esc(li.deal_name);
 		return `<tr${bg}><td>${deal}</td><td>${esc(li.sku)}</td><td>${esc(li.product_name)}</td><td align="right">${esc(li.quantity)}</td><td align="right">${stk}</td></tr>`;
 	}).join('');
@@ -1330,7 +1333,7 @@ function buildRestEmail(env, { order, customerName, lineItems }) {
 		<thead><tr style="background:#FBF7EF;text-align:left"><th>Deal</th><th>SKU</th><th>Produkt</th><th align="right">Antal</th><th align="right">Lager</th></tr></thead>
 		<tbody>${rows}</tbody>
 	</table>
-	<p style="color:#98876e;font-size:12px;margin-top:10px">Grønne rækker = varer der nu er på lager (available_quantity &gt; 0).</p>
+	<p style="color:#98876e;font-size:12px;margin-top:10px"><b style="color:#1E7A34">Grøn</b> = lager dækker hele restordren (lager &ge; antal) · <b style="color:#C05621">Orange</b> = delvist på lager (0 &lt; lager &lt; antal).</p>
 </div>`;
 }
 
