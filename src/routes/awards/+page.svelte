@@ -252,7 +252,7 @@
 					</label>
 
 					<div class="addl">
-						<div class="addl-head"><span>Additional products (badge applies to these too)</span><button class="link" onclick={addProduct}>+ Add product</button></div>
+						<div class="addl-head"><span>Additional products (badge applies to these too)</span><button class="add-btn" onclick={addProduct}><span class="plus">+</span> Add product</button></div>
 						{#each form.additional_skus as _, i (i)}
 							<div class="addl-row">
 								<div class="addl-input">
@@ -454,6 +454,9 @@
 	.addl-input input { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 	.addl-input input:focus { outline: none; border-color: var(--accent); }
 	.addl-prods { font-size: 11px; color: #98876e; margin-top: 2px; }
+	.add-btn { display: inline-flex; align-items: center; gap: 6px; font-family: inherit; font-size: 12px; font-weight: 700; color: #B15A12; background: #FDEEE4; border: 1px solid #F6CDAB; border-radius: 100px; padding: 5px 12px 5px 10px; cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+	.add-btn:hover { background: #FBDDC7; border-color: var(--accent); }
+	.add-btn .plus { font-size: 15px; line-height: 1; font-weight: 800; margin-top: -1px; }
 	.badge-fld { display: flex; flex-direction: column; gap: 5px; }
 	.badge-up { display: flex; align-items: center; gap: 8px; }
 	.bdg-lg { height: 40px; width: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
