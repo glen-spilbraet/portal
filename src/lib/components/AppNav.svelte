@@ -2,7 +2,7 @@
 	let { active = 'sheets', user = null } = $props();
 
 	// Permissions — default to full access so the nav never breaks if not provided
-	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true });
+	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true });
 
 	const salesItems = $derived([
 		p.sheets       && { href: '/sheets',       label: 'Sheets',      key: 'sheets' },
@@ -24,12 +24,13 @@
 	const statsActive = $derived(active === 'stats' || active === 'product' || active === 'forecast');
 	const showData  = $derived(p.data);
 	const showMail  = $derived(!!p.mail);
-	const showOrders = $derived(!!p.orders);
+	const showOrders = $derived(!!p.orders || !!p.rest_check);
 
-	const orderItems = [
-		{ href: '/orders',                 label: 'Orders',        key: 'orders' },
-		{ href: '/orders/rackbeat-drafts', label: 'Create Orders', key: 'create-orders' },
-	];
+	const orderItems = $derived([
+		p.orders     && { href: '/orders',                 label: 'Orders',        key: 'orders' },
+		p.orders     && { href: '/orders/rackbeat-drafts', label: 'Create Orders', key: 'create-orders' },
+		p.rest_check && { href: '/orders/rest-check',      label: 'Rest Check',    key: 'rest-check' },
+	].filter(Boolean));
 
 	const mailItems = [
 		{ href: '/mail/accounts',  label: 'Key Accounts', key: 'mail-accounts' },

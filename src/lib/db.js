@@ -756,8 +756,8 @@ export async function getPermissionSet(db, id) {
 
 export async function createPermissionSet(db, id, name, access) {
 	await db.prepare(`
-		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_mail, access_product, access_forecast, access_awards)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_mail, access_product, access_forecast, access_awards, access_rest_check)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`).bind(id, name,
 		access.sheets       ? 1 : 0,
 		access.catalogues   ? 1 : 0,
@@ -769,7 +769,8 @@ export async function createPermissionSet(db, id, name, access) {
 		access.mail         ? 1 : 0,
 		access.product      ? 1 : 0,
 		access.forecast     ? 1 : 0,
-		access.awards       ? 1 : 0
+		access.awards       ? 1 : 0,
+		access.rest_check   ? 1 : 0
 	).run();
 }
 
@@ -778,6 +779,29 @@ export async function updatePermissionSet(db, id, patch) {
 	for (const [k, v] of Object.entries(patch)) { fields.push(`${k} = ?`); values.push(v); }
 	values.push(id);
 	await db.prepare(`UPDATE permission_sets SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+
+// ── Rest Check (logs + settings) ────────────────────────────────────────────
+export async function getRestCheckSettings(db) {
+	const row = await db.prepare('SELECT * FROM rest_check_settings WHERE id = ?').bind('default').first();
+	return {
+		recipient_email: row?.recipient_email ?? 'glen@spilbraet.dk',
+		from_email: row?.from_email ?? null,
+		enabled: row ? !!row.enabled : true,
+	};
+}
+
+export async function updateRestCheckSettings(db, { recipient_email, from_email, enabled }) {
+	await db.prepare(
+		`INSERT INTO rest_check_settings (id, recipient_email, from_email, enabled, updated_at)
+		 VALUES ('default', ?, ?, ?, datetime('now'))
+		 ON CONFLICT(id) DO UPDATE SET recipient_email = excluded.recipient_email, from_email = excluded.from_email, enabled = excluded.enabled, updated_at = excluded.updated_at`
+	).bind(recipient_email || null, from_email || null, enabled ? 1 : 0).run();
+}
+
+export async function listRestCheckLog(db, limit = 100) {
+	const rows = await db.prepare('SELECT * FROM rest_check_log ORDER BY created_at DESC LIMIT ?').bind(limit).all();
+	return rows.results ?? [];
 }
 
 export async function deletePermissionSet(db, id) {
@@ -792,7 +816,7 @@ export async function deletePermissionSet(db, id) {
  */
 export async function getUserPermissions(db, user) {
 	if (user.role === 'admin' || !user.permission_set_id) {
-		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true };
+		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true };
 	}
 	const ps = await getPermissionSet(db, user.permission_set_id);
 	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true };
@@ -808,6 +832,7 @@ export async function getUserPermissions(db, user) {
 		product:      !!ps.access_product,
 		forecast:     !!ps.access_forecast,
 		awards:       !!ps.access_awards,
+		rest_check:   !!ps.access_rest_check,
 	};
 }
 

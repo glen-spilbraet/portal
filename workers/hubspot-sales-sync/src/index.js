@@ -78,13 +78,28 @@ export default {
 	},
 
 	async fetch(request, env, ctx) {
+		const url = new URL(request.url);
+
+		// Rest Check webhook — Rackbeat order.created. Verified by the Rackbeat
+		// webhook token (NOT the SYNC_SECRET bearer), so it sits before auth.
+		if (url.pathname === '/rest-check/webhook') {
+			return handleRestWebhook(request, env, ctx);
+		}
+
 		const auth = request.headers.get('Authorization') || '';
 		const token = auth.replace(/^Bearer\s+/i, '');
 		if (!env.SYNC_SECRET || token !== env.SYNC_SECRET) {
 			return json({ error: 'Unauthorized' }, 401);
 		}
-		const url = new URL(request.url);
 		try {
+			// Manual Rest Check run (portal → worker), same logic as the webhook.
+			if (url.searchParams.get('restcheck') === 'run') {
+				const body = await request.json().catch(() => ({}));
+				const orderNumber = String(body.order_number ?? '').trim();
+				if (!orderNumber) return json({ error: 'order_number required' }, 400);
+				const out = await processRackbeatOrder(env, orderNumber, { source: body.source || 'manual', sendEmail: body.send_email !== false });
+				return json(out);
+			}
 			if (url.searchParams.get('forecast') === '1') {
 				return json({ ok: true, ...(await syncForecastDeals(env)) });
 			}
@@ -1178,4 +1193,242 @@ function json(obj, status = 200) {
 		status,
 		headers: { 'Content-Type': 'application/json' },
 	});
+}
+
+// ══ Rest Check ═══════════════════════════════════════════════════════════════
+// On a new Rackbeat order: does this customer have HubSpot deals in the "[0] Rest"
+// lane whose SKUs are now back in stock? If so, email support an overview.
+
+const REST_PIPELINE_LABEL = 'Sales Pipeline';
+const REST_STAGE_LABEL = '[0] Rest';
+let _restStageCache = null;
+
+/** Resolve the "[0] Rest" stage id by label (cached for the worker's lifetime). */
+async function resolveRestStage(env) {
+	if (_restStageCache) return _restStageCache;
+	const data = await hsGet(env, `${HS}/crm/v3/pipelines/deals`);
+	for (const p of data?.results || []) {
+		if (p.label !== REST_PIPELINE_LABEL) continue;
+		for (const s of p.stages || []) {
+			if (s.label === REST_STAGE_LABEL) { _restStageCache = { pipelineId: p.id, stageId: s.id }; return _restStageCache; }
+		}
+	}
+	throw new Error(`Rest stage "${REST_STAGE_LABEL}" not found in pipeline "${REST_PIPELINE_LABEL}"`);
+}
+
+function rbOrderUrl(env, number) {
+	const t = env.RACKBEAT_ORDER_URL; // template with {number}
+	return (t && number) ? t.replace('{number}', encodeURIComponent(number)) : null;
+}
+function hsDealUrl(env, dealId) {
+	const pid = env.HUBSPOT_PORTAL_ID;
+	return (pid && dealId) ? `https://app.hubspot.com/contacts/${pid}/deal/${dealId}` : null;
+}
+
+/** Rackbeat order → { orderNumber, customerNumber, customerName }. */
+async function fetchRackbeatOrderCustomer(env, orderNumber) {
+	const body = await rbGet(env, `/orders/${encodeURIComponent(orderNumber)}`);
+	const o = body?.order ?? body;
+	if (!o) return null;
+	const cust = o.customer ?? {};
+	return {
+		orderNumber: o.number != null ? String(o.number) : orderNumber,
+		customerNumber: cust.number != null ? String(cust.number) : null,
+		customerName: cust.name ?? null,
+	};
+}
+
+/** Rackbeat product available_quantity for a SKU (null if not found). */
+async function fetchRackbeatStock(env, sku) {
+	const body = await rbGet(env, `/products/${encodeURIComponent(sku)}`);
+	const item = body?.product ?? body?.item ?? body;
+	const q = item?.available_quantity;
+	return q == null ? null : Number(q);
+}
+
+/** HubSpot company whose `rackbeat_id` = customer number, or null. */
+async function findCompanyByRackbeatId(env, rackbeatId) {
+	const data = await hsPost(env, `${HS}/crm/v3/objects/companies/search`, {
+		filterGroups: [{ filters: [{ propertyName: 'rackbeat_id', operator: 'EQ', value: String(rackbeatId) }] }],
+		properties: ['name', 'rackbeat_id'], limit: 1,
+	});
+	return data?.results?.[0] ?? null;
+}
+
+/** A company's deals currently in the Rest stage → [{id,name}]. */
+async function fetchCompanyRestDeals(env, companyId, stageId) {
+	const assoc = await hsGet(env, `${HS}/crm/v4/objects/companies/${companyId}/associations/deals?limit=500`);
+	const dealIds = (assoc?.results || []).map((r) => r.toObjectId ?? r.id).filter(Boolean).map(String);
+	if (!dealIds.length) return [];
+	const deals = [];
+	for (const chunk of chunks(dealIds, 100)) {
+		const data = await hsPost(env, `${HS}/crm/v3/objects/deals/batch/read`, { inputs: chunk.map((id) => ({ id })), properties: ['dealname', 'dealstage', 'pipeline'] });
+		for (const d of data?.results || []) {
+			if (d.properties?.dealstage === stageId) deals.push({ id: d.id, name: d.properties?.dealname ?? d.id });
+		}
+	}
+	return deals;
+}
+
+/** Line items on one deal → [{sku, product_name, quantity}]. */
+async function fetchRestDealLineItems(env, dealId) {
+	const assoc = await hsPost(env, `${HS}/crm/v4/associations/deals/line_items/batch/read`, { inputs: [{ id: dealId }] });
+	const liIds = [];
+	for (const r of assoc?.results || []) for (const to of r.to || []) liIds.push(String(to.toObjectId));
+	if (!liIds.length) return [];
+	const out = [];
+	for (const chunk of chunks(liIds, 100)) {
+		const data = await hsPost(env, `${HS}/crm/v3/objects/line_items/batch/read`, { inputs: chunk.map((id) => ({ id })), properties: ['hs_sku', 'name', 'quantity'] });
+		for (const li of data?.results || []) out.push({ sku: li.properties?.hs_sku ?? null, product_name: li.properties?.name ?? null, quantity: Number(li.properties?.quantity ?? 0) });
+	}
+	return out;
+}
+
+async function getRestSettings(env) {
+	const row = await env.DB.prepare('SELECT recipient_email, from_email, enabled FROM rest_check_settings WHERE id = ?').bind('default').first();
+	return {
+		recipient_email: row?.recipient_email || env.REST_CHECK_TO || null,
+		from_email: row?.from_email || env.RESEND_FROM || null,
+		enabled: row ? !!row.enabled : true,
+	};
+}
+
+async function saveRestLog(env, rec) {
+	await env.DB.prepare(
+		`INSERT INTO rest_check_log (id, source, rb_order_number, rb_customer_number, customer_name, hs_company_id, matched, rest_deal_count, rest_deals, line_items, in_stock_count, email_sent, email_to, status, error)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	).bind(rec.id, rec.source, rec.rb_order_number, rec.rb_customer_number, rec.customer_name, rec.hs_company_id, rec.matched, rec.rest_deal_count, rec.rest_deals, rec.line_items, rec.in_stock_count, rec.email_sent, rec.email_to, rec.status, rec.error).run();
+}
+
+async function sendRestEmail(env, settings, subject, html) {
+	if (!env.RESEND_API_KEY) return false;
+	const from = settings.from_email || env.RESEND_FROM;
+	if (!from || !settings.recipient_email) return false;
+	const res = await fetch('https://api.resend.com/emails', {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ from, to: [settings.recipient_email], subject, html }),
+	});
+	return res.ok;
+}
+
+function buildRestEmail(env, { order, customerName, restDeals, lineItems }) {
+	const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+	const rbUrl = rbOrderUrl(env, order.orderNumber);
+	const dealsHtml = restDeals.map((d) => { const u = hsDealUrl(env, d.id); return u ? `<a href="${u}">${esc(d.name)}</a>` : esc(d.name); }).join(', ');
+	const rows = lineItems.map((li) => {
+		const on = li.available_quantity > 0;
+		const bg = on ? ' style="background:#E9F7EC"' : '';
+		const stk = on ? `<b style="color:#1E7A34">${esc(li.available_quantity)}</b>` : esc(li.available_quantity ?? 0);
+		return `<tr${bg}><td>${esc(li.deal_name)}</td><td>${esc(li.sku)}</td><td>${esc(li.product_name)}</td><td align="right">${esc(li.quantity)}</td><td align="right">${stk}</td></tr>`;
+	}).join('');
+	return `<div style="font-family:system-ui,Arial,sans-serif;max-width:760px;color:#18181B">
+	<h2 style="margin:0 0 10px">Restordre-tjek</h2>
+	<p style="margin:0 0 12px"><b>Kunde:</b> ${esc(customerName || order.customerNumber)}<br>
+	<b>Ny Rackbeat-ordre:</b> ${rbUrl ? `<a href="${rbUrl}">${esc(order.orderNumber)}</a>` : esc(order.orderNumber)}<br>
+	<b>Restordre(r) i HubSpot:</b> ${dealsHtml || '—'}</p>
+	<table cellpadding="6" cellspacing="0" border="0" style="border-collapse:collapse;font-size:13px;width:100%;border:1px solid #ECD9A0">
+		<thead><tr style="background:#FBF7EF;text-align:left"><th>Deal</th><th>SKU</th><th>Produkt</th><th align="right">Antal</th><th align="right">Lager</th></tr></thead>
+		<tbody>${rows}</tbody>
+	</table>
+	<p style="color:#98876e;font-size:12px;margin-top:10px">Grønne rækker = varer der nu er på lager (available_quantity &gt; 0).</p>
+</div>`;
+}
+
+/** Core: process one Rackbeat order (shared by webhook + manual run). */
+async function processRackbeatOrder(env, orderNumber, { source = 'manual', sendEmail = true } = {}) {
+	const rec = { id: crypto.randomUUID(), source, rb_order_number: String(orderNumber), rb_customer_number: null, customer_name: null, hs_company_id: null, matched: 0, rest_deal_count: 0, rest_deals: '[]', line_items: '[]', in_stock_count: 0, email_sent: 0, email_to: null, status: 'error', error: null };
+	let lineItems = [];
+	let order = null;
+	try {
+		order = await fetchRackbeatOrderCustomer(env, orderNumber);
+		if (!order) throw new Error(`Rackbeat order ${orderNumber} not found`);
+		rec.rb_order_number = order.orderNumber; rec.rb_customer_number = order.customerNumber; rec.customer_name = order.customerName;
+		if (!order.customerNumber) throw new Error('Order has no customer number');
+
+		const company = await findCompanyByRackbeatId(env, order.customerNumber);
+		if (!company) {
+			rec.status = 'no_match';
+			await saveRestLog(env, rec);
+			return restResult(env, rec, []);
+		}
+		rec.matched = 1; rec.hs_company_id = company.id;
+		if (!rec.customer_name) rec.customer_name = company.properties?.name ?? null;
+
+		const { stageId } = await resolveRestStage(env);
+		const restDeals = await fetchCompanyRestDeals(env, company.id, stageId);
+		rec.rest_deal_count = restDeals.length;
+		rec.rest_deals = JSON.stringify(restDeals.map((d) => ({ id: d.id, name: d.name, url: hsDealUrl(env, d.id) })));
+		if (!restDeals.length) {
+			rec.status = 'no_rest';
+			await saveRestLog(env, rec);
+			return restResult(env, rec, []);
+		}
+
+		for (const d of restDeals) {
+			const lis = await fetchRestDealLineItems(env, d.id);
+			for (const li of lis) lineItems.push({ deal_name: d.name, ...li });
+		}
+		const stockCache = {};
+		for (const li of lineItems) {
+			if (li.sku && !(li.sku in stockCache)) stockCache[li.sku] = await fetchRackbeatStock(env, li.sku);
+			li.available_quantity = li.sku ? (stockCache[li.sku] ?? 0) : 0;
+		}
+		rec.in_stock_count = lineItems.filter((li) => li.available_quantity > 0).length;
+		rec.line_items = JSON.stringify(lineItems);
+		rec.status = 'ok';
+
+		const settings = await getRestSettings(env);
+		if (sendEmail && settings.recipient_email) {
+			const subject = `Restordre-tjek: ${rec.customer_name ?? order.customerNumber} (ordre ${rec.rb_order_number})`;
+			const html = buildRestEmail(env, { order, customerName: rec.customer_name, restDeals, lineItems });
+			const ok = await sendRestEmail(env, settings, subject, html);
+			rec.email_sent = ok ? 1 : 0; rec.email_to = ok ? settings.recipient_email : null;
+		}
+		await saveRestLog(env, rec);
+		return restResult(env, rec, lineItems);
+	} catch (e) {
+		rec.status = 'error'; rec.error = String(e?.message ?? e);
+		try { await saveRestLog(env, rec); } catch { /* ignore log failure */ }
+		return restResult(env, rec, lineItems);
+	}
+}
+
+function restResult(env, rec, lineItems) {
+	return {
+		id: rec.id,
+		status: rec.status,
+		error: rec.error,
+		source: rec.source,
+		rb_order_number: rec.rb_order_number,
+		rb_order_url: rbOrderUrl(env, rec.rb_order_number),
+		rb_customer_number: rec.rb_customer_number,
+		customer_name: rec.customer_name,
+		matched: !!rec.matched,
+		rest_deals: JSON.parse(rec.rest_deals || '[]'),
+		line_items: lineItems,
+		in_stock_count: rec.in_stock_count,
+		email_sent: !!rec.email_sent,
+		email_to: rec.email_to,
+	};
+}
+
+function extractOrderNumber(payload) {
+	const d = payload?.data ?? payload ?? {};
+	const v = d.number ?? d.order_number ?? d.key ?? payload?.key ?? '';
+	return String(v).trim() || null;
+}
+
+async function handleRestWebhook(request, env, ctx) {
+	const token = request.headers.get('Rackbeat-Webhook-Token') || '';
+	if (!env.RACKBEAT_WEBHOOK_TOKEN || token !== env.RACKBEAT_WEBHOOK_TOKEN) {
+		return json({ error: 'Unauthorized' }, 401);
+	}
+	let payload; try { payload = await request.json(); } catch { payload = {}; }
+	if (payload?.event && payload.event !== 'order.created') return json({ ok: true, ignored: payload.event });
+	const orderNumber = extractOrderNumber(payload);
+	if (!orderNumber) return json({ ok: false, error: 'no order number in payload' });
+	const settings = await getRestSettings(env);
+	ctx.waitUntil(processRackbeatOrder(env, orderNumber, { source: 'webhook', sendEmail: settings.enabled }).catch(() => {}));
+	return json({ ok: true });
 }
