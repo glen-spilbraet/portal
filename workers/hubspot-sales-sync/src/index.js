@@ -1217,12 +1217,12 @@ async function resolveRestStage(env) {
 }
 
 function rbOrderUrl(env, number) {
-	const t = env.RACKBEAT_ORDER_URL; // template with {number}
-	return (t && number) ? t.replace('{number}', encodeURIComponent(number)) : null;
+	const t = env.RACKBEAT_ORDER_URL || 'https://app.rackbeat.com/sales/orders/{number}';
+	return number ? t.replace('{number}', encodeURIComponent(number)) : null;
 }
 function hsDealUrl(env, dealId) {
-	const pid = env.HUBSPOT_PORTAL_ID;
-	return (pid && dealId) ? `https://app.hubspot.com/contacts/${pid}/deal/${dealId}` : null;
+	const pid = env.HUBSPOT_PORTAL_ID || '145052209';
+	return dealId ? `https://app-eu1.hubspot.com/contacts/${pid}/record/0-3/${dealId}/` : null;
 }
 
 /** Rackbeat order → { orderNumber, customerNumber, customerName }. */
