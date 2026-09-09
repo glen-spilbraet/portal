@@ -63,6 +63,7 @@ export async function updateMedia(db, id, d) {
 export async function deleteMedia(db, id) {
 	await db.batch([
 		db.prepare('DELETE FROM award_statement WHERE instance_id IN (SELECT id FROM press_instance WHERE media_id = ?)').bind(id),
+		db.prepare('DELETE FROM press_instance_product WHERE instance_id IN (SELECT id FROM press_instance WHERE media_id = ?)').bind(id),
 		db.prepare('DELETE FROM press_instance WHERE media_id = ?').bind(id),
 		db.prepare('DELETE FROM award_media_contact WHERE media_id = ?').bind(id),
 		db.prepare('DELETE FROM award_media WHERE id = ?').bind(id),
@@ -79,6 +80,15 @@ async function replaceStatements(db, instanceId, statements) {
 		await db.batch(b.map((s) => db.prepare(
 			'INSERT INTO award_statement (id, instance_id, statement, score) VALUES (?,?,?,?)'
 		).bind(uid(), instanceId, s.statement || null, s.score === '' || s.score == null ? null : Number(s.score))));
+	}
+}
+
+/** Replace an instance's additional products (SKUs beyond the main one). */
+async function replaceProducts(db, instanceId, skus) {
+	await db.prepare('DELETE FROM press_instance_product WHERE instance_id = ?').bind(instanceId).run();
+	const valid = [...new Set((skus ?? []).map((s) => (s ?? '').trim()).filter(Boolean))];
+	for (const b of chunk(valid, 20)) {
+		await db.batch(b.map((sku) => db.prepare('INSERT INTO press_instance_product (id, instance_id, sku) VALUES (?,?,?)').bind(uid(), instanceId, sku)));
 	}
 }
 
@@ -102,6 +112,7 @@ export async function createInstance(db, d) {
 	await db.prepare(`INSERT INTO press_instance (id, ${INST_FIELDS.join(', ')}) VALUES (?, ${INST_FIELDS.map(() => '?').join(', ')})`)
 		.bind(id, ...instBinds(d)).run();
 	await replaceStatements(db, id, d.statements);
+	await replaceProducts(db, id, d.additional_skus);
 	return id;
 }
 
@@ -109,11 +120,13 @@ export async function updateInstance(db, id, d) {
 	await db.prepare(`UPDATE press_instance SET ${INST_FIELDS.map((f) => `${f} = ?`).join(', ')} WHERE id = ?`)
 		.bind(...instBinds(d), id).run();
 	if (d.statements) await replaceStatements(db, id, d.statements);
+	if (d.additional_skus !== undefined) await replaceProducts(db, id, d.additional_skus);
 }
 
 export async function deleteInstance(db, id) {
 	await db.batch([
 		db.prepare('DELETE FROM award_statement WHERE instance_id = ?').bind(id),
+		db.prepare('DELETE FROM press_instance_product WHERE instance_id = ?').bind(id),
 		db.prepare('DELETE FROM press_instance WHERE id = ?').bind(id),
 	]);
 }
@@ -130,11 +143,17 @@ export async function getBadgesForSkus(db, skus, today) {
 	const out = {};
 	for (const b of chunk(clean, 40)) {
 		const rows = (await db.prepare(
-			`SELECT i.sku, i.is_winner, i.disclosure_date, i.nominee_badge_key, i.winner_badge_key,
+			`SELECT s.sku AS sku, i.is_winner, i.disclosure_date, i.nominee_badge_key, i.winner_badge_key,
 			        i.instance_date, i.created_at,
 			        m.name AS media_name, m.badge_placement, m.badge_pad_x, m.badge_pad_y, m.badge_size_pct, m.badge_pad_pct
-			 FROM press_instance i JOIN award_media m ON m.id = i.media_id
-			 WHERE i.sku IN (${b.map(() => '?').join(',')})
+			 FROM press_instance i
+			 JOIN award_media m ON m.id = i.media_id
+			 JOIN (
+			   SELECT id AS instance_id, sku FROM press_instance WHERE sku IS NOT NULL AND sku != ''
+			   UNION ALL
+			   SELECT instance_id, sku FROM press_instance_product
+			 ) s ON s.instance_id = i.id
+			 WHERE s.sku IN (${b.map(() => '?').join(',')})
 			 ORDER BY i.instance_date DESC, i.created_at DESC`
 		).bind(...b).all()).results ?? [];
 		for (const r of rows) {
@@ -178,5 +197,19 @@ export async function listAllInstances(db) {
 	const byInst = {};
 	for (const s of stmts) (byInst[s.instance_id] ??= []).push(s);
 	for (const i of instances) i.statements = byInst[i.id] ?? [];
+
+	// Additional products (product name from the matching sheet, like the main sku).
+	const addl = (await db.prepare(
+		`SELECT p.instance_id, p.sku, sh.id AS sheet_id,
+		        (SELECT t.value FROM translations t
+		          WHERE t.sheet_id = sh.id AND t.key = 'product_name' AND t.value != ''
+		          ORDER BY CASE t.language WHEN 'en' THEN 0 WHEN 'da' THEN 1 WHEN 'sv' THEN 2 WHEN 'no' THEN 3 ELSE 4 END LIMIT 1) AS product_name
+		 FROM press_instance_product p
+		 LEFT JOIN sales_sheets sh ON sh.sku = p.sku
+		 ORDER BY p.rowid`
+	).all()).results ?? [];
+	const addlByInst = {};
+	for (const a of addl) (addlByInst[a.instance_id] ??= []).push({ sku: a.sku, sheet_id: a.sheet_id, product_name: a.product_name });
+	for (const i of instances) i.additional_products = addlByInst[i.id] ?? [];
 	return instances;
 }

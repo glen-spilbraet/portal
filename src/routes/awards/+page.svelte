@@ -42,13 +42,14 @@
 	let showNotes = $state(false);
 	function initSections() { showProof = !!(form.proof_url || form.proof_key); showNotes = !!((form.notes || '').trim()); }
 	function blank() {
-		return { id: null, media_id: '', sku: '', is_nominated: false, award_category: '', is_winner: false,
+		return { id: null, media_id: '', sku: '', additional_skus: [], is_nominated: false, award_category: '', is_winner: false,
 			disclosure_date: '', instance_date: today, statements: [], proof_url: '', proof_key: '', proof_name: '',
 			nominee_badge_key: '', nominee_badge_name: '', winner_badge_key: '', winner_badge_name: '', notes: '' };
 	}
 	function fromInstance(i, { newId = false, clearSku = false } = {}) {
 		return {
 			id: newId ? null : i.id, media_id: i.media_id, sku: clearSku ? '' : (i.sku ?? ''),
+			additional_skus: clearSku ? [] : (i.additional_products ?? []).map((a) => a.sku),
 			is_nominated: !!i.is_nominated, award_category: i.award_category ?? '', is_winner: !!i.is_winner,
 			disclosure_date: i.disclosure_date ?? '', instance_date: i.instance_date ?? today,
 			proof_url: i.proof_url ?? '', proof_key: i.proof_key ?? '', proof_name: i.proof_key ? 'Uploaded file' : '',
@@ -78,6 +79,22 @@
 	}
 	function pickSku(r) { form.sku = r.sku; skuResults = []; }
 
+	// Additional products — same picker logic, one active dropdown at a time.
+	let addlDrop = $state({ idx: -1, results: [] });
+	let addlTimer;
+	function addProduct() { form.additional_skus = [...form.additional_skus, '']; }
+	function removeProduct(i) { form.additional_skus = form.additional_skus.filter((_, x) => x !== i); }
+	function onAddl(idx) {
+		clearTimeout(addlTimer);
+		const q = (form.additional_skus[idx] ?? '').trim();
+		if (q.length < 2) { addlDrop = { idx: -1, results: [] }; return; }
+		addlTimer = setTimeout(async () => {
+			const results = await (await fetch(`/api/awards/products?q=${encodeURIComponent(q)}`)).json().catch(() => []);
+			addlDrop = { idx, results };
+		}, 200);
+	}
+	function pickAddl(idx, r) { form.additional_skus[idx] = r.sku; addlDrop = { idx: -1, results: [] }; }
+
 	async function upload(e, keyField, nameField) {
 		const file = e.currentTarget.files?.[0];
 		if (!file) return;
@@ -89,6 +106,7 @@
 
 	function payload() {
 		const p = { ...form };
+		p.additional_skus = (form.additional_skus ?? []).map((s) => (s ?? '').trim()).filter(Boolean);
 		if (!p.is_nominated) { p.is_winner = false; p.award_category = ''; }
 		if (!p.is_winner) { p.disclosure_date = ''; p.winner_badge_key = ''; }
 		return p;
@@ -101,7 +119,7 @@
 			const res = await fetch(url, { method: form.id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload()) });
 			if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? 'Failed');
 			await invalidateAll();
-			if (mode === 'similar') { form = { ...form, id: null, sku: '' }; skuResults = []; }
+			if (mode === 'similar') { form = { ...form, id: null, sku: '', additional_skus: [] }; skuResults = []; }
 			else open = false;
 		} catch (e) { alert(e.message); } finally { saving = false; }
 	}
@@ -177,7 +195,9 @@
 									<tbody>
 										{#each g.items as i (i.id)}
 											<tr>
-												<td class="prod">{i.sheet_id ? (i.product_name || i.sku) : 'N/A'}</td>
+												<td class="prod">{i.sheet_id ? (i.product_name || i.sku) : 'N/A'}
+													{#if i.additional_products?.length}<div class="addl-prods">+ {i.additional_products.map((a) => a.product_name || a.sku).join(', ')}</div>{/if}
+												</td>
 												<td class="sku">{i.sku || '—'}</td>
 												<td>{i.award_category || '—'}</td>
 												<td class="c">{#if i.is_nominated}{#if i.nominee_badge_key}<img class="bdg" src="/api/img/{i.nominee_badge_key}" alt="nominee" />{:else}✓{/if}{:else}—{/if}</td>
@@ -230,6 +250,23 @@
 							</div>
 						{/if}
 					</label>
+
+					<div class="addl">
+						<div class="addl-head"><span>Additional products (badge applies to these too)</span><button class="link" onclick={addProduct}>+ Add product</button></div>
+						{#each form.additional_skus as _, i (i)}
+							<div class="addl-row">
+								<div class="addl-input">
+									<input bind:value={form.additional_skus[i]} oninput={() => onAddl(i)} placeholder="Type SKU" autocomplete="off" />
+									{#if addlDrop.idx === i && addlDrop.results.length}
+										<div class="sku-drop">
+											{#each addlDrop.results as r}<button class="sku-opt" onclick={() => pickAddl(i, r)}><b>{r.sku}</b> {r.name}</button>{/each}
+										</div>
+									{/if}
+								</div>
+								<button class="x sm" onclick={() => removeProduct(i)}>✕</button>
+							</div>
+						{/each}
+					</div>
 				</div>
 			</section>
 
@@ -410,6 +447,13 @@
 	.sku-drop { background: #fff; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; max-height: 200px; overflow-y: auto; }
 	.sku-opt { display: block; width: 100%; text-align: left; background: none; border: none; font-family: inherit; font-size: 13px; padding: 7px 10px; cursor: pointer; color: #3f3a33; }
 	.sku-opt:hover { background: #FFF5D2; }
+	.addl { margin-top: 12px; }
+	.addl-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700; color: #6b5e4e; margin-bottom: 6px; }
+	.addl-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+	.addl-input { flex: 1; }
+	.addl-input input { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+	.addl-input input:focus { outline: none; border-color: var(--accent); }
+	.addl-prods { font-size: 11px; color: #98876e; margin-top: 2px; }
 	.badge-fld { display: flex; flex-direction: column; gap: 5px; }
 	.badge-up { display: flex; align-items: center; gap: 8px; }
 	.bdg-lg { height: 40px; width: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
