@@ -1422,8 +1422,12 @@ function extractOrderNumber(payload) {
 }
 
 async function handleRestWebhook(request, env, ctx) {
-	const token = request.headers.get('Rackbeat-Webhook-Token') || '';
-	if (!env.RACKBEAT_WEBHOOK_TOKEN || token !== env.RACKBEAT_WEBHOOK_TOKEN) {
+	// Accept either a secret key in the URL (?key=…, Zapier-style — no Rackbeat
+	// token needed) OR Rackbeat's Rackbeat-Webhook-Token header if present.
+	const url = new URL(request.url);
+	const keyOk = env.REST_WEBHOOK_KEY && url.searchParams.get('key') === env.REST_WEBHOOK_KEY;
+	const tokenOk = env.RACKBEAT_WEBHOOK_TOKEN && (request.headers.get('Rackbeat-Webhook-Token') || '') === env.RACKBEAT_WEBHOOK_TOKEN;
+	if (!keyOk && !tokenOk) {
 		return json({ error: 'Unauthorized' }, 401);
 	}
 	let payload; try { payload = await request.json(); } catch { payload = {}; }
