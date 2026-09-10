@@ -12,6 +12,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/mail'))                        return 'mail';
 	if (pathname.startsWith('/price-lists'))                 return 'price_lists';
 	if (pathname.startsWith('/orders/rest-check'))           return 'rest_check';
+	if (pathname.startsWith('/orders/price-sync'))           return 'price_sync';
 	if (pathname.startsWith('/orders'))                      return 'orders';
 	if (pathname.startsWith('/product'))                     return 'product';
 	if (pathname.startsWith('/forecast'))                    return 'forecast';

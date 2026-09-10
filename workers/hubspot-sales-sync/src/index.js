@@ -100,6 +100,14 @@ export default {
 				const out = await processRackbeatOrder(env, orderNumber, { source: body.source || 'manual', sendEmail: body.send_email !== false });
 				return json(out);
 			}
+			// Price Sync — correct a deal's line-item prices to the customer's custom prices.
+			if (url.searchParams.get('pricesync') === 'run') {
+				const body = await request.json().catch(() => ({}));
+				const dealId = String(body.deal_id ?? '').trim();
+				if (!dealId) return json({ error: 'deal_id required' }, 400);
+				const out = await processDealPricing(env, dealId, { apply: body.apply === true, userEmail: body.user_email || null });
+				return json(out);
+			}
 			if (url.searchParams.get('forecast') === '1') {
 				return json({ ok: true, ...(await syncForecastDeals(env)) });
 			}
@@ -1437,4 +1445,133 @@ async function handleRestWebhook(request, env, ctx) {
 	const settings = await getRestSettings(env);
 	ctx.waitUntil(processRackbeatOrder(env, orderNumber, { source: 'webhook', sendEmail: settings.enabled }).catch(() => {}));
 	return json({ ok: true });
+}
+
+// ══ Price Sync ═══════════════════════════════════════════════════════════════
+// Correct a HubSpot deal's line-item prices to the customer's CUSTOM prices in
+// Rackbeat. Only lines where the customer has a custom price are touched, and
+// finished/imported deals (auto_imported=true + rackbeat_id) are skipped.
+
+function psNum(x) {
+	if (x == null || x === '') return null;
+	if (typeof x === 'number') return x;
+	const s = String(x).trim().replace(/\./g, '').replace(',', '.');
+	const n = parseFloat(s);
+	return Number.isFinite(n) ? n : null;
+}
+
+async function psFetchDeal(env, dealId) {
+	return hsGet(env, `${HS}/crm/v3/objects/deals/${encodeURIComponent(dealId)}?properties=dealname,auto_imported,rackbeat_id,deal_currency_code`);
+}
+
+async function psDealCompany(env, dealId) {
+	const assoc = await hsGet(env, `${HS}/crm/v4/objects/deals/${encodeURIComponent(dealId)}/associations/companies?limit=1`);
+	const cid = (assoc?.results || []).map((r) => r.toObjectId ?? r.id).filter(Boolean)[0];
+	if (!cid) return null;
+	const data = await hsPost(env, `${HS}/crm/v3/objects/companies/batch/read`, { inputs: [{ id: String(cid) }], properties: ['name', 'rackbeat_id'] });
+	const c = data?.results?.[0];
+	return c ? { id: c.id, name: c.properties?.name ?? null, rackbeat_id: c.properties?.rackbeat_id ?? null } : null;
+}
+
+/** Full customer price list → { sku: { sales_price, regular_price, is_custom } }. */
+async function psCustomerPriceMap(env, customerRef) {
+	const map = {};
+	let page = 1, pages = 1;
+	do {
+		const body = await rbGet(env, `/customers/${encodeURIComponent(customerRef)}/lineables?limit=1000&page=${page}`);
+		if (!body) break;
+		pages = body.pages || 1;
+		for (const it of body.items || []) {
+			if (it.number != null) map[String(it.number)] = { sales_price: psNum(it.sales_price), regular_price: psNum(it.regular_sales_price), is_custom: !!it.is_custom_sales_price };
+		}
+		page++;
+	} while (page <= pages);
+	return map;
+}
+
+async function psDealLineItems(env, dealId) {
+	const assoc = await hsPost(env, `${HS}/crm/v4/associations/deals/line_items/batch/read`, { inputs: [{ id: String(dealId) }] });
+	const ids = [];
+	for (const r of assoc?.results || []) for (const to of r.to || []) ids.push(String(to.toObjectId));
+	const out = [];
+	for (const chunk of chunks(ids, 100)) {
+		const data = await hsPost(env, `${HS}/crm/v3/objects/line_items/batch/read`, { inputs: chunk.map((id) => ({ id })), properties: ['hs_sku', 'name', 'quantity', 'price'] });
+		for (const li of data?.results || []) out.push({ id: li.id, sku: li.properties?.hs_sku ?? null, name: li.properties?.name ?? null, quantity: psNum(li.properties?.quantity), price: psNum(li.properties?.price) });
+	}
+	return out;
+}
+
+async function psPatchPrice(env, lineItemId, price) {
+	await hsPatch(env, `${HS}/crm/v3/objects/line_items/${lineItemId}`, { properties: { price: String(price) } });
+}
+
+async function saveDealPriceLog(env, rec) {
+	await env.DB.prepare(
+		`INSERT INTO price_sync_log (id, user_email, deal_id, deal_name, company_name, customer_ref, currency, applied, status, changed_count, lines, error)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+	).bind(rec.id, rec.user_email, rec.deal_id, rec.deal_name, rec.company_name, rec.customer_ref, rec.currency, rec.applied, rec.status, rec.changed_count, rec.lines, rec.error).run();
+}
+
+function psResult(rec, lines) {
+	return {
+		id: rec.id, status: rec.status, error: rec.error,
+		deal_id: rec.deal_id, deal_name: rec.deal_name,
+		company_name: rec.company_name, customer_ref: rec.customer_ref, currency: rec.currency,
+		applied: !!rec.applied, changed_count: rec.changed_count,
+		lines: lines.map(({ line_item_id, ...rest }) => rest),
+	};
+}
+
+async function processDealPricing(env, dealId, { apply = false, userEmail = null } = {}) {
+	const rec = { id: crypto.randomUUID(), user_email: userEmail, deal_id: String(dealId), deal_name: null, company_name: null, customer_ref: null, currency: null, applied: apply ? 1 : 0, status: 'error', changed_count: 0, lines: '[]', error: null };
+	let lines = [];
+	try {
+		const deal = await psFetchDeal(env, dealId);
+		if (!deal || !deal.id) throw new Error(`Deal ${dealId} not found`);
+		const p = deal.properties || {};
+		rec.deal_name = p.dealname ?? null;
+		rec.currency = p.deal_currency_code ?? null;
+
+		if (String(p.auto_imported) === 'true' && p.rackbeat_id) {
+			rec.status = 'skipped_imported'; rec.applied = 0;
+			await saveDealPriceLog(env, rec);
+			return psResult(rec, []);
+		}
+
+		const company = await psDealCompany(env, dealId);
+		rec.company_name = company?.name ?? null;
+		rec.customer_ref = company?.rackbeat_id ?? null;
+		if (!company || !company.rackbeat_id) {
+			rec.status = 'no_customer'; rec.applied = 0;
+			await saveDealPriceLog(env, rec);
+			return psResult(rec, []);
+		}
+
+		const priceMap = await psCustomerPriceMap(env, company.rackbeat_id);
+		const lineItems = await psDealLineItems(env, dealId);
+
+		for (const li of lineItems) {
+			const cp = li.sku ? priceMap[li.sku] : null;
+			let action;
+			if (!cp) action = 'no_price';
+			else if (!cp.is_custom) action = 'no_custom';
+			else if (li.price != null && cp.sales_price != null && Math.abs(li.price - cp.sales_price) < 0.005) action = 'match';
+			else action = 'update';
+			lines.push({ line_item_id: li.id, sku: li.sku, name: li.name, quantity: li.quantity, current_price: li.price, customer_price: cp ? cp.sales_price : null, is_custom: cp ? cp.is_custom : false, action });
+		}
+
+		const toChange = lines.filter((l) => l.action === 'update' && l.customer_price != null && l.line_item_id);
+		if (apply) {
+			for (const l of toChange) { await psPatchPrice(env, l.line_item_id, l.customer_price); l.action = 'updated'; }
+		}
+		rec.changed_count = toChange.length;
+		rec.status = 'ok';
+		rec.lines = JSON.stringify(lines.map(({ line_item_id, ...rest }) => rest));
+		await saveDealPriceLog(env, rec);
+		return psResult(rec, lines);
+	} catch (e) {
+		rec.status = 'error'; rec.error = String(e?.message ?? e);
+		try { await saveDealPriceLog(env, rec); } catch { /* ignore */ }
+		return psResult(rec, lines);
+	}
 }
