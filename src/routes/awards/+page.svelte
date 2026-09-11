@@ -61,12 +61,23 @@
 	let form = $state(blank());
 	const selMedia = $derived(data.media.find((m) => m.id === form.media_id) ?? null);
 
-	function openNew() { form = blank(); skuResults = []; initSections(); open = true; }
-	function openEdit(i) { form = fromInstance(i); skuResults = []; initSections(); open = true; }
-	function createSimilar(i) { form = fromInstance(i, { newId: true, clearSku: true }); skuResults = []; initSections(); open = true; }
+	function openNew() { form = blank(); skuResults = []; nameCache = {}; initSections(); open = true; }
+	function openEdit(i) { form = fromInstance(i); skuResults = []; prefillNames(i); initSections(); open = true; }
+	function createSimilar(i) { form = fromInstance(i, { newId: true, clearSku: true }); skuResults = []; nameCache = {}; initSections(); open = true; }
 	function close() { open = false; }
 	function addStatement() { form.statements = [...form.statements, { statement: '', score: '' }]; }
 	function removeStatement(i) { form.statements = form.statements.filter((_, x) => x !== i); }
+
+	// Product name (from the matching sheet) shown next to each SKU, or "N/A".
+	let nameCache = $state({});
+	function nameFor(sku) { const s = (sku ?? '').trim(); return s ? (nameCache[s] ?? '…') : ''; }
+	function setName(sku, name) { const s = (sku ?? '').trim(); if (s) nameCache = { ...nameCache, [s]: name || 'N/A' }; }
+	function prefillNames(i) {
+		const c = {};
+		if (i?.sku) c[i.sku] = i.sheet_id ? (i.product_name || 'N/A') : 'N/A';
+		for (const a of (i?.additional_products ?? [])) if (a.sku) c[a.sku] = a.sheet_id ? (a.product_name || 'N/A') : 'N/A';
+		nameCache = c;
+	}
 
 	// SKU autocomplete (name is derived from the matching sheet — no manual entry)
 	let skuResults = $state([]);
@@ -75,9 +86,13 @@
 		clearTimeout(skuTimer);
 		const q = form.sku.trim();
 		if (q.length < 2) { skuResults = []; return; }
-		skuTimer = setTimeout(async () => { skuResults = await (await fetch(`/api/awards/products?q=${encodeURIComponent(q)}`)).json().catch(() => []); }, 200);
+		skuTimer = setTimeout(async () => {
+			skuResults = await (await fetch(`/api/awards/products?q=${encodeURIComponent(q)}`)).json().catch(() => []);
+			const exact = skuResults.find((r) => (r.sku || '').toLowerCase() === q.toLowerCase());
+			setName(q, exact ? exact.name : 'N/A');
+		}, 200);
 	}
-	function pickSku(r) { form.sku = r.sku; skuResults = []; }
+	function pickSku(r) { form.sku = r.sku; setName(r.sku, r.name); skuResults = []; }
 
 	// Additional products — same picker logic, one active dropdown at a time.
 	let addlDrop = $state({ idx: -1, results: [] });
@@ -91,9 +106,11 @@
 		addlTimer = setTimeout(async () => {
 			const results = await (await fetch(`/api/awards/products?q=${encodeURIComponent(q)}`)).json().catch(() => []);
 			addlDrop = { idx, results };
+			const exact = results.find((r) => (r.sku || '').toLowerCase() === q.toLowerCase());
+			setName(q, exact ? exact.name : 'N/A');
 		}, 200);
 	}
-	function pickAddl(idx, r) { form.additional_skus[idx] = r.sku; addlDrop = { idx: -1, results: [] }; }
+	function pickAddl(idx, r) { form.additional_skus[idx] = r.sku; setName(r.sku, r.name); addlDrop = { idx: -1, results: [] }; }
 
 	async function upload(e, keyField, nameField) {
 		const file = e.currentTarget.files?.[0];
@@ -242,30 +259,36 @@
 						</label>
 						<label class="fld"><span>Date</span><input type="date" bind:value={form.instance_date} /></label>
 					</div>
-					<label class="fld sku-fld"><span>SKU (product is taken from the matching sheet)</span>
-						<input bind:value={form.sku} oninput={onSku} placeholder="Type SKU" autocomplete="off" />
-						{#if skuResults.length}
-							<div class="sku-drop">
-								{#each skuResults as r}<button class="sku-opt" onclick={() => pickSku(r)}><b>{r.sku}</b> {r.name}</button>{/each}
-							</div>
-						{/if}
-					</label>
-
-					<div class="addl">
-						<div class="addl-head"><span>Additional products (badge applies to these too)</span><button class="add-btn" onclick={addProduct}><span class="plus">+</span> Add product</button></div>
-						{#each form.additional_skus as _, i (i)}
-							<div class="addl-row">
-								<div class="addl-input">
-									<input bind:value={form.additional_skus[i]} oninput={() => onAddl(i)} placeholder="Type SKU" autocomplete="off" />
-									{#if addlDrop.idx === i && addlDrop.results.length}
-										<div class="sku-drop">
-											{#each addlDrop.results as r}<button class="sku-opt" onclick={() => pickAddl(i, r)}><b>{r.sku}</b> {r.name}</button>{/each}
-										</div>
+					<div class="prod-block">
+						<div class="prod-caption"><span>Products <span class="pw">(badge applies to all · name from matching sheet)</span></span><button class="add-btn" onclick={addProduct}><span class="plus">+</span> Add product</button></div>
+						<div class="prod-table">
+							<div class="prod-head"><span>SKU</span><span>Product</span></div>
+							<!-- Main product (cannot be removed) -->
+							<div class="prod-row">
+								<div class="prod-sku">
+									<input bind:value={form.sku} oninput={onSku} placeholder="Type SKU" autocomplete="off" />
+									{#if skuResults.length}
+										<div class="sku-drop">{#each skuResults as r}<button class="sku-opt" onclick={() => pickSku(r)}><b>{r.sku}</b> {r.name}</button>{/each}</div>
 									{/if}
 								</div>
-								<button class="x sm" onclick={() => removeProduct(i)}>✕</button>
+								<div class="prod-name" class:na={nameFor(form.sku) === 'N/A'}><span class="pn">{nameFor(form.sku)}</span></div>
 							</div>
-						{/each}
+							<!-- Additional products -->
+							{#each form.additional_skus as _, i (i)}
+								<div class="prod-row">
+									<div class="prod-sku">
+										<input bind:value={form.additional_skus[i]} oninput={() => onAddl(i)} placeholder="Type SKU" autocomplete="off" />
+										{#if addlDrop.idx === i && addlDrop.results.length}
+											<div class="sku-drop">{#each addlDrop.results as r}<button class="sku-opt" onclick={() => pickAddl(i, r)}><b>{r.sku}</b> {r.name}</button>{/each}</div>
+										{/if}
+									</div>
+									<div class="prod-name" class:na={nameFor(form.additional_skus[i]) === 'N/A'}>
+										<span class="pn">{nameFor(form.additional_skus[i])}</span>
+										<button class="row-del" title="Remove product" onclick={() => removeProduct(i)}>✕</button>
+									</div>
+								</div>
+							{/each}
+						</div>
 					</div>
 				</div>
 			</section>
@@ -447,12 +470,19 @@
 	.sku-drop { background: #fff; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; max-height: 200px; overflow-y: auto; }
 	.sku-opt { display: block; width: 100%; text-align: left; background: none; border: none; font-family: inherit; font-size: 13px; padding: 7px 10px; cursor: pointer; color: #3f3a33; }
 	.sku-opt:hover { background: #FFF5D2; }
-	.addl { margin-top: 12px; }
-	.addl-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700; color: #6b5e4e; margin-bottom: 6px; }
-	.addl-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
-	.addl-input { flex: 1; }
-	.addl-input input { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
-	.addl-input input:focus { outline: none; border-color: var(--accent); }
+	.prod-caption { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; font-weight: 700; color: #6b5e4e; margin-bottom: 8px; }
+	.prod-caption .pw { font-weight: 500; color: #98876e; font-style: italic; }
+	.prod-table { display: flex; flex-direction: column; gap: 6px; }
+	.prod-head { display: grid; grid-template-columns: 1fr 1.25fr; gap: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #A88B52; padding: 0 2px; }
+	.prod-row { display: grid; grid-template-columns: 1fr 1.25fr; gap: 8px; align-items: start; }
+	.prod-sku { min-width: 0; }
+	.prod-sku input { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+	.prod-sku input:focus { outline: none; border-color: var(--accent); }
+	.prod-name { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 36px; padding: 0 4px 0 11px; font-size: 13px; color: #3f3a33; background: #FBF7EF; border: 1px solid #F1EADB; border-radius: 8px; }
+	.prod-name.na { color: #b6a892; }
+	.prod-name .pn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.row-del { flex: none; background: none; border: none; color: #B6795A; font-size: 12px; cursor: pointer; padding: 5px 7px; border-radius: 6px; line-height: 1; }
+	.row-del:hover { background: #FCE4DE; color: #C4381B; }
 	.addl-prods { font-size: 11px; color: #98876e; margin-top: 2px; }
 	.add-btn { display: inline-flex; align-items: center; gap: 6px; font-family: inherit; font-size: 12px; font-weight: 700; color: #B15A12; background: #FDEEE4; border: 1px solid #F6CDAB; border-radius: 100px; padding: 5px 12px 5px 10px; cursor: pointer; transition: background 0.12s, border-color 0.12s; }
 	.add-btn:hover { background: #FBDDC7; border-color: var(--accent); }
