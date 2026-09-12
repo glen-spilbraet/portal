@@ -108,6 +108,13 @@ export default {
 				const out = await processDealPricing(env, dealId, { apply: body.apply === true, userEmail: body.user_email || null });
 				return json(out);
 			}
+			// Price cache — scan a tracked customer/group's custom prices into D1.
+			if (url.searchParams.get('pricesync') === 'scan') {
+				const body = await request.json().catch(() => ({}));
+				const sourceId = String(body.source_id ?? '').trim();
+				if (!sourceId) return json({ error: 'source_id required' }, 400);
+				return json(await scanPriceSource(env, sourceId));
+			}
 			if (url.searchParams.get('forecast') === '1') {
 				return json({ ok: true, ...(await syncForecastDeals(env)) });
 			}
@@ -1573,5 +1580,53 @@ async function processDealPricing(env, dealId, { apply = false, userEmail = null
 		rec.status = 'error'; rec.error = String(e?.message ?? e);
 		try { await saveDealPriceLog(env, rec); } catch { /* ignore */ }
 		return psResult(rec, lines);
+	}
+}
+
+// ══ Price cache scan ═════════════════════════════════════════════════════════
+// Extract a tracked customer/group's CUSTOM prices from Rackbeat into custom_price.
+async function scanPriceSource(env, sourceId) {
+	const src = await env.DB.prepare('SELECT * FROM price_source WHERE id = ?').bind(sourceId).first();
+	if (!src) return { ok: false, error: 'source not found' };
+	const base = src.type === 'group'
+		? `/customer-groups/${encodeURIComponent(src.ref)}`
+		: `/customers/${encodeURIComponent(src.ref)}`;
+	try {
+		// Display name + currency from the entity record (best-effort).
+		let name = src.name, currency = src.currency;
+		try {
+			const meta = await rbGet(env, base);
+			const obj = meta?.customer ?? meta?.customer_group ?? meta ?? {};
+			name = obj.name ?? name;
+			currency = obj.currency ?? obj.currency_code ?? currency ?? null;
+		} catch { /* best-effort */ }
+
+		const customs = []; let scanned = 0; let page = 1, pages = 1;
+		do {
+			const b = await rbGet(env, `${base}/lineables?limit=1000&page=${page}`);
+			if (!b) break;
+			pages = b.pages || 1;
+			for (const it of b.items || []) {
+				scanned++;
+				if (it.is_custom_sales_price && it.number != null) {
+					customs.push({ sku: String(it.number), custom_price: psNum(it.sales_price), regular_price: psNum(it.regular_sales_price) });
+				}
+			}
+			page++;
+		} while (page <= pages);
+
+		const now = new Date().toISOString();
+		await env.DB.prepare('DELETE FROM custom_price WHERE source_id = ?').bind(sourceId).run();
+		for (const c of chunks(customs, 50)) {
+			await env.DB.batch(c.map((x) => env.DB.prepare(
+				'INSERT OR REPLACE INTO custom_price (source_id, sku, custom_price, regular_price, updated_at) VALUES (?,?,?,?,?)'
+			).bind(sourceId, x.sku, x.custom_price, x.regular_price, now)));
+		}
+		await env.DB.prepare('UPDATE price_source SET name=?, currency=?, product_count=?, scanned_count=?, last_synced_at=?, status=?, error=NULL WHERE id=?')
+			.bind(name, currency, customs.length, scanned, now, 'ok', sourceId).run();
+		return { ok: true, source_id: sourceId, name, currency, product_count: customs.length, scanned_count: scanned };
+	} catch (e) {
+		await env.DB.prepare('UPDATE price_source SET status=?, error=? WHERE id=?').bind('error', String(e?.message ?? e), sourceId).run();
+		return { ok: false, error: String(e?.message ?? e) };
 	}
 }

@@ -4,6 +4,49 @@
 
 	let { data } = $props();
 
+	// ── Tracked sources (customers / groups with custom prices) ────────────────
+	let newType = $state('customer');
+	let newRef = $state('');
+	let newName = $state('');
+	let addingSource = $state(false);
+	let sourceMsg = $state('');
+	let busySource = $state(null); // id being re-synced/removed
+
+	async function addSource() {
+		const ref = newRef.trim();
+		if (!ref || addingSource) return;
+		addingSource = true; sourceMsg = '';
+		try {
+			const res = await fetch('/api/price-sync/sources', {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ type: newType, ref, name: newName.trim() }),
+			});
+			const d = await res.json();
+			if (!res.ok) throw new Error(d?.error ?? 'Kunne ikke tilføje');
+			if (d.scan && d.scan.ok === false) sourceMsg = `Tilføjet, men scan fejlede: ${d.scan.error}`;
+			newRef = ''; newName = '';
+			await invalidateAll();
+		} catch (e) { sourceMsg = e.message; } finally { addingSource = false; }
+	}
+
+	async function resyncSource(id) {
+		busySource = id;
+		try {
+			const res = await fetch(`/api/price-sync/sources/${id}`, { method: 'POST' });
+			if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error ?? 'Scan fejlede');
+			await invalidateAll();
+		} catch (e) { alert(e.message); } finally { busySource = null; }
+	}
+
+	async function removeSource(id, name) {
+		if (!confirm(`Fjern "${name || id}" fra sync? Cachede priser slettes.`)) return;
+		busySource = id;
+		try {
+			await fetch(`/api/price-sync/sources/${id}`, { method: 'DELETE' });
+			await invalidateAll();
+		} finally { busySource = null; }
+	}
+
 	let dealId = $state('');
 	let apply = $state(false);
 	let running = $state(false);
@@ -51,7 +94,51 @@
 <AppNav active="price-sync" user={data.user} />
 
 <main class="wrap">
-	<div class="head"><h1>Price Sync</h1><p class="sub">Retter en HubSpot-deals linjepriser så de matcher kundens særpriser i Rackbeat. Færdigimporterede deals (Auto Imported = true + rackbeat_id) røres ikke.</p></div>
+	<div class="head"><h1>Price Sync</h1><p class="sub">Cache af kunders/gruppers særpriser fra Rackbeat — grundlag for HubSpot-prissync og kataloger.</p></div>
+
+	<!-- Foundation: tracked sources -->
+	<section class="card">
+		<h2>Synkroniserede kunder &amp; grupper</h2>
+		<p class="hint">Tilføj en kunde (Rackbeat-kunde-id) eller kundegruppe (gruppenummer) med særpriser. Systemet scanner og gemmer særpriserne lokalt.</p>
+		<div class="run-row">
+			<select class="in" bind:value={newType}>
+				<option value="customer">Kunde</option>
+				<option value="group">Kundegruppe</option>
+			</select>
+			<input class="in" placeholder={newType === 'group' ? 'Gruppenummer (fx 231)' : 'Kunde-id (fx 928893361)'} bind:value={newRef} onkeydown={(e) => e.key === 'Enter' && addSource()} />
+			<input class="in" placeholder="Navn (valgfri — hentes ellers)" bind:value={newName} />
+			<button class="btn primary" onclick={addSource} disabled={addingSource || !newRef.trim()}>{addingSource ? 'Scanner…' : 'Tilføj & scan'}</button>
+		</div>
+		{#if sourceMsg}<p class="err">{sourceMsg}</p>{/if}
+
+		{#if data.sources.length}
+			<div class="table-card" style="margin-top:14px">
+				<table>
+					<thead><tr><th>Navn</th><th>Type</th><th>Ref</th><th>Valuta</th><th class="num">Særpriser</th><th class="num">Scannet</th><th>Sidst synket</th><th>Status</th><th></th></tr></thead>
+					<tbody>
+						{#each data.sources as s (s.id)}
+							<tr>
+								<td>{s.name || '—'}</td>
+								<td class="muted">{s.type === 'group' ? 'Gruppe' : 'Kunde'}</td>
+								<td class="mono">{s.ref}</td>
+								<td class="muted">{s.currency || '—'}</td>
+								<td class="num"><b>{s.product_count ?? '—'}</b></td>
+								<td class="num muted">{s.scanned_count ?? '—'}</td>
+								<td class="nowrap muted">{s.last_synced_at ? s.last_synced_at.replace('T', ' ').slice(0, 16) : '—'}</td>
+								<td><span class="pill sm {s.status === 'ok' ? 'ok' : s.status === 'error' ? 'danger' : 'muted'}">{s.status ?? '—'}</span>{#if s.error}<div class="err" style="margin:2px 0 0">{s.error}</div>{/if}</td>
+								<td class="actions">
+									<button class="link" disabled={busySource === s.id} onclick={() => resyncSource(s.id)}>{busySource === s.id ? '…' : 'Re-sync'}</button>
+									<button class="link danger" disabled={busySource === s.id} onclick={() => removeSource(s.id, s.name)}>Fjern</button>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{:else}
+			<p class="hint" style="margin-top:8px">Ingen kilder tilføjet endnu.</p>
+		{/if}
+	</section>
 
 	<section class="card">
 		<h2>Kør på deal</h2>
@@ -178,7 +265,9 @@
 	td.num { text-align: right; font-variant-numeric: tabular-nums; }
 	td.muted { color: #98876e; } .nowrap { white-space: nowrap; } .mono { font-family: ui-monospace, monospace; font-size: 12px; }
 	.actions { text-align: right; }
-	.link { background: none; border: none; font-family: inherit; font-size: 12px; font-weight: 700; color: #B15A12; cursor: pointer; }
+	.link { background: none; border: none; font-family: inherit; font-size: 12px; font-weight: 700; color: #B15A12; cursor: pointer; padding: 0 0 0 10px; }
+	.link.danger { color: #C4381B; }
+	.link:disabled { opacity: 0.5; cursor: default; }
 	.detail-row td { background: #FBF7EF; padding: 8px 12px; }
 	.li { margin: 0; } .li th { background: #fff; }
 	tr.change td { background: #FDECD8; } tr.done td { background: #E9F7EC; }

@@ -1,8 +1,9 @@
 import { error } from '@sveltejs/kit';
-import { listPriceSyncLog } from '$lib/db.js';
+import { listPriceSyncLog, listPriceSources } from '$lib/db.js';
 
 export async function load({ platform }) {
 	const db = platform?.env?.DB;
 	if (!db) error(500, 'Database unavailable');
-	return { logs: await listPriceSyncLog(db, 100) };
+	const [logs, sources] = await Promise.all([listPriceSyncLog(db, 100), listPriceSources(db)]);
+	return { logs, sources };
 }

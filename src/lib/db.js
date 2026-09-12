@@ -810,6 +810,32 @@ export async function listPriceSyncLog(db, limit = 100) {
 	return rows.results ?? [];
 }
 
+// ── Price cache: tracked sources (customers / groups) ───────────────────────
+export async function listPriceSources(db) {
+	const rows = await db.prepare('SELECT * FROM price_source ORDER BY name COLLATE NOCASE, ref').all();
+	return rows.results ?? [];
+}
+
+export async function getPriceSourceByRef(db, type, ref) {
+	return db.prepare('SELECT * FROM price_source WHERE type = ? AND ref = ?').bind(type, ref).first();
+}
+
+export async function addPriceSource(db, { type, ref, name }) {
+	const id = crypto.randomUUID();
+	await db.prepare(
+		`INSERT INTO price_source (id, type, ref, name, status) VALUES (?,?,?,?,'pending')
+		 ON CONFLICT(type, ref) DO NOTHING`
+	).bind(id, type, ref, name || null).run();
+	return getPriceSourceByRef(db, type, ref);
+}
+
+export async function deletePriceSource(db, id) {
+	await db.batch([
+		db.prepare('DELETE FROM custom_price WHERE source_id = ?').bind(id),
+		db.prepare('DELETE FROM price_source WHERE id = ?').bind(id),
+	]);
+}
+
 export async function deletePermissionSet(db, id) {
 	// Clear references before deleting
 	await db.prepare('UPDATE allowed_users SET permission_set_id = NULL WHERE permission_set_id = ?').bind(id).run();
