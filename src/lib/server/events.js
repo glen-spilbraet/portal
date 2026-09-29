@@ -15,12 +15,17 @@ function makeShareToken() {
 // ── Venues ───────────────────────────────────────────────────────────────────
 
 export async function listVenues(db) {
-	const rows = await db.prepare(
-		`SELECT v.*, (SELECT COUNT(*) FROM event e WHERE e.venue_id = v.id) AS event_count,
-		        (SELECT COUNT(*) FROM venue_contact c WHERE c.venue_id = v.id) AS contact_count
-		 FROM venue v ORDER BY v.name COLLATE NOCASE`
-	).all();
-	return rows.results ?? [];
+	const [venues, contacts] = await Promise.all([
+		db.prepare(
+			`SELECT v.*, (SELECT COUNT(*) FROM event e WHERE e.venue_id = v.id) AS event_count,
+			        (SELECT COUNT(*) FROM venue_contact c WHERE c.venue_id = v.id) AS contact_count
+			 FROM venue v ORDER BY v.name COLLATE NOCASE`
+		).all(),
+		db.prepare('SELECT * FROM venue_contact ORDER BY created_at').all(),
+	]);
+	const byVenue = {};
+	for (const c of contacts.results ?? []) (byVenue[c.venue_id] ??= []).push(c);
+	return (venues.results ?? []).map((v) => ({ ...v, contacts: byVenue[v.id] ?? [] }));
 }
 
 export async function getVenue(db, id) {
@@ -123,14 +128,16 @@ export async function getEvent(db, id) {
 		 WHERE e.id = ?`
 	).bind(id).first();
 	if (!event) return null;
-	const [skus, assets] = await Promise.all([
+	const [skus, assets, contacts] = await Promise.all([
 		db.prepare('SELECT sku FROM event_sku WHERE event_id = ? ORDER BY sort, sku').bind(id).all(),
 		db.prepare('SELECT * FROM event_asset WHERE event_id = ? ORDER BY created_at').bind(id).all(),
+		db.prepare('SELECT contact_id FROM event_contact WHERE event_id = ?').bind(id).all(),
 	]);
 	return {
 		...event,
 		skus: (skus.results ?? []).map((r) => r.sku),
 		assets: assets.results ?? [],
+		contact_ids: (contacts.results ?? []).map((r) => r.contact_id),
 	};
 }
 
@@ -203,6 +210,57 @@ export async function setEventSkus(db, eventId, skus) {
 		stmts.push(db.prepare('INSERT INTO event_sku (event_id, sku, sort) VALUES (?,?,?)').bind(eventId, sku, i));
 	});
 	await db.batch(stmts);
+}
+
+// ── Event ↔ contacts (attached venue contacts) ───────────────────────────────
+
+export async function setEventContacts(db, eventId, contactIds) {
+	const clean = [...new Set((contactIds ?? []).map((c) => String(c)))];
+	const stmts = [db.prepare('DELETE FROM event_contact WHERE event_id = ?').bind(eventId)];
+	for (const cid of clean) stmts.push(db.prepare('INSERT INTO event_contact (event_id, contact_id) VALUES (?,?)').bind(eventId, cid));
+	await db.batch(stmts);
+}
+
+/** Attached contacts with their details (joins venue_contact). */
+export async function getEventContacts(db, eventId) {
+	const rows = await db.prepare(
+		`SELECT c.* FROM event_contact ec JOIN venue_contact c ON c.id = ec.contact_id WHERE ec.event_id = ?`
+	).bind(eventId).all();
+	return rows.results ?? [];
+}
+
+// ── Participants (with change log) ────────────────────────────────────────────
+
+/**
+ * Set one participant field ('expected' | 'actual') and log the change.
+ * @param {any} db
+ * @param {string} eventId
+ * @param {'expected'|'actual'} field
+ * @param {number|string|null} value
+ * @param {'venue'|'internal'} source
+ * @param {string} actor
+ */
+export async function setParticipants(db, eventId, field, value, source, actor) {
+	const col = field === 'actual' ? 'participants_actual' : 'participants_expected';
+	const cur = await db.prepare(`SELECT ${col} AS v FROM event WHERE id = ?`).bind(eventId).first();
+	const oldVal = cur?.v ?? null;
+	const newVal = value === '' || value == null ? null : Number(value);
+	if (oldVal === newVal) return { changed: false };
+	await db.batch([
+		db.prepare(`UPDATE event SET ${col} = ? WHERE id = ?`).bind(newVal, eventId),
+		db.prepare(
+			`INSERT INTO event_participant_log (id, event_id, field, old_value, new_value, source, actor)
+			 VALUES (?,?,?,?,?,?,?)`
+		).bind(uid(), eventId, field, oldVal, newVal, source, actor ?? null),
+	]);
+	return { changed: true, oldVal, newVal };
+}
+
+export async function listParticipantLog(db, eventId) {
+	const rows = await db.prepare(
+		'SELECT * FROM event_participant_log WHERE event_id = ? ORDER BY created_at DESC'
+	).bind(eventId).all();
+	return rows.results ?? [];
 }
 
 // ── Event assets ───────────────────────────────────────────────────────────────

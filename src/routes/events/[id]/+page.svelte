@@ -72,6 +72,19 @@
 	}
 	async function removeSku(sku) { skus = skus.filter((s) => s !== sku); await saveSkus(); }
 
+	// ── Attached contacts ────────────────────────────────────────────────────────
+	let contactIds = $state([...(data.event.contact_ids ?? [])]);
+	$effect(() => { contactIds = [...(data.event.contact_ids ?? [])]; });
+
+	async function toggleContact(id) {
+		contactIds = contactIds.includes(id) ? contactIds.filter((c) => c !== id) : [...contactIds, id];
+		const res = await fetch(`/api/events/${data.event.id}/contacts`, {
+			method: 'PUT', headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ contactIds })
+		});
+		if (!res.ok) { alert('Failed to save contacts'); await invalidateAll(); }
+	}
+
 	// ── Assets ────────────────────────────────────────────────────────────────
 	let uploading = $state(false);
 	async function upload(e, category) {
@@ -109,7 +122,12 @@
 
 	const media = $derived(data.event.assets.filter((a) => a.category === 'media'));
 	const marketing = $derived(data.event.assets.filter((a) => a.category === 'marketing'));
-	function isImg(a) { return a.kind === 'image'; }
+
+	function fmtLog(ts) {
+		if (!ts) return '';
+		try { return new Date(ts.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+		catch { return ts; }
+	}
 </script>
 
 <svelte:head><title>{form.title || 'Event'} — Product Portal</title></svelte:head>
@@ -213,6 +231,28 @@
 			<p class="hint">Selected products (and any award/nominee badges) are shown to the venue automatically on the share page.</p>
 		</div>
 
+		<!-- Contacts for this event -->
+		<div class="card">
+			<h2 class="card-title">Contacts for this event <span class="muted">· for automated emails</span></h2>
+			{#if !data.event.venue_id}
+				<p class="empty">Pick a venue and save first — then its contacts appear here.</p>
+			{:else if data.venueContacts.length === 0}
+				<p class="empty">This venue has no contacts yet. Add them under <a href="/events/venues">Venues</a>.</p>
+			{:else}
+				<div class="contact-picks">
+					{#each data.venueContacts as c (c.id)}
+						<label class="contact-pick">
+							<input type="checkbox" checked={contactIds.includes(c.id)} onchange={() => toggleContact(c.id)} />
+							<span class="cp-name">{c.name || '—'}</span>
+							{#if c.role}<span class="muted">· {c.role}</span>{/if}
+							{#if c.email}<span class="muted">· {c.email}</span>{/if}
+						</label>
+					{/each}
+				</div>
+				<p class="hint">Checked contacts will receive the automated event emails (image & participant-count requests).</p>
+			{/if}
+		</div>
+
 		<!-- Venue share link -->
 		<div class="card">
 			<h2 class="card-title">Venue share link</h2>
@@ -238,6 +278,26 @@
 			{@render assetList(media, true)}
 			<label class="btn sm upload">{uploading ? 'Uploading…' : '+ Upload media'}<input type="file" hidden multiple accept="image/*,video/*" onchange={(e) => upload(e, 'media')} disabled={uploading} /></label>
 		</div>
+
+		<!-- Participant change log -->
+		{#if data.participantLog.length > 0}
+			<div class="card">
+				<h2 class="card-title">Participant change log</h2>
+				<table class="log-table">
+					<thead><tr><th>When</th><th>Field</th><th>Change</th><th>By</th></tr></thead>
+					<tbody>
+						{#each data.participantLog as l (l.id)}
+							<tr>
+								<td>{fmtLog(l.created_at)}</td>
+								<td class="cap">{l.field}</td>
+								<td>{l.old_value ?? '—'} → <strong>{l.new_value ?? '—'}</strong></td>
+								<td>{l.source === 'venue' ? 'Venue' : (l.actor || 'Internal')}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
 	</main>
 </div>
 
@@ -329,4 +389,15 @@
 	.tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 100px; }
 	.tag.venue { background: #EEF2FF; color: #4338ca; }
 	.asset-del { top: 4px; right: 4px; }
+
+	.contact-picks { display: flex; flex-direction: column; gap: 6px; }
+	.contact-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+	.contact-pick input { width: auto; }
+	.cp-name { font-weight: 600; }
+
+	.log-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+	.log-table th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #A1A1AA; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+	.log-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); color: #18181B; }
+	.log-table tbody tr:last-child td { border-bottom: none; }
+	.cap { text-transform: capitalize; }
 </style>

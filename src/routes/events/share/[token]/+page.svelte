@@ -47,6 +47,27 @@
 
 	const ev = data.event;
 	const when = $derived([fmtDate(ev.event_date), [ev.start_time, ev.end_time].filter(Boolean).join('–')].filter(Boolean).join(' · '));
+
+	// ── Participants (venue-editable) ─────────────────────────────────────────────
+	const today = new Date().toISOString().slice(0, 10);
+	const afterEvent = !!ev.event_date && today > ev.event_date;
+	let pValue = $state(String((afterEvent ? ev.participants_actual : ev.participants_expected) ?? ''));
+	let pSaving = $state(false);
+	let pSaved = $state(false);
+
+	async function saveParticipants() {
+		if (pSaving) return;
+		pSaving = true; pSaved = false;
+		try {
+			const res = await fetch(`/api/events/share/${$page.params.token}/participants`, {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ value: pValue === '' ? null : Number(pValue) })
+			});
+			if (res.ok) { pSaved = true; setTimeout(() => (pSaved = false), 1800); }
+			else alert('Could not save — please try again.');
+		} catch { alert('Could not save — please try again.'); }
+		finally { pSaving = false; }
+	}
 </script>
 
 <svelte:head><title>{ev.title || 'Event'} — Spilbræt</title></svelte:head>
@@ -64,6 +85,19 @@
 			{#if ev.entry_fee != null && ev.entry_fee !== ''}<span class="meta-chip">🎟 {ev.entry_fee} {ev.entry_fee_currency || 'DKK'}</span>{/if}
 		</div>
 	</header>
+
+	<section>
+		<div class="pcard">
+			<div class="pcard-text">
+				<h2>{afterEvent ? 'How many attended?' : 'Expected sign-ups'}</h2>
+				<p class="section-sub">{afterEvent ? 'Let us know the actual number of participants.' : 'Update how many people you expect at the event — you can change this any time before the event.'}</p>
+			</div>
+			<div class="prow">
+				<input type="number" min="0" placeholder="0" bind:value={pValue} />
+				<button class="save-btn" onclick={saveParticipants} disabled={pSaving}>{pSaving ? 'Saving…' : pSaved ? 'Saved ✓' : 'Save'}</button>
+			</div>
+		</div>
+	</section>
 
 	{#if data.products.length > 0}
 		<section>
@@ -194,6 +228,16 @@
 	.muted { color: #8A7B58; }
 	.hero-meta { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
 	.meta-chip { font-size: 13px; font-weight: 600; color: #5C4F31; background: rgba(255,255,255,0.75); border: 1px solid rgba(180,140,40,0.18); border-radius: 100px; padding: 6px 14px; }
+
+	.pcard { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; background: white; border: 1px solid rgba(255,255,255,0.8); border-radius: 18px; padding: 20px 22px; box-shadow: 0 30px 60px -34px rgba(150, 108, 20, 0.45); }
+	.pcard-text h2 { margin: 0 0 2px; }
+	.pcard-text .section-sub { margin: 0; max-width: 460px; }
+	.prow { display: flex; gap: 8px; align-items: center; }
+	.prow input { width: 110px; padding: 10px 12px; border: 1px solid #E7E7E4; border-radius: 10px; font-size: 15px; font-weight: 600; font-family: inherit; outline: none; text-align: center; }
+	.prow input:focus { border-color: #F57832; }
+	.save-btn { padding: 10px 18px; border: none; border-radius: 10px; background: #F57832; color: white; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer; }
+	.save-btn:hover:not(:disabled) { background: #e26a26; }
+	.save-btn:disabled { opacity: 0.6; cursor: default; }
 
 	section { margin-top: 44px; }
 	h2 { font-size: 20px; font-weight: 800; margin: 0 0 4px; letter-spacing: -0.3px; color: #241E12; }
