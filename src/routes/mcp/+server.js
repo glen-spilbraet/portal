@@ -1,6 +1,12 @@
 /**
- * Remote MCP server (Streamable HTTP, JSON-RPC 2.0) exposing read-only access to
- * portal sales-sheet data. Auth: `Authorization: Bearer <MCP_API_KEY>`.
+ * Remote MCP server (Streamable HTTP, JSON-RPC 2.0) exposing read-only portal
+ * data to Claude. Tools are gated by the caller's portal permissions:
+ *   - product sales sheets   (perms.sheets)
+ *   - awards & press         (perms.awards)
+ *   - sales / reporting + forecasts (admins only in v1; read SALES_DB)
+ *
+ * Auth: an OAuth 2.1 bearer token (claude.ai / Desktop, org-locked to
+ * allowed_users) OR the shared `MCP_API_KEY` (Claude Code CLI → full access).
  *
  * Connect from Claude Code:
  *   claude mcp add --transport http portal https://<portal>/mcp \
@@ -8,6 +14,7 @@
  */
 import { searchProducts, getProductBySku, getProductImageBytes } from '$lib/server/mcpProducts.js';
 import { getProductPress, listPress, listMediaOutlets, getMediaDetail } from '$lib/server/mcpAwards.js';
+import { runSalesQuery, salesMarketTotals, forecastAccuracy, salesSyncMeta, SALES_SCHEMA_DOC } from '$lib/server/mcpSales.js';
 import { validateAccessToken } from '$lib/server/mcpOauth.js';
 import { getAllowedUser, getUserPermissions } from '$lib/db.js';
 
@@ -83,6 +90,55 @@ const TOOLS = [
 			properties: { id: { type: 'string', description: 'Media id (from list_media).' } },
 			required: ['id']
 		}
+	},
+	// ── Sales / reporting (admins only) ──────────────────────────────────────
+	{
+		name: 'sales_schema',
+		description: 'Describe the sales database (tables, columns, conventions and example queries) so you can write correct sales_query SQL. Call this first before writing a sales_query. Covers invoiced sales, line items and forecasts.',
+		inputSchema: { type: 'object', properties: {} }
+	},
+	{
+		name: 'sales_query',
+		description: 'Run a single read-only SQL SELECT query against the sales database (invoiced deals, line items, forecasts) and return the rows. Use for any ad-hoc sales report: best-sellers, revenue by customer/group/country, credit notes, per-publisher analysis, etc. Call sales_schema first to learn the tables. SELECT/WITH only; results are capped.',
+		inputSchema: {
+			type: 'object',
+			properties: { sql: { type: 'string', description: 'A single SELECT (or WITH … SELECT) statement. No semicolons, no writes.' } },
+			required: ['sql']
+		}
+	},
+	{
+		name: 'sales_market_totals',
+		description: 'Revenue (DKK) and deal count per market (Denmark, Sweden, Norway, International) for an inclusive date range, with optional owner/level/group/country filters. Quick pre-built summary — for anything more specific use sales_query.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				from: { type: 'string', description: 'Start date, inclusive (YYYY-MM-DD).' },
+				to: { type: 'string', description: 'End date, inclusive (YYYY-MM-DD).' },
+				owner: { type: 'string', description: 'Filter by owner email.' },
+				level: { type: 'string', description: 'Filter by customer level.' },
+				group: { type: 'string', description: 'Filter by customer group.' },
+				country: { type: 'string', description: 'Filter by country.' }
+			},
+			required: ['from', 'to']
+		}
+	},
+	{
+		name: 'forecast_accuracy',
+		description: 'Completed-forecast accuracy in units: forecasted vs actual units at SKU level, rolled up by customer, owner or product, with attainment % and over/under bias.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				view: { type: 'string', enum: ['customers', 'owners', 'products'], description: 'How to roll up (default customers).' },
+				owner: { type: 'string', description: 'Filter to one owner email.' },
+				years: { type: 'array', items: { type: 'string' }, description: 'Filter to forecast-window years, e.g. ["2025","2026"].' },
+				limit: { type: 'number', description: 'Max rows (default 50, max 200).' }
+			}
+		}
+	},
+	{
+		name: 'sales_sync_meta',
+		description: 'When the sales data was last synced from HubSpot and how many deals it holds (use for a "data as of …" note).',
+		inputSchema: { type: 'object', properties: {} }
 	}
 ];
 
@@ -94,15 +150,24 @@ function textContent(obj) { return { content: [{ type: 'text', text: typeof obj 
 // (legacy MCP_API_KEY); otherwise gate by the OAuth user's portal permissions.
 const SHEET_TOOLS = new Set(['search_products', 'get_product', 'get_product_image']);
 const AWARDS_TOOLS = new Set(['get_product_press', 'list_press', 'list_media', 'get_media']);
-function toolAllowed(name, perms) {
+// Sales/reporting tools are admin-only in v1 (they can read all sales data).
+const SALES_TOOLS = new Set(['sales_schema', 'sales_query', 'sales_market_totals', 'forecast_accuracy', 'sales_sync_meta']);
+function toolAllowed(name, { perms, isAdmin }) {
+	if (SALES_TOOLS.has(name)) return perms === null || isAdmin; // shared key or admin
 	if (!perms) return true;
 	if (SHEET_TOOLS.has(name)) return !!perms.sheets;
 	if (AWARDS_TOOLS.has(name)) return !!perms.awards;
 	return true;
 }
 
-async function callTool(name, args, { db, platform, origin, perms }) {
-	if (!toolAllowed(name, perms)) {
+/** The tools a given caller may see/use — so tools/list matches call-time gating. */
+function visibleTools(ctx) {
+	return TOOLS.filter((t) => toolAllowed(t.name, ctx));
+}
+
+async function callTool(name, args, ctx) {
+	const { db, salesDb, platform, origin } = ctx;
+	if (!toolAllowed(name, ctx)) {
 		return { ...textContent(`Your account does not have access to "${name}".`), isError: true };
 	}
 	if (name === 'search_products') {
@@ -140,6 +205,31 @@ async function callTool(name, args, { db, platform, origin, perms }) {
 		if (!media) return { ...textContent(`No media found with id ${args.id}`), isError: true };
 		return textContent(media);
 	}
+	// ── Sales / reporting ────────────────────────────────────────────────────
+	if (SALES_TOOLS.has(name) && !salesDb) {
+		return { ...textContent('Sales database unavailable.'), isError: true };
+	}
+	if (name === 'sales_schema') {
+		return textContent(SALES_SCHEMA_DOC);
+	}
+	if (name === 'sales_query') {
+		const out = await runSalesQuery(salesDb, args?.sql);
+		if (out.error) return { ...textContent(out.error), isError: true };
+		return textContent(out);
+	}
+	if (name === 'sales_market_totals') {
+		const out = await salesMarketTotals(salesDb, args ?? {});
+		if (out.error) return { ...textContent(out.error), isError: true };
+		return textContent(out);
+	}
+	if (name === 'forecast_accuracy') {
+		const out = await forecastAccuracy(salesDb, args ?? {});
+		if (out.error) return { ...textContent(out.error), isError: true };
+		return textContent(out);
+	}
+	if (name === 'sales_sync_meta') {
+		return textContent(await salesSyncMeta(salesDb));
+	}
 	return { ...textContent(`Unknown tool: ${name}`), isError: true };
 }
 
@@ -157,7 +247,7 @@ async function handleMessage(msg, ctx) {
 			});
 		}
 		if (method === 'ping') return rpc(id, {});
-		if (method === 'tools/list') return rpc(id, { tools: TOOLS });
+		if (method === 'tools/list') return rpc(id, { tools: visibleTools(ctx) });
 		if (method === 'tools/call') {
 			const result = await callTool(params?.name, params?.arguments ?? {}, ctx);
 			return rpc(id, result);
@@ -201,14 +291,21 @@ export async function POST({ request, platform, url }) {
 	const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : null;
 
 	let perms = null;
+	let isAdmin = false;
+	let email = null;
 	let authed = false;
 	if (bearer && expected && bearer === expected) {
-		authed = true; // legacy shared key → full access
+		authed = true; isAdmin = true; // legacy shared key → full access
 	} else if (bearer) {
 		const tok = await validateAccessToken(db, bearer);
 		if (tok) {
 			const user = await getAllowedUser(db, tok.email);
-			if (user) { perms = await getUserPermissions(db, user); authed = true; }
+			if (user) {
+				perms = await getUserPermissions(db, user);
+				isAdmin = user.role === 'admin';
+				email = tok.email;
+				authed = true;
+			}
 		}
 	}
 	if (!authed) {
@@ -230,7 +327,7 @@ export async function POST({ request, platform, url }) {
 		});
 	}
 
-	const ctx = { db, platform, origin: url.origin, perms };
+	const ctx = { db, salesDb: platform?.env?.SALES_DB, platform, origin: url.origin, perms, isAdmin, email };
 	const isBatch = Array.isArray(body);
 	const messages = isBatch ? body : [body];
 	const responses = [];
