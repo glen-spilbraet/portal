@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false });
+	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false });
 	let creating = $state(false);
 	let createError = $state('');
 
@@ -29,6 +29,7 @@
 		{ key: 'awards',      label: 'Awards & Press' },
 		{ key: 'rest_check',  label: 'Rest Check' },
 		{ key: 'price_sync',  label: 'Price Sync' },
+		{ key: 'events',      label: 'Events' },
 	];
 
 	async function createSet() {
@@ -54,6 +55,7 @@
 					access_awards:      newAccess.awards,
 					access_rest_check:  newAccess.rest_check,
 					access_price_sync:  newAccess.price_sync,
+					access_events:      newAccess.events,
 				})
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
@@ -74,9 +76,10 @@
 				access_awards:      newAccess.awards       ? 1 : 0,
 				access_rest_check:  newAccess.rest_check   ? 1 : 0,
 				access_price_sync:  newAccess.price_sync   ? 1 : 0,
+				access_events:      newAccess.events       ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false };
+			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false };
 		} catch (e) {
 			createError = e.message;
 		} finally {
@@ -100,6 +103,7 @@
 			access_awards:      !!set.access_awards,
 			access_rest_check:  !!set.access_rest_check,
 			access_price_sync:  !!set.access_price_sync,
+			access_events:      !!set.access_events,
 		};
 	}
 
@@ -131,6 +135,7 @@
 					access_awards:      e.access_awards,
 					access_rest_check:  e.access_rest_check,
 					access_price_sync:  e.access_price_sync,
+					access_events:      e.access_events,
 				})
 			});
 			if (!res.ok) throw new Error('Failed to save');
@@ -150,6 +155,7 @@
 				access_awards:      e.access_awards      ? 1 : 0,
 				access_rest_check:  e.access_rest_check  ? 1 : 0,
 				access_price_sync:  e.access_price_sync  ? 1 : 0,
+				access_events:      e.access_events      ? 1 : 0,
 			});
 			cancelEdit(id);
 		} catch (err) {

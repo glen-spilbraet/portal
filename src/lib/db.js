@@ -756,8 +756,8 @@ export async function getPermissionSet(db, id) {
 
 export async function createPermissionSet(db, id, name, access) {
 	await db.prepare(`
-		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_mail, access_product, access_forecast, access_awards, access_rest_check, access_price_sync)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_mail, access_product, access_forecast, access_awards, access_rest_check, access_price_sync, access_events)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`).bind(id, name,
 		access.sheets       ? 1 : 0,
 		access.catalogues   ? 1 : 0,
@@ -771,7 +771,8 @@ export async function createPermissionSet(db, id, name, access) {
 		access.forecast     ? 1 : 0,
 		access.awards       ? 1 : 0,
 		access.rest_check   ? 1 : 0,
-		access.price_sync   ? 1 : 0
+		access.price_sync   ? 1 : 0,
+		access.events       ? 1 : 0
 	).run();
 }
 
@@ -848,10 +849,10 @@ export async function deletePermissionSet(db, id) {
  */
 export async function getUserPermissions(db, user) {
 	if (user.role === 'admin' || !user.permission_set_id) {
-		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true };
+		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true };
 	}
 	const ps = await getPermissionSet(db, user.permission_set_id);
-	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true };
+	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true };
 	return {
 		sheets:       !!ps.access_sheets,
 		catalogues:   !!ps.access_catalogues,
@@ -866,6 +867,7 @@ export async function getUserPermissions(db, user) {
 		awards:       !!ps.access_awards,
 		rest_check:   !!ps.access_rest_check,
 		price_sync:   !!ps.access_price_sync,
+		events:       !!ps.access_events,
 	};
 }
 

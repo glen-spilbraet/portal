@@ -17,6 +17,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/product'))                     return 'product';
 	if (pathname.startsWith('/forecast'))                    return 'forecast';
 	if (pathname.startsWith('/awards'))                      return 'awards';
+	if (pathname.startsWith('/events'))                      return 'events';
 	return null;
 }
 
@@ -27,6 +28,7 @@ export async function load({ cookies, url, platform }) {
 	if (url.pathname === '/login') return { isDev };
 	if (url.pathname.startsWith('/share/')) return { isDev };
 	if (url.pathname.startsWith('/planograms/share/')) return { isDev };
+	if (url.pathname.startsWith('/events/share/')) return { isDev }; // public venue event page (token-gated)
 	if (url.pathname.startsWith('/auth/')) return { isDev };
 
 	const token  = cookies.get('session');
@@ -41,7 +43,7 @@ export async function load({ cookies, url, platform }) {
 
 	const realPermissions = db
 		? await getUserPermissions(db, user)
-		: { sheets: true, catalogues: true, planograms: true, data: true, price_lists: true, stats: true };
+		: { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true };
 
 	// ── Simulation (admins only) ─────────────────────────────────────────────
 	let simulatedAs = null;
@@ -74,6 +76,7 @@ export async function load({ cookies, url, platform }) {
 			['product', '/product'],
 			['forecast', '/forecast'],
 			['awards', '/awards'],
+			['events', '/events'],
 			['sheets', '/sheets'],
 			['catalogues', '/catalogues'],
 			['planograms', '/planograms'],
