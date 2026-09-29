@@ -157,12 +157,12 @@ export async function createEvent(db, patch) {
 	const share_token = makeShareToken();
 	await db.prepare(
 		`INSERT INTO event (id, venue_id, type_id, title, event_date, start_time, end_time,
-		                    entry_fee, participants_expected, participants_actual, status, share_token, notes)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+		                    entry_fee, entry_fee_currency, participants_expected, participants_actual, status, share_token, notes)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	).bind(
 		id, patch.venue_id ?? null, patch.type_id ?? null, patch.title ?? null,
 		patch.event_date ?? null, patch.start_time ?? null, patch.end_time ?? null,
-		patch.entry_fee ?? null, patch.participants_expected ?? null, patch.participants_actual ?? null,
+		patch.entry_fee ?? null, patch.entry_fee_currency ?? 'DKK', patch.participants_expected ?? null, patch.participants_actual ?? null,
 		patch.status ?? 'planned', share_token, patch.notes ?? null
 	).run();
 	return id;
@@ -170,7 +170,7 @@ export async function createEvent(db, patch) {
 
 export async function updateEvent(db, id, patch) {
 	const allowed = ['venue_id', 'type_id', 'title', 'event_date', 'start_time', 'end_time',
-		'entry_fee', 'participants_expected', 'participants_actual', 'status', 'notes'];
+		'entry_fee', 'entry_fee_currency', 'participants_expected', 'participants_actual', 'status', 'notes'];
 	const fields = [], values = [];
 	for (const k of allowed) if (k in patch) { fields.push(`${k} = ?`); values.push(patch[k] === '' ? null : patch[k]); }
 	if (!fields.length) return;

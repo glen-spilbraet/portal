@@ -21,6 +21,7 @@
 					title: form.title, venue_id: form.venue_id || null, type_id: form.type_id || null,
 					event_date: form.event_date, start_time: form.start_time, end_time: form.end_time,
 					entry_fee: form.entry_fee === '' ? null : form.entry_fee,
+					entry_fee_currency: form.entry_fee_currency || 'DKK',
 					participants_expected: form.participants_expected === '' ? null : form.participants_expected,
 					participants_actual: form.participants_actual === '' ? null : form.participants_actual,
 					status: form.status, notes: form.notes,
@@ -154,7 +155,18 @@
 				</label>
 				<label class="fld"><span>Start time</span><input type="time" bind:value={form.start_time} /></label>
 				<label class="fld"><span>End time</span><input type="time" bind:value={form.end_time} /></label>
-				<label class="fld"><span>Entry fee</span><input type="number" step="0.01" bind:value={form.entry_fee} /></label>
+				<label class="fld"><span>Entry fee</span>
+					<div class="fee">
+						<input type="number" step="0.01" bind:value={form.entry_fee} />
+						<select bind:value={form.entry_fee_currency}>
+							<option value="DKK">DKK</option>
+							<option value="SEK">SEK</option>
+							<option value="NOK">NOK</option>
+							<option value="EUR">EUR</option>
+							<option value="USD">USD</option>
+						</select>
+					</div>
+				</label>
 				<label class="fld"><span>Participants (expected)</span><input type="number" bind:value={form.participants_expected} /></label>
 				<label class="fld"><span>Participants (actual)</span><input type="number" bind:value={form.participants_actual} /></label>
 				<label class="fld span2"><span>Notes</span><textarea rows="2" bind:value={form.notes}></textarea></label>
@@ -285,6 +297,9 @@
 	input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: #18181B; background: white; outline: none; }
 	input:focus, select:focus, textarea:focus { border-color: #A1A1AA; }
 	textarea { resize: vertical; }
+	.fee { display: flex; gap: 6px; }
+	.fee input { flex: 1; }
+	.fee select { width: auto; }
 
 	.sku-search { position: relative; max-width: 420px; }
 	.sku-dropdown { position: absolute; z-index: 5; left: 0; right: 0; background: white; border: 1px solid var(--border); border-radius: 8px; margin-top: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); overflow: hidden; }
