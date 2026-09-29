@@ -207,7 +207,13 @@ export async function setEventSkus(db, eventId, skus) {
 
 // ── Event assets ───────────────────────────────────────────────────────────────
 
-export async function addAsset(db, eventId, { category, kind, r2_key, filename, content_type, size, source, uploaded_by, shared_with_venue }) {
+/**
+ * @param {any} db
+ * @param {string} eventId
+ * @param {{ category?: string, kind?: string, r2_key: string, filename?: string|null, content_type?: string|null, size?: number|null, source?: string, uploaded_by?: string|null, shared_with_venue?: boolean }} opts
+ */
+export async function addAsset(db, eventId, opts) {
+	const { category, kind, r2_key, filename, content_type, size, source, uploaded_by, shared_with_venue } = opts;
 	const id = uid();
 	await db.prepare(
 		`INSERT INTO event_asset (id, event_id, category, kind, r2_key, filename, content_type, size, source, shared_with_venue, uploaded_by)

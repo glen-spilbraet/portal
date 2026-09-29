@@ -30,6 +30,21 @@
 		try { return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
 		catch { return d; }
 	}
+
+	// ── Product material modal ──────────────────────────────────────────────────
+	/** @type {any} */
+	let modalProduct = $state(null);
+
+	/** Build the downloadable material list for a product. */
+	function materialsFor(p) {
+		const items = [];
+		if (p.images?.box) items.push({ url: p.images.box, label: 'Box photo', filename: `${p.sku}-box`, image: true });
+		(p.images?.gallery ?? []).forEach((g, i) => items.push({ url: g, label: `Photo ${i + 1}`, filename: `${p.sku}-photo-${i + 1}`, image: true }));
+		(data.badges[p.sku] ?? []).forEach((b) => items.push({ url: `/api/img/${b.image_key}`, label: `${b.kind} badge`, filename: `${p.sku}-${b.kind}-badge`, image: true }));
+		return items;
+	}
+	function materialCount(p) { return materialsFor(p).length; }
+
 	const ev = data.event;
 	const when = $derived([fmtDate(ev.event_date), [ev.start_time, ev.end_time].filter(Boolean).join('–')].filter(Boolean).join(' · '));
 </script>
@@ -52,37 +67,32 @@
 			<div class="prod-grid">
 				{#each data.products as p (p.sku)}
 					<article class="prod">
-						<div class="thumb">
-							{#if p.images?.box}<img src={p.images.box} alt={p.name} />{/if}
-							{#if data.badges[p.sku]?.length}
-								<div class="badges">
-									{#each data.badges[p.sku] as b}<img src="/api/img/{b.image_key}" alt={b.kind} title={b.kind} />{/each}
-								</div>
+						<div class="prod-body">
+							<div class="thumb">
+								{#if p.images?.box}<img src={p.images.box} alt={p.name} />{/if}
+								{#if data.badges[p.sku]?.length}
+									<div class="badges">
+										{#each data.badges[p.sku] as b}<img src="/api/img/{b.image_key}" alt={b.kind} title={b.kind} />{/each}
+									</div>
+								{/if}
+							</div>
+							<h3>{p.name}</h3>
+							{#if p.attributes}
+								<ul class="specs">
+									{#if p.attributes.age}<li>Age {p.attributes.age}</li>{/if}
+									{#if p.attributes.players}<li>{p.attributes.players} players</li>{/if}
+									{#if p.attributes.play_time}<li>{p.attributes.play_time}</li>{/if}
+								</ul>
+							{/if}
+							{#if p.bullets?.length}
+								<ul class="bullets">{#each p.bullets.slice(0, 4) as b}<li>{b}</li>{/each}</ul>
 							{/if}
 						</div>
-						<h3>{p.name}</h3>
-						{#if p.attributes}
-							<ul class="specs">
-								{#if p.attributes.age}<li>Age {p.attributes.age}</li>{/if}
-								{#if p.attributes.players}<li>{p.attributes.players} players</li>{/if}
-								{#if p.attributes.play_time}<li>{p.attributes.play_time}</li>{/if}
-							</ul>
+						{#if materialCount(p) > 0}
+							<button class="dl-btn" onclick={() => (modalProduct = p)}>
+								⬇ Download material <span class="dl-count">{materialCount(p)}</span>
+							</button>
 						{/if}
-						{#if p.bullets?.length}
-							<ul class="bullets">{#each p.bullets.slice(0, 4) as b}<li>{b}</li>{/each}</ul>
-						{/if}
-
-						<div class="downloads">
-							{#if p.images?.box}
-								<a class="dl-link" href={p.images.box} download="{p.sku}-box">⬇ Box photo</a>
-							{/if}
-							{#each (p.images?.gallery ?? []) as g, i}
-								<a class="dl-link" href={g} download="{p.sku}-photo-{i + 1}">⬇ Photo {i + 1}</a>
-							{/each}
-							{#each (data.badges[p.sku] ?? []) as b}
-								<a class="dl-link" href="/api/img/{b.image_key}" download="{p.sku}-{b.kind}-badge">⬇ {b.kind} badge</a>
-							{/each}
-						</div>
 					</article>
 				{/each}
 			</div>
@@ -129,6 +139,29 @@
 	<footer>Spilbræt · Event material</footer>
 </div>
 
+{#if modalProduct}
+	<div class="modal-overlay" onclick={() => (modalProduct = null)} role="presentation">
+		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Download material">
+			<button class="modal-x" onclick={() => (modalProduct = null)} aria-label="Close">✕</button>
+			<h3 class="modal-title">{modalProduct.name}</h3>
+			<p class="modal-sub">Click any item to download.</p>
+			<div class="mat-grid">
+				{#each materialsFor(modalProduct) as m}
+					<a class="mat" href={m.url} download={m.filename}>
+						<div class="mat-thumb">
+							{#if m.image}<img src={m.url} alt={m.label} />{:else}<span class="mat-file">📄</span>{/if}
+							<span class="mat-dl">⬇</span>
+						</div>
+						<span class="mat-label">{m.label}</span>
+					</a>
+				{/each}
+			</div>
+		</div>
+	</div>
+{/if}
+
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') modalProduct = null; }} />
+
 <style>
 	:global(body) { background: #F7F7F5; }
 	.wrap { max-width: 900px; margin: 0 auto; padding: 32px 20px 80px; font-family: system-ui, -apple-system, sans-serif; color: #18181B; }
@@ -142,8 +175,11 @@
 	h2 { font-size: 18px; font-weight: 700; margin: 0 0 4px; }
 	.section-sub { color: #71717A; font-size: 14px; margin: 0 0 16px; }
 
-	.prod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-top: 16px; }
-	.prod { background: white; border: 1px solid #E7E7E4; border-radius: 14px; padding: 14px; }
+	.prod-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+	@media (max-width: 720px) { .prod-grid { grid-template-columns: repeat(2, 1fr); } }
+	@media (max-width: 480px) { .prod-grid { grid-template-columns: 1fr; } }
+	.prod { display: flex; flex-direction: column; background: white; border: 1px solid #E7E7E4; border-radius: 14px; padding: 14px; }
+	.prod-body { flex: 1; }
 	.thumb { position: relative; aspect-ratio: 1; background: #FAFAFA; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 	.thumb img { width: 100%; height: 100%; object-fit: contain; }
 	.badges { position: absolute; bottom: 6px; right: 6px; display: flex; gap: 4px; }
@@ -154,9 +190,26 @@
 	.bullets { margin: 0; padding-left: 18px; }
 	.bullets li { font-size: 12px; color: #52525B; line-height: 1.5; }
 
-	.downloads { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #F0F0EE; }
-	.dl-link { font-size: 12px; font-weight: 600; color: #F57832; text-decoration: none; background: #FFF7F2; border: 1px solid #FBD9C4; border-radius: 8px; padding: 4px 9px; }
-	.dl-link:hover { background: #FFEEDF; }
+	.dl-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 14px; padding: 10px; border: none; border-radius: 10px; background: #F57832; color: white; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; transition: background 0.15s; }
+	.dl-btn:hover { background: #e26a26; }
+	.dl-count { background: rgba(255,255,255,0.25); border-radius: 100px; padding: 1px 8px; font-size: 12px; }
+
+	/* Material modal */
+	.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
+	.modal { position: relative; background: white; border-radius: 16px; padding: 24px; max-width: 640px; width: 100%; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+	.modal-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: none; background: #F4F4F5; border-radius: 8px; font-size: 15px; color: #52525B; cursor: pointer; }
+	.modal-x:hover { background: #E4E4E7; }
+	.modal-title { font-size: 18px; font-weight: 700; margin: 0 0 2px; padding-right: 40px; }
+	.modal-sub { color: #71717A; font-size: 13px; margin: 0 0 18px; }
+	.mat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; }
+	.mat { text-decoration: none; color: #18181B; }
+	.mat-thumb { position: relative; aspect-ratio: 1; background: #FAFAFA; border: 1px solid #E7E7E4; border-radius: 10px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+	.mat-thumb img { width: 100%; height: 100%; object-fit: contain; padding: 6px; }
+	.mat-file { font-size: 32px; }
+	.mat-dl { position: absolute; bottom: 6px; right: 6px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: #F57832; color: white; border-radius: 7px; font-size: 12px; opacity: 0; transition: opacity 0.15s; }
+	.mat:hover .mat-dl { opacity: 1; }
+	.mat:hover .mat-thumb { border-color: #F57832; }
+	.mat-label { display: block; font-size: 12px; font-weight: 600; text-align: center; margin-top: 6px; }
 
 	.dl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
 	.dl { display: block; background: white; border: 1px solid #E7E7E4; border-radius: 12px; padding: 10px; text-decoration: none; color: #18181B; }
