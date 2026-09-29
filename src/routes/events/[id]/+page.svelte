@@ -365,6 +365,14 @@
 	input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: #18181B; background: white; outline: none; }
 	input:focus, select:focus, textarea:focus { border-color: #A1A1AA; }
 	textarea { resize: vertical; }
+	select {
+		appearance: none;
+		-webkit-appearance: none;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10' fill='none'%3E%3Cpath d='M2 3.5l3 3 3-3' stroke='%2371717A' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 12px center;
+		padding-right: 32px;
+	}
 	.fee { display: flex; gap: 6px; }
 	.fee input { flex: 1; }
 	.fee select { width: auto; }
