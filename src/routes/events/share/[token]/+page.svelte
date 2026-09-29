@@ -71,6 +71,18 @@
 						{#if p.bullets?.length}
 							<ul class="bullets">{#each p.bullets.slice(0, 4) as b}<li>{b}</li>{/each}</ul>
 						{/if}
+
+						<div class="downloads">
+							{#if p.images?.box}
+								<a class="dl-link" href={p.images.box} download="{p.sku}-box">⬇ Box photo</a>
+							{/if}
+							{#each (p.images?.gallery ?? []) as g, i}
+								<a class="dl-link" href={g} download="{p.sku}-photo-{i + 1}">⬇ Photo {i + 1}</a>
+							{/each}
+							{#each (data.badges[p.sku] ?? []) as b}
+								<a class="dl-link" href="/api/img/{b.image_key}" download="{p.sku}-{b.kind}-badge">⬇ {b.kind} badge</a>
+							{/each}
+						</div>
 					</article>
 				{/each}
 			</div>
@@ -141,6 +153,10 @@
 	.specs li { font-size: 11px; font-weight: 600; color: #52525B; background: #F4F4F5; padding: 2px 8px; border-radius: 100px; }
 	.bullets { margin: 0; padding-left: 18px; }
 	.bullets li { font-size: 12px; color: #52525B; line-height: 1.5; }
+
+	.downloads { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #F0F0EE; }
+	.dl-link { font-size: 12px; font-weight: 600; color: #F57832; text-decoration: none; background: #FFF7F2; border: 1px solid #FBD9C4; border-radius: 8px; padding: 4px 9px; }
+	.dl-link:hover { background: #FFEEDF; }
 
 	.dl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
 	.dl { display: block; background: white; border: 1px solid #E7E7E4; border-radius: 12px; padding: 10px; text-decoration: none; color: #18181B; }

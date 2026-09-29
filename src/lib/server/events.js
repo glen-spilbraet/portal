@@ -89,6 +89,11 @@ export async function createEventType(db, name) {
 	return id;
 }
 
+/** Rename a type. The id is unchanged, so events keep their link. */
+export async function updateEventType(db, id, name) {
+	await db.prepare('UPDATE event_type SET name = ? WHERE id = ?').bind(name, id).run();
+}
+
 export async function deleteEventType(db, id) {
 	await db.batch([
 		db.prepare('UPDATE event SET type_id = NULL WHERE type_id = ?').bind(id),

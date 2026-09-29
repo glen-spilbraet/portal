@@ -9,10 +9,17 @@
 		p.catalogues   && { href: '/catalogues',   label: 'Catalogues',  key: 'catalogues' },
 		p.planograms   && { href: '/planograms',   label: 'Planograms',  key: 'planograms' },
 		p.awards       && { href: '/awards',       label: 'Awards & Press', key: 'awards' },
-		p.events       && { href: '/events',       label: 'Events',      key: 'events' },
 	].filter(Boolean));
 
 	const showSales = $derived(salesItems.length > 0);
+
+	// Events group (own top-level menu)
+	const eventItems = $derived([
+		p.events && { href: '/events',        label: 'Events', key: 'events' },
+		p.events && { href: '/events/venues', label: 'Venues', key: 'events-venues' },
+		p.events && { href: '/events/types',  label: 'Types',  key: 'events-types' },
+	].filter(Boolean));
+	const showEvents = $derived(eventItems.length > 0);
 
 	// Stats menu: Overview (stats perm) + Product (product perm) + Forecast
 	// (forecast perm). One item → a plain link; more → a dropdown.
@@ -42,6 +49,7 @@
 
 	const adminRoutes = ['translations', 'admin', 'permissions', 'item-library', 'sheet-data', 'analytics', 'migrate-images', 'targets', 'verify', 'publishers', 'phone-numbers'];
 	const salesActive  = $derived(salesItems.some(i => i.key === active));
+	const eventsActive = $derived(eventItems.some(i => i.key === active));
 	const orderActive  = $derived(orderItems.some(i => i.key === active));
 	const mailActive   = $derived(active.startsWith('mail-'));
 	const adminActive  = $derived(adminRoutes.includes(active));
@@ -151,6 +159,25 @@
 						<div class="dropdown">
 							<div class="dropdown-inner">
 								{#each salesItems as item}
+									<a href={item.href} class="dropdown-item" class:active={active === item.key}>{item.label}</a>
+								{/each}
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				<!-- Events dropdown -->
+				{#if showEvents}
+					<div class="nav-group" class:active={eventsActive}>
+						<button class="nav-top" class:active={eventsActive}>
+							Events
+							<svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none">
+								<path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+						</button>
+						<div class="dropdown">
+							<div class="dropdown-inner">
+								{#each eventItems as item}
 									<a href={item.href} class="dropdown-item" class:active={active === item.key}>{item.label}</a>
 								{/each}
 							</div>

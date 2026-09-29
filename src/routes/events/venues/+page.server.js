@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { listEvents } from '$lib/server/events.js';
+import { listVenues } from '$lib/server/events.js';
 
 export async function load({ parent, platform }) {
 	const { user } = await parent();
@@ -8,6 +8,6 @@ export async function load({ parent, platform }) {
 	const db = platform?.env?.DB;
 	if (!db) error(500, 'Database unavailable');
 
-	const events = await listEvents(db);
-	return { user, events };
+	const venues = await listVenues(db);
+	return { user, venues };
 }
