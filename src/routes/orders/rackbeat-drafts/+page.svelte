@@ -3,11 +3,17 @@
 
 	let { data } = $props();
 
+	// Deals are created in small sequential batches so there's no overall limit
+	// and we stay well inside Rackbeat/HubSpot rate limits.
+	const BATCH_SIZE = 5;
+
 	let input   = $state('');
 	let running = $state(false);
 	/** @type {{ created: number, failed: number, results: any[] } | null} */
 	let report  = $state(null);
 	let runError = $state('');
+	/** Progress across batches while running. */
+	let progress = $state({ done: 0, total: 0 });
 
 	let dealIds = $derived([...new Set(
 		input.split(/[\s,;]+/).map((s) => s.trim()).filter((s) => /^\d+$/.test(s))
@@ -22,17 +28,40 @@
 		running = true;
 		runError = '';
 		report = null;
+
+		const all = dealIds;               // snapshot the current list
+		const total = all.length;
+		progress = { done: 0, total };
+		/** @type {{ created: number, failed: number, results: any[] }} */
+		const acc = { created: 0, failed: 0, results: [] };
+
 		try {
-			const res = await fetch('/api/rackbeat-drafts', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ dealIds })
-			});
-			const body = await res.json().catch(() => ({}));
-			if (!res.ok) throw new Error(body.message ?? `Error ${res.status}`);
-			report = body;
-		} catch (e) {
-			runError = e instanceof Error ? e.message : String(e);
+			for (let i = 0; i < all.length; i += BATCH_SIZE) {
+				const batch = all.slice(i, i + BATCH_SIZE);
+				try {
+					const res = await fetch('/api/rackbeat-drafts', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ dealIds: batch })
+					});
+					const body = await res.json().catch(() => ({}));
+					if (!res.ok) throw new Error(body.message ?? `Error ${res.status}`);
+					acc.created += body.created ?? 0;
+					acc.failed  += body.failed ?? 0;
+					acc.results.push(...(body.results ?? []));
+				} catch (e) {
+					// A whole batch failed (network / server error): mark its deals
+					// as failed and keep going so one bad batch doesn't stop the rest.
+					const msg = e instanceof Error ? e.message : String(e);
+					for (const id of batch) {
+						acc.results.push({ dealId: id, dealName: null, status: 'failed', customerId: null, rackbeatNumber: null, lineCount: 0, errors: [msg], warnings: [] });
+						acc.failed += 1;
+					}
+				}
+				progress = { done: Math.min(i + batch.length, total), total };
+				// Update the report live so the table fills in as batches complete.
+				report = { created: acc.created, failed: acc.failed, results: [...acc.results] };
+			}
 		} finally {
 			running = false;
 		}
@@ -86,12 +115,24 @@
 						<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin">
 							<path d="M21 12a9 9 0 11-6.219-8.56"/>
 						</svg>
-						Creating drafts…
+						Creating drafts… {progress.done}/{progress.total}
 					{:else}
 						Create {dealIds.length || ''} draft{dealIds.length === 1 ? '' : 's'}
 					{/if}
 				</button>
 			</div>
+
+			{#if running && progress.total > BATCH_SIZE}
+				<div class="progress">
+					<div class="progress-head">
+						<span>Creating drafts in batches of {BATCH_SIZE}…</span>
+						<span class="progress-count">{progress.done} / {progress.total}</span>
+					</div>
+					<div class="progress-track">
+						<div class="progress-bar" style="width: {progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%"></div>
+					</div>
+				</div>
+			{/if}
 		</div>
 
 		{#if runError}
@@ -223,6 +264,21 @@
 	}
 	.run-btn:hover:not(:disabled) { background: #e26a26; }
 	.run-btn:disabled { opacity: 0.5; cursor: default; }
+
+	/* Progress bar (shown while creating drafts across multiple batches) */
+	.progress { margin-top: 16px; }
+	.progress-head {
+		display: flex; align-items: center; justify-content: space-between;
+		font-size: 12px; font-weight: 600; color: #71717A; margin-bottom: 6px;
+	}
+	.progress-count { color: #18181B; font-variant-numeric: tabular-nums; }
+	.progress-track {
+		height: 8px; border-radius: 100px; background: #F1F1F3; overflow: hidden;
+	}
+	.progress-bar {
+		height: 100%; border-radius: 100px; background: #F57832;
+		transition: width 0.25s ease;
+	}
 
 	/* Error */
 	.error-banner {

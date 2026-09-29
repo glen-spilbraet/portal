@@ -8,7 +8,11 @@ const RACKBEAT_BASE = 'https://app.rackbeat.com/api';
 const DEAL_PROPS = ['dealname', 'rackbeat_id', 'delivery_date', 'description', 'deal_currency_code'];
 const LINE_ITEM_PROPS = ['quantity', 'name', 'hs_sku', 'hs_discount_percentage', 'price'];
 
-const MAX_DEALS_PER_REQUEST = 50;
+// Per-request safety cap. The UI sends small sequential batches (well under
+// this), so there is no overall limit on how many deals you can process — this
+// just keeps a single request short enough to stay inside the function's
+// execution budget and Rackbeat/HubSpot rate limits.
+const MAX_DEALS_PER_REQUEST = 10;
 const RACKBEAT_NOTE_MAX = 800;
 const RACKBEAT_HEADING_MAX = 255;
 
@@ -78,7 +82,7 @@ export async function POST({ request, cookies, platform }) {
 	)];
 
 	if (dealIds.length === 0) error(400, 'dealIds must be a non-empty array of numeric HubSpot deal ids');
-	if (dealIds.length > MAX_DEALS_PER_REQUEST) error(400, `Max ${MAX_DEALS_PER_REQUEST} deals per request`);
+	if (dealIds.length > MAX_DEALS_PER_REQUEST) error(400, `Too many deals in one batch (max ${MAX_DEALS_PER_REQUEST}). Send them in smaller batches.`);
 
 	// Sequential on purpose: keeps us well inside HubSpot/Rackbeat rate limits.
 	/** @type {DealResult[]} */
