@@ -162,7 +162,13 @@
 						{#each data.types as t}<option value={t.id}>{t.name}</option>{/each}
 					</select>
 				</label>
-				<label class="fld"><span>Date</span><input type="date" bind:value={form.event_date} /></label>
+				<div class="fld span2"><span>When</span>
+					<div class="combo">
+						<div class="seg seg-grow"><small>Date</small><input type="date" bind:value={form.event_date} /></div>
+						<div class="seg"><small>Start</small><input type="time" bind:value={form.start_time} /></div>
+						<div class="seg"><small>End</small><input type="time" bind:value={form.end_time} /></div>
+					</div>
+				</div>
 				<label class="fld"><span>Status</span>
 					<select bind:value={form.status}>
 						<option value="planned">Planned</option>
@@ -171,8 +177,6 @@
 						<option value="cancelled">Cancelled</option>
 					</select>
 				</label>
-				<label class="fld"><span>Start time</span><input type="time" bind:value={form.start_time} /></label>
-				<label class="fld"><span>End time</span><input type="time" bind:value={form.end_time} /></label>
 				<label class="fld"><span>Entry fee</span>
 					<div class="fee">
 						<input type="number" step="0.01" bind:value={form.entry_fee} />
@@ -185,8 +189,12 @@
 						</select>
 					</div>
 				</label>
-				<label class="fld"><span>Participants (expected)</span><input type="number" bind:value={form.participants_expected} /></label>
-				<label class="fld"><span>Participants (actual)</span><input type="number" bind:value={form.participants_actual} /></label>
+				<div class="fld span2"><span>Participants</span>
+					<div class="combo">
+						<div class="seg seg-grow"><small>Expected</small><input type="number" min="0" placeholder="—" bind:value={form.participants_expected} /></div>
+						<div class="seg seg-grow"><small>Attended</small><input type="number" min="0" placeholder="—" bind:value={form.participants_actual} /></div>
+					</div>
+				</div>
 				<label class="fld span2"><span>Notes</span><textarea rows="2" bind:value={form.notes}></textarea></label>
 			</div>
 		</div>
@@ -360,6 +368,16 @@
 	.fee { display: flex; gap: 6px; }
 	.fee input { flex: 1; }
 	.fee select { width: auto; }
+
+	/* Integrated multi-field ("combo") — several inputs in one bordered box */
+	.combo { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: white; }
+	.combo .seg { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+	.combo .seg-grow { flex: 1.4; }
+	.combo .seg + .seg { border-left: 1px solid var(--border); }
+	.combo .seg small { font-size: 11px; font-weight: 600; color: #A1A1AA; padding: 6px 10px 0; }
+	.combo .seg input { border: none; border-radius: 0; padding: 4px 10px 8px; background: transparent; }
+	.combo .seg input:focus { border: none; box-shadow: none; }
+	.combo .seg:focus-within { background: #FAFAFA; }
 
 	.sku-search { position: relative; max-width: 420px; }
 	.sku-dropdown { position: absolute; z-index: 5; left: 0; right: 0; background: white; border: 1px solid var(--border); border-radius: 8px; margin-top: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); overflow: hidden; }
