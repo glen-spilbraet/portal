@@ -7,7 +7,7 @@
  * These tools are gated to admins in v1 (see `src/routes/mcp/+server.js`).
  * Everything here is SELECT-only; nothing writes.
  */
-import { getMarketTotals, getSyncMeta } from '$lib/salesStats.js';
+import { getMarketTotals, getSyncMeta, getFilterOptions, MARKETS } from '$lib/salesStats.js';
 import { getCompletedAccuracy } from '$lib/forecastStats.js';
 
 const MAX_ROWS = 2000;
@@ -53,12 +53,37 @@ export const SALES_SCHEMA_DOC = {
 			'forecast_start_date', 'forecast_end_date',
 		],
 	},
+	glossary: [
+		'Customer segments the user names in English (bookstores, toy shops/toy stores, niche, "the rest") map to `customer_group` or `customer_level` — the actual values are listed under `values` below and are often DANISH. Translate the user\'s term to the closest listed value (e.g. bookstore ≈ "Boghandler", toy shop ≈ "Legetøj/Legetøjsbutik"). If unsure which of the two columns holds the segment, check both `values.customer_group` and `values.customer_level`.',
+		'"Most purchased" / "best-selling" by volume = SUM(quantity) from deal_line_items (deal_kind="closed"). By value = SUM(amount_dkk).',
+		'"Year over year" (YoY) = run the SAME month/day window for each year and compare, e.g. Aug–Oct 2025 vs Aug–Oct 2026. Use close_date >= \'YYYY-08-01\' AND close_date < \'YYYY-11-01\' per year (a conditional SUM with CASE lets you get both years in one query).',
+		'Per-product analysis needs deal_line_items (has sku/quantity/publisher). Per-deal/company revenue can use sales_deals. Segment columns (customer_group/level/country) live on sales_deals, so joining line items to sales_deals is needed to segment products.',
+		'A month range like "August to October" is inclusive of October — use close_date < the FIRST day of the next month (e.g. < \'2026-11-01\').',
+	],
 	examples: [
-		"Best-selling SKUs in 2026: SELECT sku, MAX(name) name, SUM(quantity) units, SUM(amount_dkk) dkk FROM deal_line_items WHERE deal_kind='closed' AND close_date >= '2026-01-01' AND close_date < '2027-01-01' AND sku IS NOT NULL GROUP BY sku ORDER BY units DESC LIMIT 20",
-		"Revenue by customer group this year: SELECT COALESCE(customer_group,'—') grp, SUM(amount_dkk) dkk, COUNT(*) deals FROM sales_deals WHERE close_date >= '2026-01-01' GROUP BY grp ORDER BY dkk DESC",
+		"Best-selling SKUs by units in 2026: SELECT sku, MAX(name) name, SUM(quantity) units, SUM(amount_dkk) dkk FROM deal_line_items WHERE deal_kind='closed' AND close_date >= '2026-01-01' AND close_date < '2027-01-01' AND sku IS NOT NULL GROUP BY sku ORDER BY units DESC LIMIT 20",
+		"Bookstores' top products Aug–Oct, YoY (2025 vs 2026): SELECT li.sku, MAX(li.name) name, SUM(CASE WHEN li.close_date>='2025-08-01' AND li.close_date<'2025-11-01' THEN li.quantity ELSE 0 END) units_2025, SUM(CASE WHEN li.close_date>='2026-08-01' AND li.close_date<'2026-11-01' THEN li.quantity ELSE 0 END) units_2026 FROM deal_line_items li JOIN sales_deals d ON d.deal_id=li.deal_id WHERE li.deal_kind='closed' AND d.customer_group='Boghandler' GROUP BY li.sku ORDER BY units_2026 DESC LIMIT 25  -- replace 'Boghandler' with the real value from values.customer_group",
 		"One publisher's customers: SELECT d.company_name, SUM(li.amount_dkk) dkk FROM deal_line_items li JOIN sales_deals d ON d.deal_id=li.deal_id WHERE li.deal_kind='closed' AND li.publisher='IELLO' GROUP BY d.company_id ORDER BY dkk DESC",
 	],
 };
+
+/**
+ * The schema doc plus the live distinct segment values (so the caller can map a
+ * user's plain-language term like "bookstores" to the real, often-Danish value).
+ */
+export async function salesSchema(sdb) {
+	let values = { customer_group: [], customer_level: [], country: [], market: MARKETS };
+	try {
+		const opts = await getFilterOptions(sdb, null); // { levels, groups, countries }
+		values = {
+			customer_group: opts.groups ?? [],
+			customer_level: opts.levels ?? [],
+			country: opts.countries ?? [],
+			market: MARKETS,
+		};
+	} catch { /* fall back to empty lists */ }
+	return { ...SALES_SCHEMA_DOC, values };
+}
 
 /**
  * Guarded read-only SQL over SALES_DB. Accepts a single SELECT/WITH statement,

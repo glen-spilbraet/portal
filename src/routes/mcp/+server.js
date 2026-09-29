@@ -14,12 +14,28 @@
  */
 import { searchProducts, getProductBySku, getProductImageBytes } from '$lib/server/mcpProducts.js';
 import { getProductPress, listPress, listMediaOutlets, getMediaDetail } from '$lib/server/mcpAwards.js';
-import { runSalesQuery, salesMarketTotals, forecastAccuracy, salesSyncMeta, SALES_SCHEMA_DOC } from '$lib/server/mcpSales.js';
+import { runSalesQuery, salesMarketTotals, forecastAccuracy, salesSyncMeta, salesSchema } from '$lib/server/mcpSales.js';
 import { validateAccessToken } from '$lib/server/mcpOauth.js';
 import { getAllowedUser, getUserPermissions } from '$lib/db.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
-const SERVER_INFO = { name: 'spilbraet-portal', version: '1.0.0' };
+const SERVER_INFO = { name: 'spilbraet-portal', version: '1.1.0' };
+
+// Shown to the client/model right after connect. This is what lets people ask in
+// plain language ("what did bookstores buy most, Aug–Oct year over year?")
+// without knowing any tool names — it tells the model when and how to use them.
+const SERVER_INSTRUCTIONS = [
+	'This server exposes Spilbræt portal data: product sales sheets, awards & press, and (for admins) sales figures, line items and forecasts.',
+	'',
+	'Answer data questions by CALLING these tools yourself — never ask the user for tool names, SQL, SKUs, dates or segment codes; infer them from the request.',
+	'',
+	'For any sales / revenue / best-seller / customer / publisher / "how much did X buy" / year-over-year question: FIRST call `sales_schema` (it returns the tables, columns, the live customer-segment values, and worked examples), then build and run a `sales_query`. `sales_schema` tells you how to map plain-language terms (e.g. "bookstores", "toy shops", "year over year", "most purchased") to the real columns and values — the segment values are often in Danish.',
+	'`sales_market_totals` and `forecast_accuracy` are quick shortcuts for those specific asks; anything else goes through `sales_query`.',
+	'',
+	'For product info (descriptions, images, specs) use search_products / get_product / get_product_image. For awards & reviews use the press/media tools.',
+	'',
+	'Amounts are DKK. The sales data is invoiced deals only. When you present a report, note the date range and, if useful, call `sales_sync_meta` for a "data as of" line.'
+].join('\n');
 
 const TOOLS = [
 	{
@@ -94,12 +110,12 @@ const TOOLS = [
 	// ── Sales / reporting (admins only) ──────────────────────────────────────
 	{
 		name: 'sales_schema',
-		description: 'Describe the sales database (tables, columns, conventions and example queries) so you can write correct sales_query SQL. Call this first before writing a sales_query. Covers invoiced sales, line items and forecasts.',
+		description: 'Start here for ANY sales/revenue/best-seller/customer/publisher/forecast question. Returns the sales database tables and columns, the live customer-segment values (bookstores, toy shops, etc. — often in Danish, so you can map the user\'s wording), the date/units/year-over-year conventions, and worked example queries. Call this first, then write a sales_query.',
 		inputSchema: { type: 'object', properties: {} }
 	},
 	{
 		name: 'sales_query',
-		description: 'Run a single read-only SQL SELECT query against the sales database (invoiced deals, line items, forecasts) and return the rows. Use for any ad-hoc sales report: best-sellers, revenue by customer/group/country, credit notes, per-publisher analysis, etc. Call sales_schema first to learn the tables. SELECT/WITH only; results are capped.',
+		description: 'Run a single read-only SQL SELECT against the sales database and return the rows — the main tool for sales reports. Handles anything: best-selling / most-purchased products (by units or DKK), revenue by customer / segment / group / country / market, per-publisher analysis, year-over-year comparisons, credit notes, top customers, what a given store bought, etc. Always call sales_schema first so you use the real column names and segment values. SELECT/WITH only, single statement; results are capped.',
 		inputSchema: {
 			type: 'object',
 			properties: { sql: { type: 'string', description: 'A single SELECT (or WITH … SELECT) statement. No semicolons, no writes.' } },
@@ -210,7 +226,7 @@ async function callTool(name, args, ctx) {
 		return { ...textContent('Sales database unavailable.'), isError: true };
 	}
 	if (name === 'sales_schema') {
-		return textContent(SALES_SCHEMA_DOC);
+		return textContent(await salesSchema(salesDb));
 	}
 	if (name === 'sales_query') {
 		const out = await runSalesQuery(salesDb, args?.sql);
@@ -243,7 +259,8 @@ async function handleMessage(msg, ctx) {
 			return rpc(id, {
 				protocolVersion: params?.protocolVersion || PROTOCOL_VERSION,
 				capabilities: { tools: {} },
-				serverInfo: SERVER_INFO
+				serverInfo: SERVER_INFO,
+				instructions: SERVER_INSTRUCTIONS
 			});
 		}
 		if (method === 'ping') return rpc(id, {});
