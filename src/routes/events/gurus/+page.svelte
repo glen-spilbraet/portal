@@ -6,7 +6,7 @@
 	let busy = $state(false);
 
 	// Add guru
-	let form = $state({ name: '', phone: '', email: '', zip: '', city: '' });
+	let form = $state({ name: '', phone: '', email: '', zip: '', city: '', country: '' });
 	async function addGuru() {
 		if (!form.name.trim() || busy) return;
 		busy = true;
@@ -16,16 +16,16 @@
 				body: JSON.stringify(form)
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
-			form = { name: '', phone: '', email: '', zip: '', city: '' };
+			form = { name: '', phone: '', email: '', zip: '', city: '', country: '' };
 			await invalidateAll();
 		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { busy = false; }
 	}
 
 	// Inline edit
 	let editId = $state(null);
-	let edit = $state({ name: '', phone: '', email: '', zip: '', city: '', notes: '' });
-	function startEdit(g) { editId = g.id; edit = { name: g.name, phone: g.phone ?? '', email: g.email ?? '', zip: g.zip ?? '', city: g.city ?? '', notes: g.notes ?? '' }; }
-	function cancelEdit() { editId = null; edit = { name: '', phone: '', email: '', zip: '', city: '', notes: '' }; }
+	let edit = $state({ name: '', phone: '', email: '', zip: '', city: '', country: '', notes: '' });
+	function startEdit(g) { editId = g.id; edit = { name: g.name, phone: g.phone ?? '', email: g.email ?? '', zip: g.zip ?? '', city: g.city ?? '', country: g.country ?? '', notes: g.notes ?? '' }; }
+	function cancelEdit() { editId = null; edit = { name: '', phone: '', email: '', zip: '', city: '', country: '', notes: '' }; }
 	async function saveEdit(id) {
 		busy = true;
 		try {
@@ -85,6 +85,7 @@
 				<input placeholder="Email" bind:value={form.email} />
 				<input placeholder="Zip" bind:value={form.zip} />
 				<input placeholder="City" bind:value={form.city} />
+				<input placeholder="Country" bind:value={form.country} />
 			</div>
 			<div class="right"><button class="btn primary" onclick={addGuru} disabled={busy || !form.name.trim()}>Add guru</button></div>
 		</div>
@@ -107,7 +108,7 @@
 								<input class="edit-name" bind:value={edit.name} />
 							{:else}
 								<span class="guru-name">{g.name}</span>
-								<span class="muted">{[g.zip, g.city].filter(Boolean).join(' ') || 'No location'}</span>
+								<span class="muted">{[[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', ') || 'No location'}</span>
 							{/if}
 						</div>
 						<div class="guru-flow">
@@ -121,6 +122,7 @@
 							<input placeholder="Email" bind:value={edit.email} />
 							<input placeholder="Zip" bind:value={edit.zip} />
 							<input placeholder="City" bind:value={edit.city} />
+							<input placeholder="Country" bind:value={edit.country} />
 						</div>
 						<textarea rows="2" placeholder="Notes (internal)" bind:value={edit.notes}></textarea>
 						<div class="row-actions">
@@ -169,7 +171,7 @@
 
 	.card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
 	.card-title { font-size: 14px; font-weight: 700; color: #18181B; margin: 0 0 12px; }
-	.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+	.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 	input, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: #18181B; background: white; outline: none; }
 	input:focus, textarea:focus { border-color: #A1A1AA; }
 	textarea { margin-top: 8px; resize: vertical; }

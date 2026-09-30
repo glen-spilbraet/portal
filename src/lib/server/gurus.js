@@ -33,14 +33,14 @@ export async function getGuru(db, id) {
 
 export async function createGuru(db, patch) {
 	const id = uid();
-	await db.prepare('INSERT INTO guru (id, name, phone, email, zip, city, in_email_flow) VALUES (?,?,?,?,?,?,?)')
-		.bind(id, patch.name ?? 'New guru', patch.phone ?? null, patch.email ?? null, patch.zip ?? null, patch.city ?? null, patch.in_email_flow === false ? 0 : 1)
+	await db.prepare('INSERT INTO guru (id, name, phone, email, zip, city, country, in_email_flow) VALUES (?,?,?,?,?,?,?,?)')
+		.bind(id, patch.name ?? 'New guru', patch.phone ?? null, patch.email ?? null, patch.zip ?? null, patch.city ?? null, patch.country ?? null, patch.in_email_flow === false ? 0 : 1)
 		.run();
 	return id;
 }
 
 export async function updateGuru(db, id, patch) {
-	const cols = { name: 1, phone: 1, email: 1, zip: 1, city: 1, image_key: 1, rating: 1, in_email_flow: 1, notes: 1, active: 1 };
+	const cols = { name: 1, phone: 1, email: 1, zip: 1, city: 1, country: 1, image_key: 1, rating: 1, in_email_flow: 1, notes: 1, active: 1 };
 	const boolCols = { in_email_flow: 1, active: 1 };
 	const fields = [], values = [];
 	for (const [k, v] of Object.entries(patch)) {

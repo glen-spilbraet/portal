@@ -72,55 +72,72 @@
 	}
 	async function removeSku(sku) { skus = skus.filter((s) => s !== sku); await saveSkus(); }
 
-	// ── Attached contacts ────────────────────────────────────────────────────────
+	// ── People (contacts + gurus) for this event ──────────────────────────────────
 	let contactIds = $state([...(data.event.contact_ids ?? [])]);
 	$effect(() => { contactIds = [...(data.event.contact_ids ?? [])]; });
 
-	async function toggleContact(id) {
-		contactIds = contactIds.includes(id) ? contactIds.filter((c) => c !== id) : [...contactIds, id];
-		const res = await fetch(`/api/events/${data.event.id}/contacts`, {
-			method: 'PUT', headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ contactIds })
-		});
-		if (!res.ok) { alert('Failed to save contacts'); await invalidateAll(); }
-	}
-
-	// ── Game gurus ────────────────────────────────────────────────────────────
+	const attachedContacts = $derived(data.venueContacts.filter((c) => contactIds.includes(c.id)));
+	const availableContacts = $derived(data.venueContacts.filter((c) => !contactIds.includes(c.id)));
 	const attachedGuruIds = $derived(new Set(data.eventGurus.map((g) => g.id)));
 	const availableGurus = $derived(data.gurus.filter((g) => !attachedGuruIds.has(g.id)));
-	/** @type {string[]} */
-	let guruPicks = $state([]);
-	let addingGurus = $state(false);
-	let copiedGuru = $state(null);
 
-	function toggleGuruPick(id) { guruPicks = guruPicks.includes(id) ? guruPicks.filter((x) => x !== id) : [...guruPicks, id]; }
-	async function addGurus() {
-		if (!guruPicks.length || addingGurus) return;
-		addingGurus = true;
-		try {
-			const res = await fetch(`/api/events/${data.event.id}/gurus`, {
-				method: 'POST', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ guruIds: guruPicks })
-			});
-			if (!res.ok) throw new Error('Failed');
-			guruPicks = [];
-			await invalidateAll();
-		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { addingGurus = false; }
-	}
-	async function removeGuru(id) {
-		if (!confirm('Remove this guru from the event?')) return;
-		await fetch(`/api/events/${data.event.id}/gurus/${id}`, { method: 'DELETE' });
+	const people = $derived([
+		...attachedContacts.map((c) => ({
+			kind: 'contact', id: c.id, name: c.name || '—',
+			sub: [c.role, c.email].filter(Boolean).join(' · '), inFlow: !!c.in_email_flow,
+		})),
+		...data.eventGurus.map((g) => ({
+			kind: 'guru', id: g.id, name: g.name,
+			sub: [[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', '),
+			inFlow: !!g.in_email_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl,
+		})),
+	]);
+
+	async function saveContactIds() {
+		const res = await fetch(`/api/events/${data.event.id}/contacts`, {
+			method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactIds })
+		});
+		if (!res.ok) alert('Failed to save contacts');
 		await invalidateAll();
+	}
+	async function toggleFlow(row) {
+		const url = row.kind === 'contact' ? `/api/events/contacts/${row.id}` : `/api/events/gurus/${row.id}`;
+		await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ in_email_flow: !row.inFlow }) });
+		await invalidateAll();
+	}
+	async function removePerson(row) {
+		if (row.kind === 'contact') { contactIds = contactIds.filter((x) => x !== row.id); await saveContactIds(); }
+		else { if (!confirm('Remove this guru from the event?')) return; await fetch(`/api/events/${data.event.id}/gurus/${row.id}`, { method: 'DELETE' }); await invalidateAll(); }
 	}
 	async function setGuruStatus(id, status) {
-		await fetch(`/api/events/${data.event.id}/gurus/${id}`, {
-			method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status })
-		});
+		await fetch(`/api/events/${data.event.id}/gurus/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
 		await invalidateAll();
 	}
-	function copyProposal(g) {
-		navigator.clipboard?.writeText(g.proposalUrl);
-		copiedGuru = g.id; setTimeout(() => (copiedGuru = null), 1500);
+	let copiedGuru = $state(null);
+	function copyProposal(row) { navigator.clipboard?.writeText(row.proposalUrl); copiedGuru = row.id; setTimeout(() => (copiedGuru = null), 1500); }
+
+	// Add-people modal
+	let addMode = $state(null); // 'contact' | 'guru' | null
+	/** @type {string[]} */
+	let picks = $state([]);
+	let addingPeople = $state(false);
+	function openAdd(mode) { addMode = mode; picks = []; }
+	function closeAdd() { addMode = null; picks = []; }
+	function togglePick(id) { picks = picks.includes(id) ? picks.filter((x) => x !== id) : [...picks, id]; }
+	async function confirmAdd() {
+		if (!picks.length || addingPeople) return;
+		addingPeople = true;
+		try {
+			if (addMode === 'contact') { contactIds = [...new Set([...contactIds, ...picks])]; await saveContactIds(); }
+			else {
+				const res = await fetch(`/api/events/${data.event.id}/gurus`, {
+					method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guruIds: picks })
+				});
+				if (!res.ok) throw new Error('Failed');
+				await invalidateAll();
+			}
+			closeAdd();
+		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { addingPeople = false; }
 	}
 
 	// ── Assets ────────────────────────────────────────────────────────────────
@@ -277,67 +294,46 @@
 			<p class="hint">Selected products (and any award/nominee badges) are shown to the venue automatically on the share page.</p>
 		</div>
 
-		<!-- Contacts for this event -->
+		<!-- People (contacts + gurus) -->
 		<div class="card">
-			<h2 class="card-title">Contacts for this event <span class="muted">· for automated emails</span></h2>
-			{#if !data.event.venue_id}
-				<p class="empty">Pick a venue and save first — then its contacts appear here.</p>
-			{:else if data.venueContacts.length === 0}
-				<p class="empty">This venue has no contacts yet. Add them under <a href="/events/venues">Venues</a>.</p>
-			{:else}
-				<div class="contact-picks">
-					{#each data.venueContacts as c (c.id)}
-						<label class="contact-pick">
-							<input type="checkbox" checked={contactIds.includes(c.id)} onchange={() => toggleContact(c.id)} />
-							<span class="cp-name">{c.name || '—'}</span>
-							{#if c.role}<span class="muted">· {c.role}</span>{/if}
-							{#if c.email}<span class="muted">· {c.email}</span>{/if}
-						</label>
-					{/each}
+			<div class="card-head">
+				<h2 class="card-title">People for this event <span class="muted">· contacts & gurus</span></h2>
+				<div class="head-btns">
+					<button class="btn sm" onclick={() => openAdd('contact')}>+ Add contact</button>
+					<button class="btn sm" onclick={() => openAdd('guru')}>+ Add guru</button>
 				</div>
-				<p class="hint">Checked contacts will receive the automated event emails (image & participant-count requests).</p>
-			{/if}
-		</div>
+			</div>
 
-		<!-- Game Gurus -->
-		<div class="card">
-			<h2 class="card-title">Game Gurus</h2>
-			{#if data.eventGurus.length === 0}
-				<p class="empty">No gurus attached yet.</p>
+			{#if people.length === 0}
+				<p class="empty">No one added yet. Use “Add contact” or “Add guru”.</p>
 			{:else}
-				<div class="guru-rows">
-					{#each data.eventGurus as g (g.id)}
-						<div class="guru-row">
-							<div class="gr-avatar">{#if g.image_key}<img src="/api/img/{g.image_key}" alt={g.name} />{:else}<span>{g.name?.[0]?.toUpperCase() ?? '?'}</span>{/if}</div>
-							<div class="gr-main">
-								<span class="gr-name">{g.name}</span>
-								<span class="muted">{[g.zip, g.city].filter(Boolean).join(' ') || (g.email ?? '')}</span>
-							</div>
-							<span class="gstatus {g.status}">{g.status}</span>
-							<div class="gr-actions">
-								<button class="btn sm" onclick={() => copyProposal(g)}>{copiedGuru === g.id ? 'Copied ✓' : 'Copy invite'}</button>
-								{#if g.status !== 'confirmed'}<button class="btn sm" onclick={() => setGuruStatus(g.id, 'confirmed')}>Confirm</button>{/if}
-								<button class="btn sm danger" onclick={() => removeGuru(g.id)}>✕</button>
-							</div>
-						</div>
-					{/each}
-				</div>
-			{/if}
-
-			{#if availableGurus.length > 0}
-				<div class="guru-add">
-					<div class="ga-title">Add gurus <span class="muted">· sends each a personal accept/decline invite</span></div>
-					<div class="ga-list">
-						{#each availableGurus as g (g.id)}
-							<label class="ga-pick"><input type="checkbox" checked={guruPicks.includes(g.id)} onchange={() => toggleGuruPick(g.id)} /> <span class="cp-name">{g.name}</span> <span class="muted">{[g.zip, g.city].filter(Boolean).join(' ')}</span></label>
+				<table class="people-table">
+					<thead><tr><th>Name</th><th>Type</th><th>Emails</th><th>Status</th><th></th></tr></thead>
+					<tbody>
+						{#each people as row (row.kind + row.id)}
+							<tr>
+								<td>
+									<div class="p-name">
+										{#if row.kind === 'guru'}<span class="p-avatar">{#if row.image_key}<img src="/api/img/{row.image_key}" alt={row.name} />{:else}{row.name?.[0]?.toUpperCase() ?? '?'}{/if}</span>{/if}
+										<span class="p-id"><span class="strong">{row.name}</span>{#if row.sub}<span class="muted">{row.sub}</span>{/if}</span>
+									</div>
+								</td>
+								<td><span class="type-badge {row.kind}">{row.kind === 'guru' ? 'Guru' : 'Contact'}</span></td>
+								<td><button class="flow-pill {row.inFlow ? 'on' : 'off'}" onclick={() => toggleFlow(row)}>{row.inFlow ? 'Gets mail' : 'No mail'}</button></td>
+								<td>{#if row.kind === 'guru'}<span class="gstatus {row.status}">{row.status}</span>{:else}<span class="muted">—</span>{/if}</td>
+								<td class="p-actions">
+									{#if row.kind === 'guru'}
+										<button class="btn xs" onclick={() => copyProposal(row)}>{copiedGuru === row.id ? 'Copied ✓' : 'Invite'}</button>
+										{#if row.status !== 'confirmed'}<button class="btn xs" onclick={() => setGuruStatus(row.id, 'confirmed')}>Confirm</button>{/if}
+									{/if}
+									<button class="btn xs danger" onclick={() => removePerson(row)}>✕</button>
+								</td>
+							</tr>
 						{/each}
-					</div>
-					<div class="right"><button class="btn primary" onclick={addGurus} disabled={addingGurus || guruPicks.length === 0}>Add {guruPicks.length || ''} as candidate{guruPicks.length === 1 ? '' : 's'}</button></div>
-				</div>
-			{:else if data.gurus.length === 0}
-				<p class="hint">No gurus in the directory yet — add them under <a href="/events/gurus">Gurus</a>.</p>
+					</tbody>
+				</table>
 			{/if}
-			<p class="hint">Each candidate gets a personal accept/decline link (copy it for now — bulk email sending arrives with the email engine). Accepted gurus who are in the email flow also get the image / participant-count requests.</p>
+			<p class="hint">The pill controls whether that person receives the automated event emails. Gurus also get a personal accept/decline invite (copy for now — bulk sending arrives with the email engine).</p>
 		</div>
 
 		<!-- Venue share link -->
@@ -387,6 +383,44 @@
 		{/if}
 	</main>
 </div>
+
+{#if addMode}
+	<div class="modal-overlay" onclick={closeAdd} role="presentation">
+		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Add people">
+			<button class="modal-x" onclick={closeAdd} aria-label="Close">✕</button>
+			<h3 class="modal-title">{addMode === 'contact' ? 'Add contacts' : 'Add gurus'}</h3>
+			{#if addMode === 'contact'}
+				{#if !data.event.venue_id}
+					<p class="empty">Pick a venue and save first — contacts come from the venue.</p>
+				{:else if availableContacts.length === 0}
+					<p class="empty">No more contacts on this venue. Add them under <a href="/events/venues">Venues</a>.</p>
+				{:else}
+					<div class="pick-list">
+						{#each availableContacts as c (c.id)}
+							<label class="pick"><input type="checkbox" checked={picks.includes(c.id)} onchange={() => togglePick(c.id)} /> <span class="strong">{c.name || '—'}</span> <span class="muted">{[c.role, c.email].filter(Boolean).join(' · ')}</span></label>
+						{/each}
+					</div>
+				{/if}
+			{:else}
+				{#if availableGurus.length === 0}
+					<p class="empty">No more gurus. Add them under <a href="/events/gurus">Gurus</a>.</p>
+				{:else}
+					<div class="pick-list">
+						{#each availableGurus as g (g.id)}
+							<label class="pick"><input type="checkbox" checked={picks.includes(g.id)} onchange={() => togglePick(g.id)} /> <span class="strong">{g.name}</span> <span class="muted">{[[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', ')}</span></label>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+			<div class="modal-foot">
+				<button class="btn" onclick={closeAdd}>Cancel</button>
+				<button class="btn primary" onclick={confirmAdd} disabled={addingPeople || picks.length === 0}>Add {picks.length || ''}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') closeAdd(); }} />
 
 {#snippet assetList(assets, showSource)}
 	{#if assets.length === 0}
@@ -523,4 +557,36 @@
 	.ga-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
 	.ga-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
 	.ga-pick input { width: auto; }
+
+	/* People table (contacts + gurus) */
+	.strong { font-weight: 600; }
+	.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+	.card-head .card-title { margin: 0; }
+	.head-btns { display: flex; gap: 8px; }
+	.btn.xs { padding: 4px 8px; font-size: 11px; }
+	.people-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+	.people-table th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #A1A1AA; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+	.people-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+	.people-table tbody tr:last-child td { border-bottom: none; }
+	.p-name { display: flex; align-items: center; gap: 10px; }
+	.p-avatar { width: 30px; height: 30px; border-radius: 50%; overflow: hidden; background: #F4F4F5; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: #A1A1AA; flex-shrink: 0; }
+	.p-avatar img { width: 100%; height: 100%; object-fit: cover; }
+	.p-id { display: flex; flex-direction: column; min-width: 0; }
+	.type-badge { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 100px; }
+	.type-badge.contact { background: #EEF2FF; color: #4338ca; }
+	.type-badge.guru { background: #FCE7F3; color: #be185d; }
+	.flow-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 100px; border: 1px solid var(--border); cursor: pointer; background: white; white-space: nowrap; }
+	.flow-pill.on { background: #E9F7EC; color: #16a34a; border-color: #bbf7d0; }
+	.flow-pill.off { color: #A1A1AA; }
+	.p-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+	/* Add-people modal */
+	.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
+	.modal { position: relative; background: white; border-radius: 16px; padding: 24px; max-width: 520px; width: 100%; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+	.modal-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: none; background: #F4F4F5; border-radius: 8px; font-size: 15px; color: #52525B; cursor: pointer; }
+	.modal-title { font-size: 18px; font-weight: 700; margin: 0 0 16px; padding-right: 40px; }
+	.pick-list { display: flex; flex-direction: column; gap: 6px; }
+	.pick { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+	.pick input { width: auto; }
+	.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 </style>
