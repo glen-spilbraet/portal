@@ -96,8 +96,18 @@
 					</div>
 
 					<div class="guru-contact">
-						{#if g.phone}<span>📞 {g.phone}</span>{/if}
-						{#if g.email}<span>✉ {g.email}</span>{/if}
+						{#if g.phone}
+							<span class="ci">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+								{g.phone}
+							</span>
+						{/if}
+						{#if g.email}
+							<span class="ci">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+								{g.email}
+							</span>
+						{/if}
 					</div>
 					<div class="guru-bottom">
 						<div class="stars" title="Internal rating">
@@ -168,7 +178,9 @@
 	.guru-id { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	.guru-name { font-weight: 700; font-size: 14px; color: #18181B; }
 
-	.guru-contact { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 0; font-size: 12px; color: #52525B; }
+	.guru-contact { display: flex; flex-wrap: wrap; gap: 14px; margin: 12px 0 0; font-size: 12px; color: #52525B; }
+	.ci { display: inline-flex; align-items: center; gap: 6px; }
+	.ci svg { width: 14px; height: 14px; color: #A1A1AA; flex-shrink: 0; }
 	.guru-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
 	.stars { display: flex; gap: 2px; }
 	.star { background: none; border: none; cursor: pointer; font-size: 18px; color: #E4E4E7; line-height: 1; padding: 0; }
