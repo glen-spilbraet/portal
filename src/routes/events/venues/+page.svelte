@@ -5,20 +5,31 @@
 	let { data } = $props();
 	let busy = $state(false);
 
-	// ── Add venue ─────────────────────────────────────────────────────────────────
-	let vForm = $state({ name: '', address: '', zip: '', city: '', country: '', notes: '' });
 	let expanded = $state(null);
 
-	async function addVenue() {
+	// ── Venue create / edit modal ────────────────────────────────────────────────
+	const blankVenue = () => ({ name: '', address: '', zip: '', city: '', country: '', notes: '' });
+	let vModalOpen = $state(false);
+	let vMode = $state('create'); // 'create' | 'edit'
+	let vEditId = $state(null);
+	let vForm = $state(blankVenue());
+
+	function openAddVenue() { vMode = 'create'; vEditId = null; vForm = blankVenue(); vModalOpen = true; }
+	function openEditVenue(v) { vMode = 'edit'; vEditId = v.id; vForm = { name: v.name ?? '', address: v.address ?? '', zip: v.zip ?? '', city: v.city ?? '', country: v.country ?? '', notes: v.notes ?? '' }; vModalOpen = true; }
+	function closeVenue() { vModalOpen = false; }
+
+	async function saveVenue() {
 		if (!vForm.name.trim() || busy) return;
 		busy = true;
 		try {
-			const res = await fetch('/api/events/venues', {
-				method: 'POST', headers: { 'Content-Type': 'application/json' },
+			const url = vMode === 'edit' ? `/api/events/venues/${vEditId}` : '/api/events/venues';
+			const res = await fetch(url, {
+				method: vMode === 'edit' ? 'PUT' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(vForm)
 			});
-			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
-			vForm = { name: '', address: '', zip: '', city: '', country: '', notes: '' };
+			if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? 'Failed');
+			vModalOpen = false;
 			await invalidateAll();
 		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { busy = false; }
 	}
@@ -75,19 +86,7 @@
 				<h1 class="page-title">Venues</h1>
 				<p class="page-sub">Places you host events, and their contact people.</p>
 			</div>
-		</div>
-
-		<div class="card">
-			<h2 class="card-title">Add venue</h2>
-			<div class="grid">
-				<input placeholder="Name *" bind:value={vForm.name} />
-				<input placeholder="Address" bind:value={vForm.address} />
-				<input placeholder="Zip" bind:value={vForm.zip} />
-				<input placeholder="City" bind:value={vForm.city} />
-				<input placeholder="Country" bind:value={vForm.country} />
-			</div>
-			<textarea rows="2" placeholder="Notes" bind:value={vForm.notes}></textarea>
-			<div class="right"><button class="btn primary" onclick={addVenue} disabled={busy || !vForm.name.trim()}>Add venue</button></div>
+			<button class="btn primary" onclick={openAddVenue}>+ Add venue</button>
 		</div>
 
 		{#if data.venues.length === 0}
@@ -105,6 +104,7 @@
 						<span class="chip">{v.event_count} events</span>
 						<span class="chip">{v.contact_count} contacts</span>
 						<button class="btn sm" onclick={() => (expanded = expanded === v.id ? null : v.id)}>{expanded === v.id ? 'Close' : 'Contacts'}</button>
+						<button class="btn sm" onclick={() => openEditVenue(v)}>Edit</button>
 						<button class="btn sm danger" onclick={() => deleteVenue(v.id)}>Delete</button>
 					</div>
 				</div>
@@ -141,6 +141,27 @@
 	</main>
 </div>
 
+{#if vModalOpen}
+	<div class="modal-overlay" onclick={closeVenue} role="presentation">
+		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Venue">
+			<button class="modal-x" onclick={closeVenue} aria-label="Close">✕</button>
+			<h3 class="modal-title">{vMode === 'edit' ? 'Edit venue' : 'Add venue'}</h3>
+			<div class="mgrid">
+				<label class="fld span2"><span>Name *</span><input bind:value={vForm.name} /></label>
+				<label class="fld span2"><span>Address</span><input bind:value={vForm.address} /></label>
+				<label class="fld"><span>Zip</span><input bind:value={vForm.zip} /></label>
+				<label class="fld"><span>City</span><input bind:value={vForm.city} /></label>
+				<label class="fld span2"><span>Country</span><input bind:value={vForm.country} /></label>
+				<label class="fld span2"><span>Notes</span><textarea rows="2" bind:value={vForm.notes}></textarea></label>
+			</div>
+			<div class="modal-foot">
+				<button class="btn" onclick={closeVenue}>Cancel</button>
+				<button class="btn primary" onclick={saveVenue} disabled={busy || !vForm.name.trim()}>{vMode === 'edit' ? 'Save' : 'Add venue'}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 {#if cModalOpen}
 	<div class="modal-overlay" onclick={closeContact} role="presentation">
 		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Contact">
@@ -160,12 +181,12 @@
 	</div>
 {/if}
 
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape') closeContact(); }} />
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { closeContact(); closeVenue(); } }} />
 
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
 	main { flex: 1; max-width: 1000px; margin: 0 auto; width: 100%; padding: 32px 28px 80px; }
-	.page-header { margin-bottom: 20px; }
+	.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 	.page-title { font-size: 18px; font-weight: 700; color: #18181B; margin: 0 0 2px; }
 	.page-sub { font-size: 13px; color: #A1A1AA; margin: 0; }
 
