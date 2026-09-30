@@ -5,39 +5,38 @@
 	let { data } = $props();
 	let busy = $state(false);
 
-	// Add guru
-	let form = $state({ name: '', phone: '', email: '', zip: '', city: '', country: '' });
-	async function addGuru() {
+	// ── Create / edit modal ──────────────────────────────────────────────────────
+	const blank = () => ({ name: '', phone: '', email: '', zip: '', city: '', country: '', notes: '' });
+	let modalOpen = $state(false);
+	let mode = $state('create'); // 'create' | 'edit'
+	let editId = $state(null);
+	let form = $state(blank());
+
+	function openCreate() { mode = 'create'; editId = null; form = blank(); modalOpen = true; }
+	function openEdit(g) {
+		mode = 'edit'; editId = g.id;
+		form = { name: g.name ?? '', phone: g.phone ?? '', email: g.email ?? '', zip: g.zip ?? '', city: g.city ?? '', country: g.country ?? '', notes: g.notes ?? '' };
+		modalOpen = true;
+	}
+	function closeModal() { modalOpen = false; }
+
+	async function save() {
 		if (!form.name.trim() || busy) return;
 		busy = true;
 		try {
-			const res = await fetch('/api/events/gurus', {
-				method: 'POST', headers: { 'Content-Type': 'application/json' },
+			const url = mode === 'edit' ? `/api/events/gurus/${editId}` : '/api/events/gurus';
+			const res = await fetch(url, {
+				method: mode === 'edit' ? 'PUT' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(form)
 			});
-			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
-			form = { name: '', phone: '', email: '', zip: '', city: '', country: '' };
+			if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? 'Failed');
+			modalOpen = false;
 			await invalidateAll();
 		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { busy = false; }
 	}
 
-	// Inline edit
-	let editId = $state(null);
-	let edit = $state({ name: '', phone: '', email: '', zip: '', city: '', country: '', notes: '' });
-	function startEdit(g) { editId = g.id; edit = { name: g.name, phone: g.phone ?? '', email: g.email ?? '', zip: g.zip ?? '', city: g.city ?? '', country: g.country ?? '', notes: g.notes ?? '' }; }
-	function cancelEdit() { editId = null; edit = { name: '', phone: '', email: '', zip: '', city: '', country: '', notes: '' }; }
-	async function saveEdit(id) {
-		busy = true;
-		try {
-			const res = await fetch(`/api/events/gurus/${id}`, {
-				method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(edit)
-			});
-			if (!res.ok) throw new Error('Failed');
-			cancelEdit();
-			await invalidateAll();
-		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { busy = false; }
-	}
-
+	// ── Card actions ─────────────────────────────────────────────────────────────
 	async function patchGuru(id, patch) {
 		await fetch(`/api/events/gurus/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
 		await invalidateAll();
@@ -72,25 +71,13 @@
 		<div class="page-header">
 			<div>
 				<h1 class="page-title">Game Gurus</h1>
-				<p class="page-sub">The people we hire to run events. Rate them (internal), toggle email-flow inclusion, and attach them to events.</p>
+				<p class="page-sub">The people we hire to run events. Rate them (internal) and attach them to events.</p>
 			</div>
-		</div>
-
-		<div class="card">
-			<h2 class="card-title">Add guru</h2>
-			<div class="grid">
-				<input placeholder="Name *" bind:value={form.name} />
-				<input placeholder="Phone" bind:value={form.phone} />
-				<input placeholder="Email" bind:value={form.email} />
-				<input placeholder="Zip" bind:value={form.zip} />
-				<input placeholder="City" bind:value={form.city} />
-				<input placeholder="Country" bind:value={form.country} />
-			</div>
-			<div class="right"><button class="btn primary" onclick={addGuru} disabled={busy || !form.name.trim()}>Add guru</button></div>
+			<button class="btn primary" onclick={openCreate}>+ Add guru</button>
 		</div>
 
 		{#if data.gurus.length === 0}
-			<p class="empty">No gurus yet.</p>
+			<p class="empty">No gurus yet. Click “Add guru” to create one.</p>
 		{/if}
 
 		<div class="guru-grid">
@@ -103,56 +90,61 @@
 							<span class="avatar-edit">✎</span>
 						</label>
 						<div class="guru-id">
-							{#if editId === g.id}
-								<input class="edit-name" bind:value={edit.name} />
-							{:else}
-								<span class="guru-name">{g.name}</span>
-								<span class="muted">{[[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', ') || 'No location'}</span>
-							{/if}
+							<span class="guru-name">{g.name}</span>
+							<span class="muted">{[[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', ') || 'No location'}</span>
 						</div>
 					</div>
 
-					{#if editId === g.id}
-						<div class="edit-grid">
-							<input placeholder="Phone" bind:value={edit.phone} />
-							<input placeholder="Email" bind:value={edit.email} />
-							<input placeholder="Zip" bind:value={edit.zip} />
-							<input placeholder="City" bind:value={edit.city} />
-							<input placeholder="Country" bind:value={edit.country} />
+					<div class="guru-contact">
+						{#if g.phone}<span>📞 {g.phone}</span>{/if}
+						{#if g.email}<span>✉ {g.email}</span>{/if}
+					</div>
+					<div class="guru-bottom">
+						<div class="stars" title="Internal rating">
+							{#each [1, 2, 3, 4, 5] as r}
+								<button class="star {g.rating >= r ? 'on' : ''}" onclick={() => setRating(g, r)}>★</button>
+							{/each}
 						</div>
-						<textarea rows="2" placeholder="Notes (internal)" bind:value={edit.notes}></textarea>
 						<div class="row-actions">
-							<button class="btn sm primary" onclick={() => saveEdit(g.id)} disabled={busy}>Save</button>
-							<button class="btn sm" onclick={cancelEdit}>Cancel</button>
+							<span class="chip">{g.event_count} events</span>
+							<button class="btn sm" onclick={() => openEdit(g)}>Edit</button>
+							<button class="btn sm danger" onclick={() => deleteGuru(g.id)}>Delete</button>
 						</div>
-					{:else}
-						<div class="guru-contact">
-							{#if g.phone}<span>📞 {g.phone}</span>{/if}
-							{#if g.email}<span>✉ {g.email}</span>{/if}
-						</div>
-						<div class="guru-bottom">
-							<div class="stars" title="Internal rating">
-								{#each [1, 2, 3, 4, 5] as r}
-									<button class="star {g.rating >= r ? 'on' : ''}" onclick={() => setRating(g, r)}>★</button>
-								{/each}
-							</div>
-							<div class="row-actions">
-								<span class="chip">{g.event_count} events</span>
-								<button class="btn sm" onclick={() => startEdit(g)}>Edit</button>
-								<button class="btn sm danger" onclick={() => deleteGuru(g.id)}>Delete</button>
-							</div>
-						</div>
-					{/if}
+					</div>
 				</div>
 			{/each}
 		</div>
 	</main>
 </div>
 
+{#if modalOpen}
+	<div class="modal-overlay" onclick={closeModal} role="presentation">
+		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Guru">
+			<button class="modal-x" onclick={closeModal} aria-label="Close">✕</button>
+			<h3 class="modal-title">{mode === 'edit' ? 'Edit guru' : 'Add guru'}</h3>
+			<div class="grid">
+				<label class="fld span2"><span>Name *</span><input bind:value={form.name} /></label>
+				<label class="fld"><span>Phone</span><input bind:value={form.phone} /></label>
+				<label class="fld"><span>Email</span><input bind:value={form.email} /></label>
+				<label class="fld"><span>Zip</span><input bind:value={form.zip} /></label>
+				<label class="fld"><span>City</span><input bind:value={form.city} /></label>
+				<label class="fld span2"><span>Country</span><input bind:value={form.country} /></label>
+				<label class="fld span2"><span>Notes (internal)</span><textarea rows="2" bind:value={form.notes}></textarea></label>
+			</div>
+			<div class="modal-foot">
+				<button class="btn" onclick={closeModal}>Cancel</button>
+				<button class="btn primary" onclick={save} disabled={busy || !form.name.trim()}>{mode === 'edit' ? 'Save' : 'Add guru'}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') closeModal(); }} />
+
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
 	main { flex: 1; max-width: 1000px; margin: 0 auto; width: 100%; padding: 32px 28px 80px; }
-	.page-header { margin-bottom: 20px; }
+	.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 	.page-title { font-size: 18px; font-weight: 700; color: #18181B; margin: 0 0 2px; }
 	.page-sub { font-size: 13px; color: #A1A1AA; margin: 0; max-width: 620px; }
 
@@ -164,14 +156,6 @@
 	.btn.sm { padding: 5px 10px; font-size: 12px; }
 	.btn.danger { color: #dc2626; }
 	.empty { color: #A1A1AA; font-size: 13px; padding: 8px 0; }
-
-	.card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
-	.card-title { font-size: 14px; font-weight: 700; color: #18181B; margin: 0 0 12px; }
-	.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-	input, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: #18181B; background: white; outline: none; }
-	input:focus, textarea:focus { border-color: #A1A1AA; }
-	textarea { margin-top: 8px; resize: vertical; }
-	.right { display: flex; justify-content: flex-end; margin-top: 10px; }
 	.muted { color: #A1A1AA; font-size: 12px; }
 
 	.guru-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
@@ -183,11 +167,6 @@
 	.avatar-edit { position: absolute; bottom: 0; right: 0; background: rgba(0,0,0,0.55); color: white; font-size: 10px; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; border-top-left-radius: 6px; }
 	.guru-id { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	.guru-name { font-weight: 700; font-size: 14px; color: #18181B; }
-	.edit-name { font-weight: 600; }
-	.guru-flow { flex-shrink: 0; }
-	.pill { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 100px; border: 1px solid var(--border); cursor: pointer; background: white; white-space: nowrap; }
-	.pill.on { background: #E9F7EC; color: #16a34a; border-color: #bbf7d0; }
-	.pill.off { color: #A1A1AA; }
 
 	.guru-contact { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 0; font-size: 12px; color: #52525B; }
 	.guru-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
@@ -196,5 +175,18 @@
 	.star.on { color: #F5A623; }
 	.row-actions { display: flex; align-items: center; gap: 6px; }
 	.chip { font-size: 11px; font-weight: 600; color: #71717A; background: #F4F4F5; padding: 3px 9px; border-radius: 100px; }
-	.edit-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 12px; }
+
+	/* Modal */
+	.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
+	.modal { position: relative; background: white; border-radius: 16px; padding: 24px; max-width: 560px; width: 100%; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+	.modal-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: none; background: #F4F4F5; border-radius: 8px; font-size: 15px; color: #52525B; cursor: pointer; }
+	.modal-title { font-size: 18px; font-weight: 700; margin: 0 0 16px; padding-right: 40px; }
+	.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+	.fld { display: flex; flex-direction: column; gap: 4px; }
+	.fld.span2 { grid-column: 1 / -1; }
+	.fld span { font-size: 12px; font-weight: 600; color: #71717A; }
+	input, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: #18181B; background: white; outline: none; }
+	input:focus, textarea:focus { border-color: #A1A1AA; }
+	textarea { resize: vertical; }
+	.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 </style>
