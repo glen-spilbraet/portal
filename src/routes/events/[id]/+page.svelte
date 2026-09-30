@@ -324,12 +324,14 @@
 								<td><span class="type-badge {row.kind}">{row.kind === 'guru' ? 'Guru' : 'Contact'}</span></td>
 								<td><button class="flow-pill {row.inFlow ? 'on' : 'off'}" onclick={() => toggleFlow(row)}>{row.inFlow ? 'Gets mail' : 'No mail'}</button></td>
 								<td>{#if row.kind === 'guru'}<span class="gstatus {row.status}">{row.status}</span>{:else}<span class="muted">—</span>{/if}</td>
-								<td class="p-actions">
-									{#if row.kind === 'guru'}
-										<button class="btn xs" onclick={() => copyProposal(row)}>{copiedGuru === row.id ? 'Copied ✓' : 'Invite'}</button>
-										{#if row.status !== 'confirmed'}<button class="btn xs" onclick={() => setGuruStatus(row.id, 'confirmed')}>Confirm</button>{/if}
-									{/if}
-									<button class="btn xs danger" onclick={() => removePerson(row)}>✕</button>
+								<td class="actions-cell">
+									<div class="p-actions">
+										{#if row.kind === 'guru'}
+											<button class="btn xs" onclick={() => copyProposal(row)}>{copiedGuru === row.id ? 'Copied ✓' : 'Invite'}</button>
+											{#if row.status !== 'confirmed'}<button class="btn xs" onclick={() => setGuruStatus(row.id, 'confirmed')}>Confirm</button>{/if}
+										{/if}
+										<button class="btn xs danger" onclick={() => removePerson(row)}>✕</button>
+									</div>
 								</td>
 							</tr>
 						{/each}
@@ -581,6 +583,7 @@
 	.flow-pill { cursor: pointer; white-space: nowrap; font-family: inherit; }
 	.flow-pill.on { background: #E9F7EC; color: #16a34a; }
 	.flow-pill.off { background: #F4F4F5; color: #A1A1AA; }
+	.actions-cell { text-align: right; }
 	.p-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 	/* Add-people modal */
