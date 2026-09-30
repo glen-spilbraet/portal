@@ -5,6 +5,7 @@
 	let { data } = $props();
 	let busy = $state(false);
 
+	// ── Add venue ─────────────────────────────────────────────────────────────────
 	let vForm = $state({ name: '', address: '', zip: '', city: '', country: '', notes: '' });
 	let expanded = $state(null);
 
@@ -28,21 +29,36 @@
 		await invalidateAll();
 	}
 
-	let cForm = $state({ name: '', phone: '', email: '', role: '', in_email_flow: true });
-	async function addContact(venueId) {
+	// ── Contact create / edit modal ────────────────────────────────────────────────
+	const blankContact = () => ({ name: '', role: '', email: '', phone: '' });
+	let cModalOpen = $state(false);
+	let cMode = $state('create'); // 'create' | 'edit'
+	let cVenueId = $state(null);
+	let cEditId = $state(null);
+	let cForm = $state(blankContact());
+
+	function openAddContact(venueId) { cMode = 'create'; cVenueId = venueId; cEditId = null; cForm = blankContact(); cModalOpen = true; }
+	function openEditContact(c) { cMode = 'edit'; cEditId = c.id; cForm = { name: c.name ?? '', role: c.role ?? '', email: c.email ?? '', phone: c.phone ?? '' }; cModalOpen = true; }
+	function closeContact() { cModalOpen = false; }
+
+	async function saveContact() {
 		if (busy) return;
 		busy = true;
 		try {
-			const res = await fetch(`/api/events/venues/${venueId}/contacts`, {
-				method: 'POST', headers: { 'Content-Type': 'application/json' },
+			const url = cMode === 'edit' ? `/api/events/contacts/${cEditId}` : `/api/events/venues/${cVenueId}/contacts`;
+			const res = await fetch(url, {
+				method: cMode === 'edit' ? 'PUT' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(cForm)
 			});
 			if (!res.ok) throw new Error('Failed');
-			cForm = { name: '', phone: '', email: '', role: '', in_email_flow: true };
+			cModalOpen = false;
 			await invalidateAll();
 		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { busy = false; }
 	}
+
 	async function deleteContact(id) {
+		if (!confirm('Delete this contact?')) return;
 		await fetch(`/api/events/contacts/${id}`, { method: 'DELETE' });
 		await invalidateAll();
 	}
@@ -94,28 +110,57 @@
 				</div>
 				{#if expanded === v.id}
 					<div class="contacts">
-						{#each v.contacts as c (c.id)}
-							<div class="contact">
-								<span class="strong">{c.name || '—'}</span>
-								{#if c.role}<span class="muted">· {c.role}</span>{/if}
-								{#if c.email}<span class="muted">· {c.email}</span>{/if}
-								{#if c.phone}<span class="muted">· {c.phone}</span>{/if}
-								<button class="link-del" onclick={() => deleteContact(c.id)}>✕</button>
-							</div>
-						{/each}
-						<div class="grid grid-contact">
-							<input placeholder="Name" bind:value={cForm.name} />
-							<input placeholder="Role" bind:value={cForm.role} />
-							<input placeholder="Email" bind:value={cForm.email} />
-							<input placeholder="Phone" bind:value={cForm.phone} />
-							<button class="btn sm primary" onclick={() => addContact(v.id)} disabled={busy}>Add</button>
-						</div>
+						{#if v.contacts.length === 0}
+							<p class="empty small">No contacts yet.</p>
+						{:else}
+							<table class="contact-table">
+								<thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th><th></th></tr></thead>
+								<tbody>
+									{#each v.contacts as c (c.id)}
+										<tr>
+											<td class="strong">{c.name || '—'}</td>
+											<td>{c.role || '—'}</td>
+											<td>{c.email || '—'}</td>
+											<td>{c.phone || '—'}</td>
+											<td class="ct-actions">
+												<div class="row-actions">
+													<button class="btn sm" onclick={() => openEditContact(c)}>Edit</button>
+													<button class="btn sm danger" onclick={() => deleteContact(c.id)}>✕</button>
+												</div>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						{/if}
+						<button class="btn sm add-contact" onclick={() => openAddContact(v.id)}>+ Add contact</button>
 					</div>
 				{/if}
 			</div>
 		{/each}
 	</main>
 </div>
+
+{#if cModalOpen}
+	<div class="modal-overlay" onclick={closeContact} role="presentation">
+		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Contact">
+			<button class="modal-x" onclick={closeContact} aria-label="Close">✕</button>
+			<h3 class="modal-title">{cMode === 'edit' ? 'Edit contact' : 'Add contact'}</h3>
+			<div class="mgrid">
+				<label class="fld span2"><span>Name</span><input bind:value={cForm.name} /></label>
+				<label class="fld"><span>Role</span><input bind:value={cForm.role} /></label>
+				<label class="fld"><span>Phone</span><input bind:value={cForm.phone} /></label>
+				<label class="fld span2"><span>Email</span><input bind:value={cForm.email} /></label>
+			</div>
+			<div class="modal-foot">
+				<button class="btn" onclick={closeContact}>Cancel</button>
+				<button class="btn primary" onclick={saveContact} disabled={busy}>{cMode === 'edit' ? 'Save' : 'Add contact'}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') closeContact(); }} />
 
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
@@ -135,12 +180,12 @@
 	.card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
 	.card-title { font-size: 14px; font-weight: 700; color: #18181B; margin: 0 0 12px; }
 	.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-	.grid-contact { grid-template-columns: repeat(4, 1fr) auto; align-items: center; margin-top: 8px; }
 	input, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: #18181B; background: white; outline: none; }
 	input:focus, textarea:focus { border-color: #A1A1AA; }
 	textarea { margin-top: 8px; resize: vertical; }
 	.right { display: flex; justify-content: flex-end; margin-top: 10px; }
 	.empty { color: #A1A1AA; font-size: 13px; padding: 8px 0; }
+	.empty.small { padding: 4px 0; }
 
 	.strong { font-weight: 600; }
 	.muted { color: #A1A1AA; font-size: 12px; }
@@ -149,11 +194,23 @@
 	.venue-actions { display: flex; align-items: center; gap: 8px; }
 	.chip { font-size: 11px; font-weight: 600; color: #71717A; background: #F4F4F5; padding: 3px 9px; border-radius: 100px; }
 	.contacts { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 12px; }
-	.contact { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 0; }
-	.contact .flow-pill { margin-left: auto; }
-	.flow-pill { font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 100px; border: 1px solid var(--border); cursor: pointer; background: white; white-space: nowrap; }
-	.flow-pill.on { background: #E9F7EC; color: #16a34a; border-color: #bbf7d0; }
-	.flow-pill.off { color: #A1A1AA; }
-	.link-del { background: none; border: none; color: #A1A1AA; cursor: pointer; font-size: 13px; padding: 0 4px; }
-	.link-del:hover { color: #dc2626; }
+
+	.contact-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+	.contact-table th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #A1A1AA; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+	.contact-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); color: #18181B; vertical-align: middle; }
+	.contact-table tbody tr:last-child td { border-bottom: none; }
+	.ct-actions { text-align: right; }
+	.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+	.add-contact { margin-top: 12px; }
+
+	/* Modal */
+	.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
+	.modal { position: relative; background: white; border-radius: 16px; padding: 24px; max-width: 520px; width: 100%; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+	.modal-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: none; background: #F4F4F5; border-radius: 8px; font-size: 15px; color: #52525B; cursor: pointer; }
+	.modal-title { font-size: 18px; font-weight: 700; margin: 0 0 16px; padding-right: 40px; }
+	.mgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+	.fld { display: flex; flex-direction: column; gap: 4px; }
+	.fld.span2 { grid-column: 1 / -1; }
+	.fld span { font-size: 12px; font-weight: 600; color: #71717A; }
+	.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 </style>
