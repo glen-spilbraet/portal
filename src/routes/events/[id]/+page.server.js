@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { getEvent, listVenues, listEventTypes, getVenue, listParticipantLog } from '$lib/server/events.js';
+import { getEvent, listVenues, listEventTypes, getVenue, listParticipantLog, listEventContacts } from '$lib/server/events.js';
 import { listGurus, listEventGurus } from '$lib/server/gurus.js';
 import { getProductBySku } from '$lib/server/mcpProducts.js';
 import { getBadgesForSkus } from '$lib/server/awards.js';
@@ -15,7 +15,7 @@ export async function load({ params, parent, platform, url }) {
 	if (!event) error(404, 'Event not found');
 
 	const today = new Date().toISOString().slice(0, 10);
-	const [venues, types, badges, products, venue, participantLog, gurus, eventGurus] = await Promise.all([
+	const [venues, types, badges, products, venue, participantLog, gurus, eventGurus, eventContacts] = await Promise.all([
 		listVenues(db),
 		listEventTypes(db),
 		getBadgesForSkus(db, event.skus, today),
@@ -24,6 +24,7 @@ export async function load({ params, parent, platform, url }) {
 		listParticipantLog(db, event.id),
 		listGurus(db),
 		listEventGurus(db, event.id),
+		listEventContacts(db, event.id),
 	]);
 
 	return {
@@ -34,6 +35,7 @@ export async function load({ params, parent, platform, url }) {
 		badges,
 		products: products.filter(Boolean),
 		venueContacts: venue?.contacts ?? [],
+		eventContacts,
 		participantLog,
 		gurus,
 		eventGurus: eventGurus.map((g) => ({ ...g, proposalUrl: `${url.origin}/events/guru/${g.proposal_token}` })),

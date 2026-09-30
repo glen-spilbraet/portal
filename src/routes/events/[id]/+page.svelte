@@ -73,41 +73,35 @@
 	async function removeSku(sku) { skus = skus.filter((s) => s !== sku); await saveSkus(); }
 
 	// ── People (contacts + gurus) for this event ──────────────────────────────────
-	let contactIds = $state([...(data.event.contact_ids ?? [])]);
-	$effect(() => { contactIds = [...(data.event.contact_ids ?? [])]; });
-
-	const attachedContacts = $derived(data.venueContacts.filter((c) => contactIds.includes(c.id)));
-	const availableContacts = $derived(data.venueContacts.filter((c) => !contactIds.includes(c.id)));
+	const attachedContactIds = $derived(new Set(data.eventContacts.map((c) => c.id)));
+	const availableContacts = $derived(data.venueContacts.filter((c) => !attachedContactIds.has(c.id)));
 	const attachedGuruIds = $derived(new Set(data.eventGurus.map((g) => g.id)));
 	const availableGurus = $derived(data.gurus.filter((g) => !attachedGuruIds.has(g.id)));
 
 	const people = $derived([
-		...attachedContacts.map((c) => ({
+		...data.eventContacts.map((c) => ({
 			kind: 'contact', id: c.id, name: c.name || '—',
-			sub: c.role || '', inFlow: !!c.in_email_flow,
+			sub: c.role || '', inFlow: !!c.event_flow,
 		})),
 		...data.eventGurus.map((g) => ({
 			kind: 'guru', id: g.id, name: g.name,
 			sub: [[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', '),
-			inFlow: !!g.in_email_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl,
+			inFlow: !!g.event_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl,
 		})),
 	]);
 
-	async function saveContactIds() {
-		const res = await fetch(`/api/events/${data.event.id}/contacts`, {
-			method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactIds })
-		});
-		if (!res.ok) alert('Failed to save contacts');
-		await invalidateAll();
-	}
 	async function toggleFlow(row) {
-		const url = row.kind === 'contact' ? `/api/events/contacts/${row.id}` : `/api/events/gurus/${row.id}`;
-		await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ in_email_flow: !row.inFlow }) });
+		const base = row.kind === 'contact' ? 'contacts' : 'gurus';
+		await fetch(`/api/events/${data.event.id}/${base}/${row.id}`, {
+			method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ in_email_flow: !row.inFlow })
+		});
 		await invalidateAll();
 	}
 	async function removePerson(row) {
-		if (row.kind === 'contact') { contactIds = contactIds.filter((x) => x !== row.id); await saveContactIds(); }
-		else { if (!confirm('Remove this guru from the event?')) return; await fetch(`/api/events/${data.event.id}/gurus/${row.id}`, { method: 'DELETE' }); await invalidateAll(); }
+		if (row.kind === 'guru' && !confirm('Remove this guru from the event?')) return;
+		const base = row.kind === 'contact' ? 'contacts' : 'gurus';
+		await fetch(`/api/events/${data.event.id}/${base}/${row.id}`, { method: 'DELETE' });
+		await invalidateAll();
 	}
 	async function setGuruStatus(id, status) {
 		await fetch(`/api/events/${data.event.id}/gurus/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
@@ -128,14 +122,11 @@
 		if (!picks.length || addingPeople) return;
 		addingPeople = true;
 		try {
-			if (addMode === 'contact') { contactIds = [...new Set([...contactIds, ...picks])]; await saveContactIds(); }
-			else {
-				const res = await fetch(`/api/events/${data.event.id}/gurus`, {
-					method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guruIds: picks })
-				});
-				if (!res.ok) throw new Error('Failed');
-				await invalidateAll();
-			}
+			const url = addMode === 'contact' ? `/api/events/${data.event.id}/contacts` : `/api/events/${data.event.id}/gurus`;
+			const payload = addMode === 'contact' ? { contactIds: picks } : { guruIds: picks };
+			const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+			if (!res.ok) throw new Error('Failed');
+			await invalidateAll();
 			closeAdd();
 		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { addingPeople = false; }
 	}

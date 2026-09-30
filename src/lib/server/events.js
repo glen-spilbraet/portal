@@ -215,17 +215,32 @@ export async function setEventSkus(db, eventId, skus) {
 
 // ── Event ↔ contacts (attached venue contacts) ───────────────────────────────
 
-export async function setEventContacts(db, eventId, contactIds) {
+/** Attach contacts to an event (default in flow). Idempotent — preserves flags. */
+export async function addEventContacts(db, eventId, contactIds) {
 	const clean = [...new Set((contactIds ?? []).map((c) => String(c)))];
-	const stmts = [db.prepare('DELETE FROM event_contact WHERE event_id = ?').bind(eventId)];
-	for (const cid of clean) stmts.push(db.prepare('INSERT INTO event_contact (event_id, contact_id) VALUES (?,?)').bind(eventId, cid));
+	if (!clean.length) return;
+	const stmts = clean.map((cid) =>
+		db.prepare('INSERT INTO event_contact (event_id, contact_id, in_email_flow) VALUES (?,?,1) ON CONFLICT(event_id, contact_id) DO NOTHING').bind(eventId, cid)
+	);
 	await db.batch(stmts);
 }
 
-/** Attached contacts with their details (joins venue_contact). */
-export async function getEventContacts(db, eventId) {
+export async function removeEventContact(db, eventId, contactId) {
+	await db.prepare('DELETE FROM event_contact WHERE event_id = ? AND contact_id = ?').bind(eventId, contactId).run();
+}
+
+/** Per-event email-flow toggle for a contact. */
+export async function setEventContactFlow(db, eventId, contactId, val) {
+	await db.prepare('UPDATE event_contact SET in_email_flow = ? WHERE event_id = ? AND contact_id = ?')
+		.bind(val ? 1 : 0, eventId, contactId).run();
+}
+
+/** Attached contacts with their details + the per-event flow flag. */
+export async function listEventContacts(db, eventId) {
 	const rows = await db.prepare(
-		`SELECT c.* FROM event_contact ec JOIN venue_contact c ON c.id = ec.contact_id WHERE ec.event_id = ?`
+		`SELECT c.*, ec.in_email_flow AS event_flow
+		 FROM event_contact ec JOIN venue_contact c ON c.id = ec.contact_id
+		 WHERE ec.event_id = ? ORDER BY c.created_at`
 	).bind(eventId).all();
 	return rows.results ?? [];
 }

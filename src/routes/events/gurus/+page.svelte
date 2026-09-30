@@ -43,7 +43,6 @@
 		await invalidateAll();
 	}
 	async function setRating(g, r) { await patchGuru(g.id, { rating: g.rating === r ? null : r }); }
-	async function toggleFlow(g) { await patchGuru(g.id, { in_email_flow: !g.in_email_flow }); }
 
 	async function deleteGuru(id) {
 		if (!confirm('Delete this guru?')) return;
@@ -110,9 +109,6 @@
 								<span class="guru-name">{g.name}</span>
 								<span class="muted">{[[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', ') || 'No location'}</span>
 							{/if}
-						</div>
-						<div class="guru-flow">
-							<button class="pill {g.in_email_flow ? 'on' : 'off'}" onclick={() => toggleFlow(g)} title="Include in event email flow">{g.in_email_flow ? 'In flow' : 'No flow'}</button>
 						</div>
 					</div>
 

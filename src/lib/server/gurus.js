@@ -62,23 +62,23 @@ export async function deleteGuru(db, id) {
 
 // ── Event ↔ gurus (proposals / attendance) ───────────────────────────────────
 
-/** Gurus attached to an event, with their details + proposal status. */
+/** Gurus attached to an event, with their details + proposal status + per-event flow. */
 export async function listEventGurus(db, eventId) {
 	const rows = await db.prepare(
-		`SELECT eg.status, eg.proposal_token, eg.responded_at, g.*
+		`SELECT eg.status, eg.proposal_token, eg.responded_at, eg.in_email_flow AS event_flow, g.*
 		 FROM event_guru eg JOIN guru g ON g.id = eg.guru_id
 		 WHERE eg.event_id = ? ORDER BY g.name COLLATE NOCASE`
 	).bind(eventId).all();
 	return rows.results ?? [];
 }
 
-/** Attach gurus to an event as proposals (status 'invited' + token). Idempotent. */
+/** Attach gurus to an event as proposals (status 'invited' + token, default in flow). Idempotent. */
 export async function addEventGurus(db, eventId, guruIds) {
 	const clean = [...new Set((guruIds ?? []).map(String))];
 	if (!clean.length) return;
 	const stmts = clean.map((gid) =>
 		db.prepare(
-			`INSERT INTO event_guru (event_id, guru_id, status, proposal_token) VALUES (?,?, 'invited', ?)
+			`INSERT INTO event_guru (event_id, guru_id, status, proposal_token, in_email_flow) VALUES (?,?, 'invited', ?, 1)
 			 ON CONFLICT(event_id, guru_id) DO NOTHING`
 		).bind(eventId, gid, token())
 	);
@@ -92,6 +92,12 @@ export async function removeEventGuru(db, eventId, guruId) {
 export async function setEventGuruStatus(db, eventId, guruId, status) {
 	await db.prepare('UPDATE event_guru SET status = ?, responded_at = datetime(\'now\') WHERE event_id = ? AND guru_id = ?')
 		.bind(status, eventId, guruId).run();
+}
+
+/** Per-event email-flow toggle for a guru. */
+export async function setEventGuruFlow(db, eventId, guruId, val) {
+	await db.prepare('UPDATE event_guru SET in_email_flow = ? WHERE event_id = ? AND guru_id = ?')
+		.bind(val ? 1 : 0, eventId, guruId).run();
 }
 
 // ── Public proposal (accept / decline via token) ──────────────────────────────

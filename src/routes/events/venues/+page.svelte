@@ -46,13 +46,6 @@
 		await fetch(`/api/events/contacts/${id}`, { method: 'DELETE' });
 		await invalidateAll();
 	}
-	async function toggleContactFlow(c) {
-		await fetch(`/api/events/contacts/${c.id}`, {
-			method: 'PUT', headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ in_email_flow: !c.in_email_flow })
-		});
-		await invalidateAll();
-	}
 </script>
 
 <svelte:head><title>Venues — Product Portal</title></svelte:head>
@@ -107,7 +100,6 @@
 								{#if c.role}<span class="muted">· {c.role}</span>{/if}
 								{#if c.email}<span class="muted">· {c.email}</span>{/if}
 								{#if c.phone}<span class="muted">· {c.phone}</span>{/if}
-								<button class="flow-pill {c.in_email_flow ? 'on' : 'off'}" onclick={() => toggleContactFlow(c)} title="Include in event email flow">{c.in_email_flow ? 'In flow' : 'No flow'}</button>
 								<button class="link-del" onclick={() => deleteContact(c.id)}>✕</button>
 							</div>
 						{/each}
