@@ -84,7 +84,7 @@
 	const people = $derived([
 		...attachedContacts.map((c) => ({
 			kind: 'contact', id: c.id, name: c.name || '—',
-			sub: [c.role, c.email].filter(Boolean).join(' · '), inFlow: !!c.in_email_flow,
+			sub: c.role || '', inFlow: !!c.in_email_flow,
 		})),
 		...data.eventGurus.map((g) => ({
 			kind: 'guru', id: g.id, name: g.name,
@@ -314,7 +314,10 @@
 							<tr>
 								<td>
 									<div class="p-name">
-										{#if row.kind === 'guru'}<span class="p-avatar">{#if row.image_key}<img src="/api/img/{row.image_key}" alt={row.name} />{:else}{row.name?.[0]?.toUpperCase() ?? '?'}{/if}</span>{/if}
+										<span class="p-avatar">
+											{#if row.kind === 'guru' && row.image_key}<img src="/api/img/{row.image_key}" alt={row.name} />
+											{:else}{row.name?.[0]?.toUpperCase() ?? '?'}{/if}
+										</span>
 										<span class="p-id"><span class="strong">{row.name}</span>{#if row.sub}<span class="muted">{row.sub}</span>{/if}</span>
 									</div>
 								</td>
@@ -333,7 +336,6 @@
 					</tbody>
 				</table>
 			{/if}
-			<p class="hint">The pill controls whether that person receives the automated event emails. Gurus also get a personal accept/decline invite (copy for now — bulk sending arrives with the email engine).</p>
 		</div>
 
 		<!-- Venue share link -->
@@ -572,12 +574,13 @@
 	.p-avatar { width: 30px; height: 30px; border-radius: 50%; overflow: hidden; background: #F4F4F5; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: #A1A1AA; flex-shrink: 0; }
 	.p-avatar img { width: 100%; height: 100%; object-fit: cover; }
 	.p-id { display: flex; flex-direction: column; min-width: 0; }
-	.type-badge { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 100px; }
+	/* All pills share identical metrics */
+	.type-badge, .gstatus, .flow-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 100px; border: none; line-height: 1.35; text-transform: capitalize; }
 	.type-badge.contact { background: #EEF2FF; color: #4338ca; }
 	.type-badge.guru { background: #FCE7F3; color: #be185d; }
-	.flow-pill { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 100px; border: 1px solid var(--border); cursor: pointer; background: white; white-space: nowrap; }
-	.flow-pill.on { background: #E9F7EC; color: #16a34a; border-color: #bbf7d0; }
-	.flow-pill.off { color: #A1A1AA; }
+	.flow-pill { cursor: pointer; white-space: nowrap; font-family: inherit; }
+	.flow-pill.on { background: #E9F7EC; color: #16a34a; }
+	.flow-pill.off { background: #F4F4F5; color: #A1A1AA; }
 	.p-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 	/* Add-people modal */
