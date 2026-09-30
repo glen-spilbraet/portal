@@ -160,11 +160,6 @@
 		navigator.clipboard?.writeText(data.shareUrl);
 		copied = true; setTimeout(() => (copied = false), 1500);
 	}
-	async function rotateToken() {
-		if (!confirm('Generate a new venue link? The current link will stop working.')) return;
-		await fetch(`/api/events/${data.event.id}/token`, { method: 'POST' });
-		await invalidateAll();
-	}
 
 	const media = $derived(data.event.assets.filter((a) => a.category === 'media'));
 	const marketing = $derived(data.event.assets.filter((a) => a.category === 'marketing'));
@@ -337,9 +332,8 @@
 			<p class="hint">Send this link to the venue — no login needed. They can view product info & material and upload their own photos/video.</p>
 			<div class="share-row">
 				<input class="share-input" readonly value={data.shareUrl} />
-				<button class="btn sm" onclick={copyLink}>{copied ? 'Copied ✓' : 'Copy'}</button>
-				<a class="btn sm" href={data.shareUrl} target="_blank" rel="noopener">Open</a>
-				<button class="btn sm danger" onclick={rotateToken}>New link</button>
+				<button class="btn share-btn" onclick={copyLink}>{copied ? 'Copied ✓' : 'Copy'}</button>
+				<a class="btn share-btn" href={data.shareUrl} target="_blank" rel="noopener">Open</a>
 			</div>
 		</div>
 
@@ -513,6 +507,7 @@
 
 	.share-row { display: flex; gap: 8px; align-items: center; }
 	.share-input { font-family: monospace; font-size: 12px; }
+	.share-btn { flex-shrink: 0; min-width: 84px; justify-content: center; white-space: nowrap; }
 
 	.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; }
 	.asset { position: relative; border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
