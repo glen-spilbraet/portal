@@ -85,6 +85,44 @@
 		if (!res.ok) { alert('Failed to save contacts'); await invalidateAll(); }
 	}
 
+	// ── Game gurus ────────────────────────────────────────────────────────────
+	const attachedGuruIds = $derived(new Set(data.eventGurus.map((g) => g.id)));
+	const availableGurus = $derived(data.gurus.filter((g) => !attachedGuruIds.has(g.id)));
+	/** @type {string[]} */
+	let guruPicks = $state([]);
+	let addingGurus = $state(false);
+	let copiedGuru = $state(null);
+
+	function toggleGuruPick(id) { guruPicks = guruPicks.includes(id) ? guruPicks.filter((x) => x !== id) : [...guruPicks, id]; }
+	async function addGurus() {
+		if (!guruPicks.length || addingGurus) return;
+		addingGurus = true;
+		try {
+			const res = await fetch(`/api/events/${data.event.id}/gurus`, {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ guruIds: guruPicks })
+			});
+			if (!res.ok) throw new Error('Failed');
+			guruPicks = [];
+			await invalidateAll();
+		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { addingGurus = false; }
+	}
+	async function removeGuru(id) {
+		if (!confirm('Remove this guru from the event?')) return;
+		await fetch(`/api/events/${data.event.id}/gurus/${id}`, { method: 'DELETE' });
+		await invalidateAll();
+	}
+	async function setGuruStatus(id, status) {
+		await fetch(`/api/events/${data.event.id}/gurus/${id}`, {
+			method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status })
+		});
+		await invalidateAll();
+	}
+	function copyProposal(g) {
+		navigator.clipboard?.writeText(g.proposalUrl);
+		copiedGuru = g.id; setTimeout(() => (copiedGuru = null), 1500);
+	}
+
 	// ── Assets ────────────────────────────────────────────────────────────────
 	let uploading = $state(false);
 	async function upload(e, category) {
@@ -261,6 +299,47 @@
 			{/if}
 		</div>
 
+		<!-- Game Gurus -->
+		<div class="card">
+			<h2 class="card-title">Game Gurus</h2>
+			{#if data.eventGurus.length === 0}
+				<p class="empty">No gurus attached yet.</p>
+			{:else}
+				<div class="guru-rows">
+					{#each data.eventGurus as g (g.id)}
+						<div class="guru-row">
+							<div class="gr-avatar">{#if g.image_key}<img src="/api/img/{g.image_key}" alt={g.name} />{:else}<span>{g.name?.[0]?.toUpperCase() ?? '?'}</span>{/if}</div>
+							<div class="gr-main">
+								<span class="gr-name">{g.name}</span>
+								<span class="muted">{[g.zip, g.city].filter(Boolean).join(' ') || (g.email ?? '')}</span>
+							</div>
+							<span class="gstatus {g.status}">{g.status}</span>
+							<div class="gr-actions">
+								<button class="btn sm" onclick={() => copyProposal(g)}>{copiedGuru === g.id ? 'Copied ✓' : 'Copy invite'}</button>
+								{#if g.status !== 'confirmed'}<button class="btn sm" onclick={() => setGuruStatus(g.id, 'confirmed')}>Confirm</button>{/if}
+								<button class="btn sm danger" onclick={() => removeGuru(g.id)}>✕</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			{#if availableGurus.length > 0}
+				<div class="guru-add">
+					<div class="ga-title">Add gurus <span class="muted">· sends each a personal accept/decline invite</span></div>
+					<div class="ga-list">
+						{#each availableGurus as g (g.id)}
+							<label class="ga-pick"><input type="checkbox" checked={guruPicks.includes(g.id)} onchange={() => toggleGuruPick(g.id)} /> <span class="cp-name">{g.name}</span> <span class="muted">{[g.zip, g.city].filter(Boolean).join(' ')}</span></label>
+						{/each}
+					</div>
+					<div class="right"><button class="btn primary" onclick={addGurus} disabled={addingGurus || guruPicks.length === 0}>Add {guruPicks.length || ''} as candidate{guruPicks.length === 1 ? '' : 's'}</button></div>
+				</div>
+			{:else if data.gurus.length === 0}
+				<p class="hint">No gurus in the directory yet — add them under <a href="/events/gurus">Gurus</a>.</p>
+			{/if}
+			<p class="hint">Each candidate gets a personal accept/decline link (copy it for now — bulk email sending arrives with the email engine). Accepted gurus who are in the email flow also get the image / participant-count requests.</p>
+		</div>
+
 		<!-- Venue share link -->
 		<div class="card">
 			<h2 class="card-title">Venue share link</h2>
@@ -426,4 +505,22 @@
 	.log-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); color: #18181B; }
 	.log-table tbody tr:last-child td { border-bottom: none; }
 	.cap { text-transform: capitalize; }
+
+	.guru-rows { display: flex; flex-direction: column; gap: 8px; }
+	.guru-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; }
+	.gr-avatar { width: 36px; height: 36px; border-radius: 50%; overflow: hidden; background: #F4F4F5; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #A1A1AA; font-size: 14px; }
+	.gr-avatar img { width: 100%; height: 100%; object-fit: cover; }
+	.gr-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+	.gr-name { font-weight: 600; font-size: 13px; }
+	.gstatus { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 100px; text-transform: capitalize; }
+	.gstatus.invited { background: #FEF9C3; color: #a16207; }
+	.gstatus.accepted { background: #F0FDF4; color: #16a34a; }
+	.gstatus.declined { background: #FEF2F2; color: #dc2626; }
+	.gstatus.confirmed { background: #DBEAFE; color: #1d4ed8; }
+	.gr-actions { display: flex; align-items: center; gap: 6px; }
+	.guru-add { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 14px; }
+	.ga-title { font-size: 13px; font-weight: 700; color: #18181B; margin-bottom: 8px; }
+	.ga-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+	.ga-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+	.ga-pick input { width: auto; }
 </style>

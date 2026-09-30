@@ -1,12 +1,11 @@
 import { json } from '@sveltejs/kit';
 import { requireEvents } from '$lib/server/eventsAuth.js';
-import { addContact } from '$lib/server/events.js';
+import { createGuru } from '$lib/server/gurus.js';
 
 export async function POST(event) {
 	const { db } = await requireEvents(event);
 	const body = await event.request.json().catch(() => ({}));
-	const id = await addContact(db, event.params.id, {
-		name: body.name, phone: body.phone, email: body.email, role: body.role, in_email_flow: body.in_email_flow
-	});
+	if (!body?.name?.trim()) return json({ message: 'Name is required' }, { status: 400 });
+	const id = await createGuru(db, body);
 	return json({ id });
 }

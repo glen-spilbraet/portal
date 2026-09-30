@@ -35,15 +35,15 @@ export async function getVenue(db, id) {
 	return { ...venue, contacts: contacts.results ?? [] };
 }
 
-export async function createVenue(db, { name, address, city, country, notes }) {
+export async function createVenue(db, { name, address, zip, city, country, notes }) {
 	const id = uid();
-	await db.prepare('INSERT INTO venue (id, name, address, city, country, notes) VALUES (?,?,?,?,?,?)')
-		.bind(id, name, address ?? null, city ?? null, country ?? null, notes ?? null).run();
+	await db.prepare('INSERT INTO venue (id, name, address, zip, city, country, notes) VALUES (?,?,?,?,?,?,?)')
+		.bind(id, name, address ?? null, zip ?? null, city ?? null, country ?? null, notes ?? null).run();
 	return id;
 }
 
 export async function updateVenue(db, id, patch) {
-	const allowed = ['name', 'address', 'city', 'country', 'notes'];
+	const allowed = ['name', 'address', 'zip', 'city', 'country', 'notes'];
 	const fields = [], values = [];
 	for (const k of allowed) if (k in patch) { fields.push(`${k} = ?`); values.push(patch[k] ?? null); }
 	if (!fields.length) return;
@@ -61,15 +61,16 @@ export async function deleteVenue(db, id) {
 
 // ── Venue contacts ─────────────────────────────────────────────────────────────
 
-export async function addContact(db, venueId, { name, phone, email, role }) {
+export async function addContact(db, venueId, { name, phone, email, role, in_email_flow }) {
 	const id = uid();
-	await db.prepare('INSERT INTO venue_contact (id, venue_id, name, phone, email, role) VALUES (?,?,?,?,?,?)')
-		.bind(id, venueId, name ?? null, phone ?? null, email ?? null, role ?? null).run();
+	await db.prepare('INSERT INTO venue_contact (id, venue_id, name, phone, email, role, in_email_flow) VALUES (?,?,?,?,?,?,?)')
+		.bind(id, venueId, name ?? null, phone ?? null, email ?? null, role ?? null, in_email_flow === false ? 0 : 1).run();
 	return id;
 }
 
 export async function updateContact(db, id, patch) {
-	const allowed = ['name', 'phone', 'email', 'role'];
+	const allowed = ['name', 'phone', 'email', 'role', 'in_email_flow'];
+	if ('in_email_flow' in patch) patch = { ...patch, in_email_flow: patch.in_email_flow ? 1 : 0 };
 	const fields = [], values = [];
 	for (const k of allowed) if (k in patch) { fields.push(`${k} = ?`); values.push(patch[k] ?? null); }
 	if (!fields.length) return;

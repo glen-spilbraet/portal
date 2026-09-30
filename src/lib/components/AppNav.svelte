@@ -18,6 +18,7 @@
 		p.events && { href: '/events',        label: 'Events', key: 'events' },
 		p.events && { href: '/events/venues', label: 'Venues', key: 'events-venues' },
 		p.events && { href: '/events/types',  label: 'Types',  key: 'events-types' },
+		p.events && { href: '/events/gurus',  label: 'Gurus',  key: 'events-gurus' },
 		p.events && { href: '/events/emails', label: 'Emails', key: 'events-emails' },
 	].filter(Boolean));
 	const showEvents = $derived(eventItems.length > 0);

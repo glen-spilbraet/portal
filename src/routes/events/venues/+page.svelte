@@ -5,7 +5,7 @@
 	let { data } = $props();
 	let busy = $state(false);
 
-	let vForm = $state({ name: '', address: '', city: '', country: '', notes: '' });
+	let vForm = $state({ name: '', address: '', zip: '', city: '', country: '', notes: '' });
 	let expanded = $state(null);
 
 	async function addVenue() {
@@ -17,7 +17,7 @@
 				body: JSON.stringify(vForm)
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
-			vForm = { name: '', address: '', city: '', country: '', notes: '' };
+			vForm = { name: '', address: '', zip: '', city: '', country: '', notes: '' };
 			await invalidateAll();
 		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { busy = false; }
 	}
@@ -28,7 +28,7 @@
 		await invalidateAll();
 	}
 
-	let cForm = $state({ name: '', phone: '', email: '', role: '' });
+	let cForm = $state({ name: '', phone: '', email: '', role: '', in_email_flow: true });
 	async function addContact(venueId) {
 		if (busy) return;
 		busy = true;
@@ -38,12 +38,19 @@
 				body: JSON.stringify(cForm)
 			});
 			if (!res.ok) throw new Error('Failed');
-			cForm = { name: '', phone: '', email: '', role: '' };
+			cForm = { name: '', phone: '', email: '', role: '', in_email_flow: true };
 			await invalidateAll();
 		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { busy = false; }
 	}
 	async function deleteContact(id) {
 		await fetch(`/api/events/contacts/${id}`, { method: 'DELETE' });
+		await invalidateAll();
+	}
+	async function toggleContactFlow(c) {
+		await fetch(`/api/events/contacts/${c.id}`, {
+			method: 'PUT', headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ in_email_flow: !c.in_email_flow })
+		});
 		await invalidateAll();
 	}
 </script>
@@ -66,6 +73,7 @@
 			<div class="grid">
 				<input placeholder="Name *" bind:value={vForm.name} />
 				<input placeholder="Address" bind:value={vForm.address} />
+				<input placeholder="Zip" bind:value={vForm.zip} />
 				<input placeholder="City" bind:value={vForm.city} />
 				<input placeholder="Country" bind:value={vForm.country} />
 			</div>
@@ -82,7 +90,7 @@
 				<div class="venue-head">
 					<div>
 						<span class="strong">{v.name}</span>
-						<span class="muted">· {[v.address, v.city, v.country].filter(Boolean).join(', ') || 'No address'}</span>
+						<span class="muted">· {[v.address, [v.zip, v.city].filter(Boolean).join(' '), v.country].filter(Boolean).join(', ') || 'No address'}</span>
 					</div>
 					<div class="venue-actions">
 						<span class="chip">{v.event_count} events</span>
@@ -99,6 +107,7 @@
 								{#if c.role}<span class="muted">· {c.role}</span>{/if}
 								{#if c.email}<span class="muted">· {c.email}</span>{/if}
 								{#if c.phone}<span class="muted">· {c.phone}</span>{/if}
+								<button class="flow-pill {c.in_email_flow ? 'on' : 'off'}" onclick={() => toggleContactFlow(c)} title="Include in event email flow">{c.in_email_flow ? 'In flow' : 'No flow'}</button>
 								<button class="link-del" onclick={() => deleteContact(c.id)}>✕</button>
 							</div>
 						{/each}
@@ -149,6 +158,10 @@
 	.chip { font-size: 11px; font-weight: 600; color: #71717A; background: #F4F4F5; padding: 3px 9px; border-radius: 100px; }
 	.contacts { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 12px; }
 	.contact { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 0; }
+	.contact .flow-pill { margin-left: auto; }
+	.flow-pill { font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 100px; border: 1px solid var(--border); cursor: pointer; background: white; white-space: nowrap; }
+	.flow-pill.on { background: #E9F7EC; color: #16a34a; border-color: #bbf7d0; }
+	.flow-pill.off { color: #A1A1AA; }
 	.link-del { background: none; border: none; color: #A1A1AA; cursor: pointer; font-size: 13px; padding: 0 4px; }
 	.link-del:hover { color: #dc2626; }
 </style>
