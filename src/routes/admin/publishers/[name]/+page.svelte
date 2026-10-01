@@ -66,7 +66,11 @@
 </script>
 
 <svelte:head><title>Map SKUs — {data.name}</title></svelte:head>
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && confirmRow) cancelConfirm(); }} />
+<svelte:window onkeydown={(e) => {
+	if (!confirmRow) return;
+	if (e.key === 'Escape') cancelConfirm();
+	else if (e.key === 'Enter') { e.preventDefault(); confirmMap(); }
+}} />
 
 <AppNav active="publishers" user={data.user} />
 
