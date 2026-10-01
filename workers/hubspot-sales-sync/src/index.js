@@ -39,6 +39,7 @@ const DEAL_PROPS = [
 	'pipeline',
 	'dealstage',
 	'hs_lastmodifieddate',
+	'associatedcompanyid', // the deal's PRIMARY company (preferred over the association list)
 	'rackbeat_id', // links the deal to its Rackbeat order/invoice/credit note
 	'forecast_start_date', // forecast deals only
 	'forecast_end_date',
@@ -294,11 +295,16 @@ async function enrichDeals(env, deals) {
 	if (!deals.length) return { rows: [], companyCount: 0 };
 	const owners = await fetchOwners(env);
 	const dealCompany = await fetchDealCompanyAssociations(env, deals.map((d) => d.id));
-	const companyIds = [...new Set(Object.values(dealCompany).filter(Boolean))];
+	// Prefer the deal's PRIMARY company (associatedcompanyid). The association
+	// list can include stale extra links (e.g. an old company left attached when
+	// a deal is moved), and picking the first of those mis-attributes revenue.
+	const chosen = {};
+	for (const d of deals) chosen[d.id] = (d.properties?.associatedcompanyid || dealCompany[d.id]) || null;
+	const companyIds = [...new Set(Object.values(chosen).filter(Boolean))];
 	const companies = await fetchCompanies(env, companyIds);
 	const rows = deals.map((d) => {
 		const p = d.properties || {};
-		const companyId = dealCompany[d.id] || null;
+		const companyId = chosen[d.id] || null;
 		const c = (companyId && companies[companyId]) || {};
 		const owner = c.hubspot_owner_id ? owners[c.hubspot_owner_id] : null;
 		const country = c.country || '';
