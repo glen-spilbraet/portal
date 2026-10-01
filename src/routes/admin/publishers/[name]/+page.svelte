@@ -33,7 +33,10 @@
 		if (confirmRow) return; // popup handles its own keys
 		if (e.key === 'ArrowDown') { e.preventDefault(); hi = Math.min(hi + 1, results.length - 1); }
 		else if (e.key === 'ArrowUp') { e.preventDefault(); hi = Math.max(hi - 1, 0); }
-		else if (e.key === 'Enter') { e.preventDefault(); if (results[hi]) confirmRow = results[hi]; }
+		else if (e.key === 'Enter') {
+			e.preventDefault();
+			if (results[hi]) { confirmRow = results[hi]; e.stopPropagation(); } // don't let THIS Enter reach the confirm handler
+		}
 	}
 
 	function cancelConfirm() { confirmRow = null; refocus(); }
