@@ -7,7 +7,7 @@
 	const numFmt = new Intl.NumberFormat('da-DK');
 
 	let query = $state('');
-	/** @type {{sku:string,name:string,prefix:string,override_pub:string|null,dkk:number}[]} */
+	/** @type {{sku:string,name:string,prefix:string,override_pub:string|null,dkk:number,from_catalog:number}[]} */
 	let results = $state([]);
 	let hi = $state(0);
 	/** @type {HTMLInputElement | null} */
@@ -97,7 +97,7 @@
 				{#each results as r, i (r.sku)}
 					<button class="res" class:hi={i === hi} onmouseenter={() => (hi = i)} onclick={() => (confirmRow = r)}>
 						<span class="r-sku">{r.sku}</span>
-						<span class="r-name">{r.name || '—'}</span>
+						<span class="r-name">{r.name || '—'}{#if !r.from_catalog}<span class="raw" title="No product sheet for this SKU — showing the raw line-item text">raw</span>{/if}</span>
 						<span class="r-cur">→ {current(r)}</span>
 					</button>
 				{/each}
@@ -156,6 +156,7 @@
 	.res.hi { background: #FFF3E2; }
 	.res .r-sku { font-weight: 800; color: #18181B; font-variant-numeric: tabular-nums; }
 	.res .r-name { color: #3f3a33; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.raw { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: #A16207; background: #FEF9C3; border-radius: 5px; padding: 1px 5px; vertical-align: middle; }
 	.res .r-cur { color: #A1A1AA; font-size: 12px; white-space: nowrap; }
 	.res.empty { display: block; text-align: center; color: #A1A1AA; cursor: default; }
 

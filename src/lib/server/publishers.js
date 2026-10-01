@@ -37,31 +37,50 @@ export async function deletePublisher(db, name) {
 	await db.prepare('DELETE FROM publisher WHERE name = ?').bind(name).run();
 }
 
+// Canonical product name for a SKU, from the sheets catalog (sales_sheets +
+// translations) — the source of truth, independent of rep-edited line text.
+// Prefers the sheet's primary language, else any filled product_name. NULL if
+// the SKU has no sheet (caller falls back to the line-item text).
+const catalogName = (skuExpr) => `(
+	SELECT tr.value FROM sales_sheets s2 JOIN translations tr ON tr.sheet_id = s2.id
+	WHERE lower(s2.sku) = lower(${skuExpr}) AND tr.key = 'product_name' AND COALESCE(tr.value, '') != ''
+	ORDER BY (tr.language = s2.primary_language) DESC LIMIT 1)`;
+
 /** Mappings (overridden SKUs) currently pointing at this publisher. */
 export async function getPublisherMappings(db, name) {
 	const rows = await db.prepare(
-		`SELECT o.sku, (SELECT MAX(li.name) FROM deal_line_items li WHERE li.sku = o.sku) AS name
+		`SELECT o.sku,
+		        COALESCE(${catalogName('o.sku')}, (SELECT MAX(li.name) FROM deal_line_items li WHERE li.sku = o.sku)) AS name
 		 FROM product_publisher_override o WHERE o.publisher = ? ORDER BY o.sku`
 	).bind(name).all();
 	return rows.results ?? [];
 }
 
 /**
- * Distinct SKUs seen in sales, matching a query on SKU or product name.
- * Returns the current override (if any) so the UI can warn about swaps.
+ * Distinct SKUs seen in sales, matching a query on SKU, line text, OR the
+ * catalog product name. The displayed name is the catalog name (falling back to
+ * the line text), so rep-edited titles don't show. Returns the current override
+ * (if any) so the UI can warn about swaps.
  */
 export async function searchLineItemSkus(db, q) {
 	const term = `%${(q ?? '').trim()}%`;
 	const rows = await db.prepare(
 		`SELECT li.sku,
-		        MAX(li.name) AS name,
+		        COALESCE(${catalogName('li.sku')}, MAX(li.name)) AS name,
+		        (${catalogName('li.sku')} IS NOT NULL) AS from_catalog,
 		        MAX(li.sku_prefix) AS prefix,
 		        (SELECT publisher FROM product_publisher_override o WHERE o.sku = li.sku) AS override_pub,
 		        ROUND(SUM(li.amount_dkk)) AS dkk
 		 FROM deal_line_items li
-		 WHERE li.sku IS NOT NULL AND li.sku != '' AND (li.sku LIKE ? OR li.name LIKE ?)
+		 WHERE li.sku IS NOT NULL AND li.sku != '' AND (
+		     li.sku LIKE ? OR li.name LIKE ?
+		     OR lower(li.sku) IN (
+		         SELECT lower(s3.sku) FROM sales_sheets s3 JOIN translations tr3 ON tr3.sheet_id = s3.id
+		         WHERE tr3.key = 'product_name' AND tr3.value LIKE ?
+		     )
+		 )
 		 GROUP BY li.sku ORDER BY dkk DESC LIMIT 40`
-	).bind(term, term).all();
+	).bind(term, term, term).all();
 	return rows.results ?? [];
 }
 
