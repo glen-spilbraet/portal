@@ -11,13 +11,15 @@ export async function load({ platform, url, cookies, parent }) {
 	const { cur, prior, label, selected } = resolveRange(effectiveParams(url, cookies), now);
 	const range = { start: cur.start, endInclusive: addDaysStr(cur.end, -1) };
 
+	const pub = url.searchParams.get('pub') === 'mapped' ? 'mapped' : 'sku';
+
 	const db = platform?.env?.SALES_DB;
 	if (!db) {
-		return { publishers: [], yearCols: ['—', '—', '—'], colNoData: [false, false, false], selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
+		return { publishers: [], pub, yearCols: ['—', '—', '—'], colNoData: [false, false, false], selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
 	}
 
 	const { windows, yearCols, colNoData } = yearWindows(cur, prior);
-	const publishers = await getPublisherBreakdown(db, windows);
+	const publishers = await getPublisherBreakdown(db, windows, pub);
 
-	return { publishers, yearCols, colNoData, selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
+	return { publishers, pub, yearCols, colNoData, selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
 }

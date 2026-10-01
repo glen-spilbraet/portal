@@ -60,15 +60,30 @@ export async function getMarketTotals(db, startIncl, endExcl, filters = {}) {
 }
 
 /**
- * Publisher breakdown from line items across three same-shaped windows
- * (oldest→newest). Groups closed line items by resolved publisher; index is YoY
- * (y2 vs y1). Company-wide (Product view is not owner-scoped).
+ * Publisher grouping expression for a report view.
+ *   'mapped' → the stored (override→prefix→code) publisher value.
+ *   'sku'    → pure SKU-prefix model: prefix map, else the raw prefix code.
+ * @param {string} mode  'sku' | 'mapped'
+ * @param {string} a  table alias prefix, e.g. 'li.' or '' (no alias)
  */
-export async function getPublisherBreakdown(db, windows) {
+function pubExpr(mode, a = '') {
+	return mode === 'mapped'
+		? `${a}publisher`
+		: `COALESCE((SELECT pp.publisher FROM publisher_prefix pp WHERE pp.prefix = ${a}sku_prefix), ${a}sku_prefix)`;
+}
+
+/**
+ * Publisher breakdown from line items across three same-shaped windows
+ * (oldest→newest). Groups closed line items by the chosen publisher view; index
+ * is YoY (y2 vs y1). Company-wide (Product view is not owner-scoped).
+ * @param {'sku'|'mapped'} mode
+ */
+export async function getPublisherBreakdown(db, windows, mode = 'sku') {
 	const { y0, y1, y2 } = windows;
+	const key = pubExpr(mode);
 	const rows = await db
 		.prepare(
-			`SELECT COALESCE(publisher, '—') AS key, COALESCE(publisher, '—') AS label,
+			`SELECT COALESCE(${key}, '—') AS key, COALESCE(${key}, '—') AS label,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
@@ -86,12 +101,12 @@ export async function getPublisherBreakdown(db, windows) {
 }
 
 /** Market totals (DKK) for ONE publisher over a window. Joins line items → deals for market. */
-export async function getPublisherMarketTotals(db, startIncl, endExcl, publisher) {
+export async function getPublisherMarketTotals(db, startIncl, endExcl, publisher, mode = 'sku') {
 	const rows = await db
 		.prepare(
 			`SELECT d.market AS market, COALESCE(SUM(li.amount_dkk), 0) AS dkk
 			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
-			 WHERE li.deal_kind = 'closed' AND li.publisher = ? AND li.close_date >= ? AND li.close_date < ?
+			 WHERE li.deal_kind = 'closed' AND ${pubExpr(mode, 'li.')} = ? AND li.close_date >= ? AND li.close_date < ?
 			 GROUP BY d.market`
 		)
 		.bind(publisher, startIncl, endExcl)
@@ -108,11 +123,11 @@ export async function getPublisherMarketTotals(db, startIncl, endExcl, publisher
 }
 
 /** Monthly DKK for ONE publisher in a year (12-element array). */
-export async function getPublisherMonthly(db, year, publisher) {
+export async function getPublisherMonthly(db, year, publisher, mode = 'sku') {
 	const rows = await db
 		.prepare(
 			`SELECT CAST(strftime('%m', close_date) AS INTEGER) AS m, COALESCE(SUM(amount_dkk), 0) AS rev
-			 FROM deal_line_items WHERE deal_kind = 'closed' AND publisher = ? AND close_date >= ? AND close_date < ? GROUP BY m`
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND ${pubExpr(mode)} = ? AND close_date >= ? AND close_date < ? GROUP BY m`
 		)
 		.bind(publisher, `${year}-01-01`, `${year + 1}-01-01`)
 		.all();
@@ -122,7 +137,7 @@ export async function getPublisherMonthly(db, year, publisher) {
 }
 
 /** Per-customer 3-window breakdown for ONE publisher (company name + owner via deals). */
-export async function getPublisherCustomers(db, windows, publisher) {
+export async function getPublisherCustomers(db, windows, publisher, mode = 'sku') {
 	const { y0, y1, y2 } = windows;
 	const rows = await db
 		.prepare(
@@ -131,7 +146,7 @@ export async function getPublisherCustomers(db, windows, publisher) {
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev2
 			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
-			 WHERE li.deal_kind = 'closed' AND li.publisher = ? GROUP BY li.company_id`
+			 WHERE li.deal_kind = 'closed' AND ${pubExpr(mode, 'li.')} = ? GROUP BY li.company_id`
 		)
 		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, publisher)
 		.all();
@@ -141,7 +156,7 @@ export async function getPublisherCustomers(db, windows, publisher) {
 }
 
 /** Per-product (SKU) 3-window breakdown for ONE publisher. */
-export async function getPublisherProducts(db, windows, publisher) {
+export async function getPublisherProducts(db, windows, publisher, mode = 'sku') {
 	const { y0, y1, y2 } = windows;
 	const rows = await db
 		.prepare(
@@ -149,7 +164,7 @@ export async function getPublisherProducts(db, windows, publisher) {
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
-			 FROM deal_line_items WHERE deal_kind = 'closed' AND publisher = ? AND sku IS NOT NULL GROUP BY sku`
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND ${pubExpr(mode)} = ? AND sku IS NOT NULL GROUP BY sku`
 		)
 		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, publisher)
 		.all();

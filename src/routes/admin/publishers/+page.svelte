@@ -4,7 +4,6 @@
 	let { data } = $props();
 
 	let rows = $state(data.prefixes.map((p) => ({ ...p, saved: false, saving: false, _saved: p.publisher ?? '' })));
-	let overrides = $state([...data.overrides]);
 	let search = $state('');
 	let resolving = $state(false);
 	let resolvedMsg = $state('');
@@ -55,23 +54,22 @@
 		}
 	}
 
-	// ── Overrides (per-SKU, e.g. SBDK) ────────────────────────────────────────
-	let newSku = $state('');
-	let newPub = $state('');
-	async function addOverride() {
-		const sku = newSku.trim(); const publisher = newPub.trim();
-		if (!sku || !publisher) return;
-		const res = await fetch('/api/admin/publisher-map', {
-			method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'override', sku, publisher }),
+	// ── Publisher registry ────────────────────────────────────────────────────
+	import { invalidateAll } from '$app/navigation';
+	let newPublisher = $state('');
+	async function addPublisher() {
+		const name = newPublisher.trim();
+		if (!name) return;
+		const res = await fetch('/api/admin/publishers', {
+			method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
 		});
-		if (res.ok) { overrides = [...overrides.filter((o) => o.sku !== sku), { sku, publisher }].sort((a, b) => a.sku.localeCompare(b.sku)); newSku = ''; newPub = ''; }
-		else alert('Could not add override');
+		if (res.ok) { newPublisher = ''; await invalidateAll(); }
+		else alert('Could not add publisher');
 	}
-	async function removeOverride(sku) {
-		const res = await fetch('/api/admin/publisher-map', {
-			method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'override', sku, publisher: '' }),
-		});
-		if (res.ok) overrides = overrides.filter((o) => o.sku !== sku);
+	async function deletePublisher(name) {
+		if (!confirm(`Remove "${name}" from the publisher list? (existing SKU mappings stay)`)) return;
+		const res = await fetch(`/api/admin/publishers/${encodeURIComponent(name)}`, { method: 'DELETE' });
+		if (res.ok) await invalidateAll();
 	}
 </script>
 
@@ -121,23 +119,33 @@
 		</table>
 	</div>
 
-	<h2 class="sec">Per-SKU overrides <span class="sec-hint">(e.g. SBDK titles that belong to a specific publisher)</span></h2>
+	<h2 class="sec">Publishers <span class="sec-hint">(the mapped / "secondary" publishers — open one to map SKUs to it)</span></h2>
 	<div class="card">
 		<div class="ov-add">
-			<input class="ov-in" placeholder="SKU (e.g. SBDK9584)" bind:value={newSku} />
-			<input class="ov-in" placeholder="Publisher" bind:value={newPub} onkeydown={(e) => e.key === 'Enter' && addOverride()} />
-			<button class="btn-sm" onclick={addOverride} disabled={!newSku.trim() || !newPub.trim()}>Add</button>
+			<input class="ov-in" placeholder="New publisher (e.g. Magilano)" bind:value={newPublisher} onkeydown={(e) => e.key === 'Enter' && addPublisher()} />
+			<button class="btn-sm" onclick={addPublisher} disabled={!newPublisher.trim()}>Add publisher</button>
 		</div>
-		{#if overrides.length}
+		{#if data.publishers.length}
 			<table class="ov-table">
+				<thead>
+					<tr><th>Publisher</th><th class="num">Mapped SKUs</th><th class="num">Prefixes</th><th></th></tr>
+				</thead>
 				<tbody>
-					{#each overrides as o (o.sku)}
-						<tr><td class="pfx">{o.sku}</td><td>{o.publisher}</td><td class="num"><button class="btn-del" onclick={() => removeOverride(o.sku)}>Remove</button></td></tr>
+					{#each data.publishers as p (p.name)}
+						<tr>
+							<td class="pfx"><a class="pub-link" href="/admin/publishers/{encodeURIComponent(p.name)}">{p.name}</a></td>
+							<td class="num">{p.mapped_count}</td>
+							<td class="num">{p.prefix_count}</td>
+							<td class="num">
+								<a class="btn-sm map-btn" href="/admin/publishers/{encodeURIComponent(p.name)}">Map SKUs</a>
+								<button class="btn-del" onclick={() => deletePublisher(p.name)}>Remove</button>
+							</td>
+						</tr>
 					{/each}
 				</tbody>
 			</table>
 		{:else}
-			<p class="empty">No overrides yet.</p>
+			<p class="empty">No publishers yet.</p>
 		{/if}
 	</div>
 </main>
@@ -187,4 +195,9 @@
 	.btn-del { border: 1px solid #fecaca; color: #dc2626; background: none; border-radius: 7px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
 	.btn-del:hover { background: #FEF2F2; }
 	.empty { text-align: center; color: #A1A1AA; padding: 20px; }
+	.pub-link { color: #7B3803; font-weight: 800; text-decoration: none; }
+	.pub-link:hover { text-decoration: underline; }
+	.map-btn { display: inline-block; text-decoration: none; margin-right: 8px; }
+	.ov-table thead th { text-align: left; background: #FBEFCB; color: #7B3803; font-weight: 800; padding: 10px 18px; }
+	.ov-table th.num { text-align: right; }
 </style>

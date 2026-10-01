@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { listPublishers } from '$lib/server/publishers.js';
 
 export async function load({ parent, platform }) {
 	const { user } = await parent();
@@ -6,6 +7,8 @@ export async function load({ parent, platform }) {
 
 	const db = platform?.env?.SALES_DB;
 	if (!db) error(500, 'Database unavailable');
+
+	const publishers = await listPublishers(db);
 
 	const prefixRows = (await db
 		.prepare(
@@ -19,7 +22,5 @@ export async function load({ parent, platform }) {
 	const prefixes = prefixRows
 		.map((r) => ({ prefix: r.prefix, lines: r.lines || 0, dkk: r.dkk || 0, publisher: map[r.prefix] ?? '' }))
 		.sort((a, b) => b.dkk - a.dkk);
-	const overrides = (await db.prepare('SELECT sku, publisher FROM product_publisher_override ORDER BY sku').all()).results ?? [];
-
-	return { prefixes, overrides };
+	return { prefixes, publishers };
 }
