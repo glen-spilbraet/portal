@@ -117,12 +117,14 @@
 				{#each filtered as p (p.name)}
 					<tr>
 						<td class="pub"><a href="/admin/publishers/{encodeURIComponent(p.name)}">{p.name}</a></td>
-						<td class="prefixes">
-							{#if p.prefixes.length}
-								{#each p.prefixes as x}<span class="pfx-chip">{x.prefix}</span>{/each}
-							{:else}
-								<span class="none">— no prefix</span>
-							{/if}
+						<td>
+							<div class="prefixes">
+								{#if p.prefixes.length}
+									{#each p.prefixes as x}<span class="pfx-chip">{x.prefix}</span>{/each}
+								{:else}
+									<span class="none">— no prefix</span>
+								{/if}
+							</div>
 						</td>
 						<td class="num">{p.mapped_count || '—'}</td>
 						<td class="num">{p.dkk ? dkkFmt(p.dkk) : '—'}</td>
