@@ -41,23 +41,28 @@ const money = (n, locale) => new Intl.NumberFormat(locale, { minimumFractionDigi
 export async function renderOrderPdf(order) {
 	const L = LABELS[order.lang] || LABELS.en;
 	const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-	const pageW = 210, M = 18;
+	const pageW = 210, pageH = 297, M = 18, bottom = 24; // bottom = reserved space (footer + breathing room)
+	const colSku = M, colProd = M + 26, colQty = M + 118, colPrice = M + 152, colTotal = pageW - M;
+	const prodW = colQty - colProd - 6;
 	let y = 16;
 
+	// ── Header: title LEFT, logo RIGHT, orange rule under both ────────────────────
+	const headTop = 15;
+	let logoBottom = headTop;
 	try {
 		const logo = await loadLogo(order.lang);
 		const lw = 42, lh = lw / (logo.ratio || 3.3);
-		doc.addImage(logo.dataUrl, 'PNG', M, y, lw, lh);
-		y += lh + 7;
-	} catch { y += 4; }
+		doc.addImage(logo.dataUrl, 'PNG', pageW - M - lw, headTop, lw, lh);
+		logoBottom = headTop + lh;
+	} catch { logoBottom = headTop + 12; }
+	doc.setFont('helvetica', 'bold'); doc.setFontSize(22); doc.setTextColor(24, 24, 27);
+	const titleBaseline = Math.max(headTop + 10, logoBottom - 1);
+	doc.text(L.title, M, titleBaseline);
+	const ruleY = Math.max(logoBottom, titleBaseline) + 3;
+	doc.setDrawColor(245, 120, 50); doc.setLineWidth(0.8); doc.line(M, ruleY, pageW - M, ruleY);
+	y = ruleY + 11;
 
-	// Title + orange rule
-	doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(24, 24, 27);
-	doc.text(L.title, M, y);
-	doc.setDrawColor(245, 120, 50); doc.setLineWidth(0.8); doc.line(M, y + 2.5, pageW - M, y + 2.5);
-	y += 12;
-
-	// Buyer (left) + Seller (right)
+	// ── Buyer (left) + Seller (right) ────────────────────────────────────────────
 	const topY = y;
 	doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(24, 24, 27);
 	doc.text(order.buyer?.name || '—', M, y); y += 5.5;
@@ -73,9 +78,9 @@ export async function renderOrderPdf(order) {
 	for (const line of SELLER.slice(1)) { doc.text(line, rx, ry, { align: 'right' }); ry += 5; }
 	if (SELLER_VAT) { doc.text(`VAT ${SELLER_VAT}`, rx, ry, { align: 'right' }); ry += 5; }
 
-	y = Math.max(y, ry) + 7;
+	y = Math.max(y, ry) + 8;
 
-	// Order meta
+	// ── Order meta ────────────────────────────────────────────────────────────────
 	const meta = (label, value) => {
 		doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(63, 58, 51);
 		doc.text(`${label}: `, M, y);
@@ -86,33 +91,48 @@ export async function renderOrderPdf(order) {
 	meta(L.order, order.dealName);
 	meta(L.delivery, order.deliveryDate || L.none);
 	if (order.seller?.name) meta(L.seller, order.seller.name);
-	y += 7;
+	y += 8;
 
-	// Table
-	const colSku = M, colProd = M + 26, colQty = M + 118, colPrice = M + 150, colTotal = pageW - M;
-	doc.setFillColor(251, 239, 203); doc.rect(M - 2, y - 4.6, pageW - 2 * M + 4, 7, 'F');
-	doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(123, 56, 3);
-	doc.text(L.sku, colSku, y); doc.text(L.product, colProd, y);
-	doc.text(L.qty, colQty, y, { align: 'right' }); doc.text(L.price, colPrice, y, { align: 'right' }); doc.text(L.total, colTotal, y, { align: 'right' });
-	y += 6.5;
-
-	doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(40, 40, 40);
-	for (const l of order.lines) {
-		const nameLines = doc.splitTextToSize(l.name || '', 86);
-		const rowH = Math.max(5.6, nameLines.length * 4.4);
-		doc.text(l.sku || '', colSku, y);
-		doc.text(nameLines, colProd, y);
-		doc.text(String(l.qty), colQty, y, { align: 'right' });
-		doc.text(money(l.unitPrice, L.locale), colPrice, y, { align: 'right' });
-		doc.text(`${money(l.lineTotal, L.locale)} ${order.currency}`, colTotal, y, { align: 'right' });
-		y += rowH;
-		doc.setDrawColor(240, 235, 215); doc.setLineWidth(0.1); doc.line(M - 2, y - 2.6, pageW - M + 2, y - 2.6);
+	// ── Table (with page breaks) ──────────────────────────────────────────────────
+	const PADY = 3; // vertical padding inside each row
+	function drawTableHead(yy) {
+		doc.setFillColor(251, 239, 203); doc.rect(M - 2, yy - 5, pageW - 2 * M + 4, 9, 'F');
+		doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(123, 56, 3);
+		doc.text(L.sku, colSku, yy); doc.text(L.product, colProd, yy);
+		doc.text(L.qty, colQty, yy, { align: 'right' }); doc.text(L.price, colPrice, yy, { align: 'right' }); doc.text(L.total, colTotal, yy, { align: 'right' });
+		return yy + 9;
 	}
 
-	y += 4;
-	doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(24, 24, 27);
+	y = drawTableHead(y);
+	doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(40, 40, 40);
+	for (const l of order.lines) {
+		const nameLines = doc.splitTextToSize(l.name || '', prodW);
+		const rowH = nameLines.length * 4.8 + PADY * 2;
+		if (y + rowH > pageH - bottom) { doc.addPage(); y = 16; y = drawTableHead(y); doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(40, 40, 40); }
+		const tY = y + PADY + 3;
+		doc.text(l.sku || '', colSku, tY);
+		doc.text(nameLines, colProd, tY);
+		doc.text(String(l.qty), colQty, tY, { align: 'right' });
+		doc.text(money(l.unitPrice, L.locale), colPrice, tY, { align: 'right' });
+		doc.text(`${money(l.lineTotal, L.locale)} ${order.currency}`, colTotal, tY, { align: 'right' });
+		y += rowH;
+		doc.setDrawColor(240, 235, 215); doc.setLineWidth(0.1); doc.line(M - 2, y, pageW - M + 2, y);
+	}
+
+	// Grand total (new page if it wouldn't fit)
+	if (y + 14 > pageH - bottom) { doc.addPage(); y = 16; }
+	y += 7;
+	doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(24, 24, 27);
 	doc.text(L.grand, colPrice, y, { align: 'right' });
 	doc.text(`${money(order.total, L.locale)} ${order.currency}`, colTotal, y, { align: 'right' });
+
+	// ── Page numbers (bottom-right) ───────────────────────────────────────────────
+	const pages = doc.getNumberOfPages();
+	for (let i = 1; i <= pages; i++) {
+		doc.setPage(i);
+		doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(150, 150, 150);
+		doc.text(`${i}/${pages}`, pageW - M, pageH - 10, { align: 'right' });
+	}
 
 	return doc;
 }
