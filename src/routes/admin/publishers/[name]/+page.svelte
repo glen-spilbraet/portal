@@ -78,7 +78,6 @@
 		await invalidateAll();
 	}
 
-	function current(r) { return r.override_pub || r.prefix || '—'; }
 	const swaps = $derived(/** @type {any[]} */ (confirmList ?? []).filter((/** @type {any} */ r) => r.override_pub && r.override_pub !== data.name));
 </script>
 
@@ -105,8 +104,12 @@
 					<button class="res" class:hi={i === hi} class:picked={!!picks[r.sku]} onmouseenter={() => (hi = i)} onclick={() => togglePick(r)}>
 						<span class="check" class:on={!!picks[r.sku]}>{picks[r.sku] ? '✓' : ''}</span>
 						<span class="r-sku">{r.sku}</span>
-						<span class="r-name">{r.name || '—'}{#if !r.from_catalog}<span class="raw" title="No product sheet for this SKU — raw line text">raw</span>{/if}</span>
-						<span class="r-cur">→ {current(r)}</span>
+						<span class="r-name">{r.name || '—'}</span>
+						{#if r.override_pub}
+							<span class="map-pill {r.override_pub === data.name ? 'here' : 'other'}">{r.override_pub === data.name ? '✓ Mapped here' : `Mapped → ${r.override_pub}`}</span>
+						{:else}
+							<span class="map-pill none">Not mapped</span>
+						{/if}
 					</button>
 				{/each}
 			</div>
@@ -185,9 +188,11 @@
 	.check.on { background: #E9F7EC; border-color: #86efac; }
 	.res .r-sku { font-weight: 800; color: #18181B; font-variant-numeric: tabular-nums; }
 	.res .r-name { color: #3f3a33; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.res .r-cur { color: #A1A1AA; font-size: 12px; white-space: nowrap; }
+	.map-pill { font-size: 11px; font-weight: 700; white-space: nowrap; padding: 3px 10px; border-radius: 100px; }
+	.map-pill.here { background: #E9F7EC; color: #16a34a; }
+	.map-pill.other { background: #FEF3C7; color: #92400E; }
+	.map-pill.none { background: #F4F4F5; color: #A1A1AA; }
 	.res.empty { display: block; text-align: center; color: #A1A1AA; cursor: default; }
-	.raw { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: #A16207; background: #FEF9C3; border-radius: 5px; padding: 1px 5px; vertical-align: middle; }
 
 	.selbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #EAF7EF; border: 1px solid #bbf7d0; border-radius: 12px; padding: 10px 16px; font-size: 14px; color: #166534; margin-bottom: 20px; }
 	.selbar-actions { display: flex; gap: 8px; }
