@@ -79,7 +79,7 @@ export async function searchLineItemSkus(db, q) {
 		         WHERE tr3.key = 'product_name' AND tr3.value LIKE ?
 		     )
 		 )
-		 GROUP BY li.sku ORDER BY dkk DESC LIMIT 40`
+		 GROUP BY li.sku ORDER BY (override_pub IS NULL) DESC, dkk DESC LIMIT 40`
 	).bind(term, term, term).all();
 	return rows.results ?? [];
 }
