@@ -39,6 +39,7 @@
 	const orderItems = $derived([
 		p.orders     && { href: '/orders',                 label: 'Orders',        key: 'orders' },
 		p.orders     && { href: '/orders/rackbeat-drafts', label: 'Create Orders', key: 'create-orders' },
+		p.orders     && { href: '/orders/order-confirmations', label: 'Order Confirmations', key: 'order-confirmations' },
 		p.rest_check && { href: '/orders/rest-check',      label: 'Rest Check',    key: 'rest-check' },
 		p.price_sync && { href: '/orders/price-sync',      label: 'Price Sync',    key: 'price-sync' },
 	].filter(Boolean));
