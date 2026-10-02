@@ -15,22 +15,25 @@
 import { searchProducts, getProductBySku, getProductImageBytes } from '$lib/server/mcpProducts.js';
 import { getProductPress, listPress, listMediaOutlets, getMediaDetail } from '$lib/server/mcpAwards.js';
 import { runSalesQuery, salesMarketTotals, forecastAccuracy, salesSyncMeta, salesSchema } from '$lib/server/mcpSales.js';
+import { HUBSPOT_SCHEMA_DOC, hubspotSearch, hubspotGet } from '$lib/server/mcpHubspot.js';
 import { validateAccessToken } from '$lib/server/mcpOauth.js';
 import { getAllowedUser, getUserPermissions } from '$lib/db.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
-const SERVER_INFO = { name: 'spilbraet-portal', version: '1.1.0' };
+const SERVER_INFO = { name: 'spilbraet-portal', version: '1.2.0' };
 
 // Shown to the client/model right after connect. This is what lets people ask in
 // plain language ("what did bookstores buy most, Aug–Oct year over year?")
 // without knowing any tool names — it tells the model when and how to use them.
 const SERVER_INSTRUCTIONS = [
-	'This server exposes Spilbræt portal data: product sales sheets, awards & press, and (for admins) sales figures, line items and forecasts.',
+	'This server exposes Spilbræt portal data: product sales sheets, awards & press, and (for admins) sales figures, line items, forecasts, and LIVE HubSpot CRM (deals/companies/contacts).',
 	'',
 	'Answer data questions by CALLING these tools yourself — never ask the user for tool names, SQL, SKUs, dates or segment codes; infer them from the request.',
 	'',
 	'For any sales / revenue / best-seller / customer / publisher / "how much did X buy" / year-over-year question: FIRST call `sales_schema` (it returns the tables, columns, the live customer-segment values, and worked examples), then build and run a `sales_query`. `sales_schema` tells you how to map plain-language terms (e.g. "bookstores", "toy shops", "year over year", "most purchased") to the real columns and values — the segment values are often in Danish.',
 	'`sales_market_totals` and `forecast_accuracy` are quick shortcuts for those specific asks; anything else goes through `sales_query`.',
+	'',
+	'The sales tools cover INVOICED deals only (the mirror). For LIVE / not-yet-invoiced data — uninvoiced or open orders, "what\'s in the pipeline", deals by stage, a company/contact lookup in HubSpot — call `hubspot_schema` first, then `hubspot_search` (or `hubspot_get` for one record by id). hubspot_schema explains how "uninvoiced order" is defined. Prefer the sales tools for historical/aggregate questions, HubSpot for current state.',
 	'',
 	'For product info (descriptions, images, specs) use search_products / get_product / get_product_image. For awards & reviews use the press/media tools.',
 	'',
@@ -155,6 +158,41 @@ const TOOLS = [
 		name: 'sales_sync_meta',
 		description: 'When the sales data was last synced from HubSpot and how many deals it holds (use for a "data as of …" note).',
 		inputSchema: { type: 'object', properties: {} }
+	},
+	// ── Live HubSpot (admins only) ────────────────────────────────────────────
+	{
+		name: 'hubspot_schema',
+		description: 'Start here for ANY question about LIVE/current HubSpot data — uninvoiced or open orders, deals by stage/pipeline, "what\'s in the pipeline", company/contact lookups. Returns the objects, key properties, conventions (e.g. how "uninvoiced order" is defined) and search examples. Then call hubspot_search. Use this instead of sales_query when the data is not yet invoiced (the sales mirror is invoiced-only).',
+		inputSchema: { type: 'object', properties: {} }
+	},
+	{
+		name: 'hubspot_search',
+		description: 'Run a read-only HubSpot CRM search (deals / companies / contacts / line_items) with filters + sorting. The main tool for live questions like "big uninvoiced orders", "deals closing this month", "companies in Norway". Call hubspot_schema first for property names and the filter format.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				object: { type: 'string', enum: ['deals', 'companies', 'contacts', 'line_items'], description: 'Which object (default deals).' },
+				filterGroups: { type: 'array', description: 'HubSpot v3 search filterGroups: OR of groups, each an AND of {propertyName, operator, value}.' },
+				properties: { type: 'array', items: { type: 'string' }, description: 'Properties to return.' },
+				sorts: { type: 'array', description: 'e.g. [{propertyName:"amount_in_home_currency", direction:"DESCENDING"}].' },
+				limit: { type: 'number', description: 'Max results (default 25, max 100).' },
+				after: { type: 'string', description: 'Paging cursor from a previous result\'s "next".' }
+			}
+		}
+	},
+	{
+		name: 'hubspot_get',
+		description: 'Fetch one HubSpot object by id with chosen properties and optional associations (e.g. a deal with its line_items and companies).',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				object: { type: 'string', enum: ['deals', 'companies', 'contacts', 'line_items'], description: 'Which object (default deals).' },
+				id: { type: 'string', description: 'The object id.' },
+				properties: { type: 'array', items: { type: 'string' }, description: 'Properties to return.' },
+				associations: { type: 'array', items: { type: 'string' }, description: 'Associated objects to include, e.g. ["line_items","companies"].' }
+			},
+			required: ['id']
+		}
 	}
 ];
 
@@ -168,8 +206,10 @@ const SHEET_TOOLS = new Set(['search_products', 'get_product', 'get_product_imag
 const AWARDS_TOOLS = new Set(['get_product_press', 'list_press', 'list_media', 'get_media']);
 // Sales/reporting tools are admin-only in v1 (they can read all sales data).
 const SALES_TOOLS = new Set(['sales_schema', 'sales_query', 'sales_market_totals', 'forecast_accuracy', 'sales_sync_meta']);
+// Live HubSpot tools — admin-only, same as sales.
+const HUBSPOT_TOOLS = new Set(['hubspot_schema', 'hubspot_search', 'hubspot_get']);
 function toolAllowed(name, { perms, isAdmin }) {
-	if (SALES_TOOLS.has(name)) return perms === null || isAdmin; // shared key or admin
+	if (SALES_TOOLS.has(name) || HUBSPOT_TOOLS.has(name)) return perms === null || isAdmin; // shared key or admin
 	if (!perms) return true;
 	if (SHEET_TOOLS.has(name)) return !!perms.sheets;
 	if (AWARDS_TOOLS.has(name)) return !!perms.awards;
@@ -245,6 +285,22 @@ async function callTool(name, args, ctx) {
 	}
 	if (name === 'sales_sync_meta') {
 		return textContent(await salesSyncMeta(salesDb));
+	}
+	// ── Live HubSpot ──────────────────────────────────────────────────────────
+	if (HUBSPOT_TOOLS.has(name)) {
+		const token = platform?.env?.HUBSPOT_TOKEN;
+		if (!token) return { ...textContent('HubSpot token not configured.'), isError: true };
+		if (name === 'hubspot_schema') return textContent(HUBSPOT_SCHEMA_DOC);
+		if (name === 'hubspot_search') {
+			const out = await hubspotSearch(token, args ?? {});
+			if (out.error) return { ...textContent(out.error), isError: true };
+			return textContent(out);
+		}
+		if (name === 'hubspot_get') {
+			const out = await hubspotGet(token, args ?? {});
+			if (out.error) return { ...textContent(out.error), isError: true };
+			return textContent(out);
+		}
 	}
 	return { ...textContent(`Unknown tool: ${name}`), isError: true };
 }
