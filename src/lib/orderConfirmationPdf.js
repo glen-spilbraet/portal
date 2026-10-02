@@ -42,8 +42,13 @@ export async function renderOrderPdf(order) {
 	const L = LABELS[order.lang] || LABELS.en;
 	const doc = new jsPDF({ unit: 'mm', format: 'a4' });
 	const pageW = 210, pageH = 297, M = 18, bottom = 24; // bottom = reserved space (footer + breathing room)
-	const colSku = M, colProd = M + 26, colQty = M + 118, colPrice = M + 152, colTotal = pageW - M;
-	const prodW = colQty - colProd - 6;
+	// Right-aligned numeric columns with fixed room; the product name wraps into
+	// whatever is left so SKU/ANTAL/PRIS/SAMLET always have space and never collide.
+	const colSku = M, colProd = M + 26;
+	const colTotal = pageW - M;      // SAMLET right edge (reserve ~34mm of value width)
+	const colPrice = colTotal - 36;  // PRIS right edge
+	const colQty = colPrice - 24;    // ANTAL right edge
+	const prodW = (colQty - 20) - colProd; // keep clear of the ANTAL column
 	let y = 16;
 
 	// ── Header: title LEFT, logo RIGHT, orange rule under both ────────────────────
