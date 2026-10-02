@@ -94,22 +94,27 @@ export async function renderOrderPdf(order) {
 	y += 8;
 
 	// ── Table (with page breaks) ──────────────────────────────────────────────────
-	const PADY = 3; // vertical padding inside each row
+	const PADY = 2.6;          // vertical padding inside each row
+	const LINE_H = 4.8;        // per wrapped line
+	const TOTAL_H = 16;        // space the grand total needs (kept with the last row)
 	function drawTableHead(yy) {
 		doc.setFillColor(251, 239, 203); doc.rect(M - 2, yy - 5, pageW - 2 * M + 4, 9, 'F');
 		doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(123, 56, 3);
 		doc.text(L.sku, colSku, yy); doc.text(L.product, colProd, yy);
 		doc.text(L.qty, colQty, yy, { align: 'right' }); doc.text(L.price, colPrice, yy, { align: 'right' }); doc.text(L.total, colTotal, yy, { align: 'right' });
-		return yy + 9;
+		return yy + 4; // band bottom — rows follow directly for even spacing
 	}
+	const rowFont = () => { doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(40, 40, 40); };
 
 	y = drawTableHead(y);
-	doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(40, 40, 40);
-	for (const l of order.lines) {
+	rowFont();
+	order.lines.forEach((l, i) => {
 		const nameLines = doc.splitTextToSize(l.name || '', prodW);
-		const rowH = nameLines.length * 4.8 + PADY * 2;
-		if (y + rowH > pageH - bottom) { doc.addPage(); y = 16; y = drawTableHead(y); doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(40, 40, 40); }
-		const tY = y + PADY + 3;
+		const rowH = PADY + nameLines.length * LINE_H + PADY;
+		// Keep the grand total with the last row so it never lands alone on a page.
+		const need = rowH + (i === order.lines.length - 1 ? TOTAL_H : 0);
+		if (y + need > pageH - bottom) { doc.addPage(); y = 16; y = drawTableHead(y); rowFont(); }
+		const tY = y + PADY + 3.3;
 		doc.text(l.sku || '', colSku, tY);
 		doc.text(nameLines, colProd, tY);
 		doc.text(String(l.qty), colQty, tY, { align: 'right' });
@@ -117,14 +122,14 @@ export async function renderOrderPdf(order) {
 		doc.text(`${money(l.lineTotal, L.locale)} ${order.currency}`, colTotal, tY, { align: 'right' });
 		y += rowH;
 		doc.setDrawColor(240, 235, 215); doc.setLineWidth(0.1); doc.line(M - 2, y, pageW - M + 2, y);
-	}
+	});
 
-	// Grand total (new page if it wouldn't fit)
-	if (y + 14 > pageH - bottom) { doc.addPage(); y = 16; }
-	y += 7;
+	// Grand total — label placed just left of the amount so they never overlap.
+	y += 8;
 	doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(24, 24, 27);
-	doc.text(L.grand, colPrice, y, { align: 'right' });
-	doc.text(`${money(order.total, L.locale)} ${order.currency}`, colTotal, y, { align: 'right' });
+	const amt = `${money(order.total, L.locale)} ${order.currency}`;
+	doc.text(amt, colTotal, y, { align: 'right' });
+	doc.text(L.grand, colTotal - doc.getTextWidth(amt) - 8, y, { align: 'right' });
 
 	// ── Page numbers (bottom-right) ───────────────────────────────────────────────
 	const pages = doc.getNumberOfPages();
