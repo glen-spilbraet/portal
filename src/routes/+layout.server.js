@@ -13,6 +13,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/price-lists'))                 return 'price_lists';
 	if (pathname.startsWith('/orders/rest-check'))           return 'rest_check';
 	if (pathname.startsWith('/orders/price-sync'))           return 'price_sync';
+	if (pathname.startsWith('/orders/order-confirmations'))  return 'order_conf';
 	if (pathname.startsWith('/orders'))                      return 'orders';
 	if (pathname.startsWith('/product'))                     return 'product';
 	if (pathname.startsWith('/forecast'))                    return 'forecast';
@@ -44,7 +45,7 @@ export async function load({ cookies, url, platform }) {
 
 	const realPermissions = db
 		? await getUserPermissions(db, user)
-		: { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true };
+		: { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true };
 
 	// ── Simulation (admins only) ─────────────────────────────────────────────
 	let simulatedAs = null;

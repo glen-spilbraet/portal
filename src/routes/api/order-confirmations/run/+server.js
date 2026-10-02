@@ -112,7 +112,7 @@ export async function POST({ request, cookies, platform }) {
 	const user = db ? await getAllowedUser(db, email) : null;
 	if (!user) error(403, 'Access denied');
 	const perms = await getUserPermissions(db, user);
-	if (!perms.orders) error(403, 'No access to orders');
+	if (!perms.order_conf) error(403, 'No access to Order Confirmations');
 
 	const token = platform?.env?.HUBSPOT_TOKEN;
 	if (!token) error(500, 'HubSpot token not configured');
