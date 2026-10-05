@@ -45,6 +45,10 @@
 	const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 	const BADGE_GAP = 2;
 
+	// Which badges are included in the exported photo (all on by default).
+	let selected = $state(data.badges.map(() => true));
+	const activeBadges = $derived(data.badges.filter((_, i) => selected[i]));
+
 	function loadImage(src) {
 		return new Promise((resolve, reject) => {
 			const img = new Image();
@@ -72,7 +76,7 @@
 		}
 
 		const seen = {};
-		for (const b of data.badges) {
+		for (const b of activeBadges) {
 			const corner = CORNERS.includes(b.placement) ? b.placement : 'bottom-right';
 			const n = seen[corner] ?? 0;
 			seen[corner] = n + 1;
@@ -96,8 +100,8 @@
 	let renderError = $state('');
 
 	$effect(() => {
-		// re-render whenever badges/box change
-		void data.badges; void data.boxImageKey;
+		// re-render whenever the selection/box change
+		void activeBadges; void data.boxImageKey;
 		if (!previewEl) return;
 		rendering = true;
 		renderError = '';
@@ -187,6 +191,19 @@
 				{#if renderError}<p class="err">{renderError}</p>{/if}
 				{#if !data.badges.length}
 					<p class="hint">No active award badges for this SKU — the photo will download without badges.</p>
+				{:else}
+					<div class="badge-list">
+						{#each data.badges as b, i}
+							<label class="badge-row" class:off={!selected[i]}>
+								<input type="checkbox" bind:checked={selected[i]} />
+								<img class="badge-thumb" src="/api/img/{b.image_key}?size=300" alt="" />
+								<span class="badge-info">
+									<span class="badge-media">{b.media ?? 'Badge'}</span>
+									<span class="badge-kind badge-kind-{b.kind}">{b.kind === 'winner' ? 'Winner' : 'Nominee'}</span>
+								</span>
+							</label>
+						{/each}
+					</div>
 				{/if}
 				<div class="dl-row">
 					<button class="btn" disabled={downloading === 1000} onclick={() => download(1000)}>
@@ -268,6 +285,22 @@
 	.preview { width: 100%; height: 100%; display: block; transition: opacity 0.15s; }
 	.preview.loading { opacity: 0.3; }
 	.spinner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #888; }
+
+	.badge-list { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+	.badge-row {
+		display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+		background: white; border: 1px solid #eee; border-radius: 12px; cursor: pointer;
+		transition: border-color 0.15s, opacity 0.15s, background 0.15s;
+	}
+	.badge-row:hover { border-color: #ddd9f0; }
+	.badge-row.off { opacity: 0.5; background: #fafafa; }
+	.badge-row input { width: 17px; height: 17px; accent-color: #6D5BD0; cursor: pointer; flex-shrink: 0; }
+	.badge-thumb { width: 38px; height: 38px; object-fit: contain; flex-shrink: 0; }
+	.badge-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+	.badge-media { font-size: 13px; font-weight: 600; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.badge-kind { font-size: 11px; font-weight: 600; }
+	.badge-kind-winner { color: #c27803; }
+	.badge-kind-nominee { color: #6D5BD0; }
 
 	.dl-row { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
 	.btn {
