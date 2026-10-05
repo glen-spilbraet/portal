@@ -245,6 +245,13 @@
 					{/if}
 				</button>
 			{/if}
+			<a href="/sheet/{data.sheet.id}/award?lang={language}" target="_blank" class="btn-preview btn-award">
+				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="12" cy="8" r="6"/>
+					<path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/>
+				</svg>
+				Award View
+			</a>
 			<a href="/sheet/{data.sheet.id}/preview?lang={language}" target="_blank" class="btn-preview">
 				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
@@ -606,6 +613,11 @@
 	}
 	.btn-preview:hover { background: #E06820; }
 	.btn-preview:active { transform: scale(0.97); }
+	.btn-award {
+		background: #6D5BD0;
+		box-shadow: 0 2px 10px rgba(109, 91, 208, 0.35);
+	}
+	.btn-award:hover { background: #5B49BE; }
 
 	.btn-share {
 		display: inline-flex;
