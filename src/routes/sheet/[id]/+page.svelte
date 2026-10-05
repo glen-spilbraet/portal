@@ -245,7 +245,7 @@
 					{/if}
 				</button>
 			{/if}
-			<a href="/sheet/{data.sheet.id}/award?lang={language}" target="_blank" class="btn-preview btn-award">
+			<a href="/sheet/{data.sheet.id}/award?lang={language}" class="btn-preview btn-award">
 				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 					<circle cx="12" cy="8" r="6"/>
 					<path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/>

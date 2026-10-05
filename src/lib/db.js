@@ -32,6 +32,44 @@ export async function countSheets(db) {
 	return row?.n ?? 0;
 }
 
+/** Stamp a sheet as "webshop updated with current press/awards" (now). */
+export async function markSheetAwardsUpdated(db, id) {
+	await db.prepare('UPDATE sales_sheets SET awards_updated_at = unixepoch() WHERE id = ?').bind(id).run();
+}
+
+/**
+ * Sheets whose press/awards need pushing to the webshop: a press/award instance
+ * (main SKU or an additional product) was CREATED after the sheet's last
+ * awards_updated_at, or the sheet was never updated. Never-updated first, then
+ * most-recently-changed. `last_created` = epoch of the newest matching instance.
+ */
+export async function listSheetsNeedingAwardUpdate(db) {
+	const rows = await db.prepare(`
+		WITH sku_sig AS (
+			SELECT lower(sku) AS skl, MAX(created_at) AS last_created, COUNT(*) AS cnt
+			FROM (
+				SELECT i.sku AS sku, i.created_at FROM press_instance i
+				  WHERE i.sku IS NOT NULL AND i.sku != ''
+				UNION ALL
+				SELECT p.sku AS sku, i.created_at
+				  FROM press_instance_product p JOIN press_instance i ON i.id = p.instance_id
+			) GROUP BY lower(sku)
+		)
+		SELECT s.id, s.sku, s.box_image_key, s.updated_at, s.awards_updated_at,
+		       t_en.value AS name_en, t_da.value AS name_da, t_sv.value AS name_sv, t_no.value AS name_no,
+		       sig.last_created, sig.cnt AS press_count
+		FROM sales_sheets s
+		JOIN sku_sig sig ON sig.skl = lower(s.sku)
+		LEFT JOIN translations t_en ON t_en.sheet_id = s.id AND t_en.language = 'en' AND t_en.key = 'product_name'
+		LEFT JOIN translations t_da ON t_da.sheet_id = s.id AND t_da.language = 'da' AND t_da.key = 'product_name'
+		LEFT JOIN translations t_sv ON t_sv.sheet_id = s.id AND t_sv.language = 'sv' AND t_sv.key = 'product_name'
+		LEFT JOIN translations t_no ON t_no.sheet_id = s.id AND t_no.language = 'no' AND t_no.key = 'product_name'
+		WHERE s.awards_updated_at IS NULL OR sig.last_created > s.awards_updated_at
+		ORDER BY (s.awards_updated_at IS NULL) DESC, sig.last_created DESC`
+	).all();
+	return rows.results ?? [];
+}
+
 export async function searchSheets(db, query) {
 	const q = `%${query.toLowerCase()}%`;
 	const rows = await db

@@ -118,6 +118,12 @@
 						</svg>
 					{/if}
 				</div>
+				<a href="/sheets/awards" class="btn-award-view" title="Products with new press or awards to push to the webshop">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/>
+					</svg>
+					Award view
+				</a>
 				<a href="/sheet/new" class="btn-new">
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
 						<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -361,6 +367,23 @@
 	}
 	.btn-new:hover { background: #E06820; }
 	.btn-new:active { transform: scale(0.98); }
+
+	.btn-award-view {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 14px;
+		background: white;
+		color: #6D5BD0;
+		border: 1px solid #ddd9f0;
+		border-radius: 100px;
+		font-size: 13px;
+		font-weight: 600;
+		text-decoration: none;
+		transition: background 0.15s, border-color 0.15s;
+		letter-spacing: -0.1px;
+	}
+	.btn-award-view:hover { background: #faf9ff; border-color: #c9c2ec; }
 
 	/* ── Empty state ─────────────────────────────────────────────────────── */
 	.empty {

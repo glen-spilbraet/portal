@@ -1,5 +1,11 @@
 <script>
+	import { enhance } from '$app/forms';
+
 	let { data } = $props();
+
+	function formatDate(ts) {
+		return new Date(ts * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+	}
 
 	// ── Localised scaffolding words (quotes themselves stay in their own language) ──
 	const SCAFFOLD = {
@@ -144,8 +150,28 @@
 
 <div class="page">
 	<header class="head">
-		<a class="back" href="/sheet/{data.sheetId}?lang={data.lang}">← Back to sheet</a>
-		<h1>{data.name} <span class="sku">{data.sku}</span></h1>
+		<nav class="crumbs">
+			<a href="/sheets">Sheets</a>
+			<span class="sep">›</span>
+			<a href="/sheet/{data.sheetId}?lang={data.lang}">{data.name}</a>
+			<span class="sep">›</span>
+			<span class="current">Award view</span>
+		</nav>
+		<div class="title-row">
+			<h1>{data.name} <span class="sku">{data.sku}</span></h1>
+			<div class="update-box">
+				<span class="upd-label" class:never={!data.awardsUpdatedAt}>
+					{#if data.awardsUpdatedAt}
+						Webshop updated {formatDate(data.awardsUpdatedAt)}
+					{:else}
+						Never updated
+					{/if}
+				</span>
+				<form method="POST" action="?/markUpdated" use:enhance>
+					<button class="btn-mark" type="submit">Mark as updated</button>
+				</form>
+			</div>
+		</div>
 	</header>
 
 	<div class="cols">
@@ -201,10 +227,26 @@
 <style>
 	.page { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
 	.head { margin-bottom: 22px; }
-	.back { font-size: 13px; color: #6D5BD0; text-decoration: none; font-weight: 600; }
-	.back:hover { text-decoration: underline; }
-	h1 { font-size: 24px; margin: 8px 0 0; letter-spacing: -0.3px; }
+	.crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+	.crumbs a { color: #6D5BD0; text-decoration: none; font-weight: 600; }
+	.crumbs a:hover { text-decoration: underline; }
+	.crumbs .sep { color: #c7c7c7; }
+	.crumbs .current { color: #9a9a9a; font-weight: 600; }
+
+	.title-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
+	h1 { font-size: 24px; margin: 0; letter-spacing: -0.3px; }
 	.sku { font-size: 14px; color: #9a9a9a; font-weight: 500; margin-left: 6px; }
+
+	.update-box { display: flex; align-items: center; gap: 12px; }
+	.upd-label { font-size: 12.5px; color: #16843f; font-weight: 600; }
+	.upd-label.never { color: #c27803; }
+	.btn-mark {
+		padding: 8px 16px; border: none; border-radius: 100px; cursor: pointer;
+		background: #6D5BD0; color: white; font-size: 13px; font-weight: 600;
+		transition: background 0.15s, transform 0.1s;
+	}
+	.btn-mark:hover { background: #5B49BE; }
+	.btn-mark:active { transform: scale(0.98); }
 
 	.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
 	@media (max-width: 820px) { .cols { grid-template-columns: 1fr; } }

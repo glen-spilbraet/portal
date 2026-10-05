@@ -1,5 +1,5 @@
-import { error } from '@sveltejs/kit';
-import { getSheet, getTranslations } from '$lib/db.js';
+import { error, fail } from '@sveltejs/kit';
+import { getSheet, getTranslations, markSheetAwardsUpdated } from '$lib/db.js';
 import { getBadgesForSku, listAllInstances } from '$lib/server/awards.js';
 
 const LANGS = ['en', 'da', 'sv', 'no'];
@@ -59,5 +59,15 @@ export async function load({ params, url, platform, parent }) {
 		boxImageKey: sheet.box_image_key ?? null,
 		badges,
 		press,
+		awardsUpdatedAt: sheet.awards_updated_at ?? null,
 	};
 }
+
+export const actions = {
+	markUpdated: async ({ params, platform }) => {
+		const db = platform?.env?.DB;
+		if (!db) return fail(500, { error: 'DB unavailable' });
+		await markSheetAwardsUpdated(db, params.id);
+		return { marked: true };
+	},
+};
