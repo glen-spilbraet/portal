@@ -151,7 +151,6 @@
 	<div class="cols">
 		<!-- Badged photo -->
 		<section class="photo-section">
-			<h2>Badged photo</h2>
 			{#if !data.boxImageKey}
 				<p class="empty">No box photo on this sheet yet — add one in the sheet editor.</p>
 			{:else}
@@ -231,15 +230,15 @@
 	.dl-row { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
 	.btn {
 		flex: 1; min-width: 140px;
-		padding: 9px 16px; border: none; border-radius: 100px;
+		padding: 9px 16px; border: 1px solid transparent; border-radius: 100px;
 		background: #6D5BD0; color: white; font-size: 13px; font-weight: 600;
 		cursor: pointer; transition: background 0.15s, transform 0.1s;
 	}
 	.btn:hover:not(:disabled) { background: #5B49BE; }
 	.btn:active:not(:disabled) { transform: scale(0.98); }
 	.btn:disabled { opacity: 0.6; cursor: default; }
-	.btn.ghost { background: #efeef7; color: #5B49BE; }
-	.btn.ghost:hover:not(:disabled) { background: #e5e3f3; }
+	.btn.ghost { background: white; color: #5B49BE; border: 1px solid #ddd9f0; }
+	.btn.ghost:hover:not(:disabled) { background: #faf9ff; border-color: #c9c2ec; }
 	.btn.done { background: #1f9d55; }
 
 	.hint { font-size: 12px; color: #888; margin: 12px 0 0; line-height: 1.5; }
