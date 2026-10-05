@@ -150,12 +150,12 @@
 
 	<div class="cols">
 		<!-- Badged photo -->
-		<section class="card">
+		<section class="photo-section">
 			<h2>Badged photo</h2>
 			{#if !data.boxImageKey}
 				<p class="empty">No box photo on this sheet yet — add one in the sheet editor.</p>
 			{:else}
-				<div class="preview-wrap">
+				<div class="photo-box">
 					<canvas bind:this={previewEl} class="preview" class:loading={rendering}></canvas>
 					{#if rendering}<div class="spinner">Rendering…</div>{/if}
 				</div>
@@ -171,7 +171,6 @@
 						{downloading === 300 ? 'Preparing…' : 'Download 300×300'}
 					</button>
 				</div>
-				<p class="fn">{data.sku} {data.name} Awards 1000x1000.jpg</p>
 			{/if}
 		</section>
 
@@ -220,7 +219,11 @@
 	}
 	h2 { font-size: 15px; margin: 0 0 14px; letter-spacing: -0.2px; }
 
-	.preview-wrap { position: relative; background: #f6f6f8; border-radius: 12px; overflow: hidden; aspect-ratio: 1/1; }
+	.photo-section h2 { margin-left: 2px; }
+	.photo-box {
+		position: relative; background: white; border-radius: 16px; overflow: hidden;
+		aspect-ratio: 1/1; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.07);
+	}
 	.preview { width: 100%; height: 100%; display: block; transition: opacity 0.15s; }
 	.preview.loading { opacity: 0.3; }
 	.spinner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #888; }
@@ -239,7 +242,6 @@
 	.btn.ghost:hover:not(:disabled) { background: #e5e3f3; }
 	.btn.done { background: #1f9d55; }
 
-	.fn { font-size: 11.5px; color: #aaa; margin: 10px 0 0; font-family: ui-monospace, monospace; }
 	.hint { font-size: 12px; color: #888; margin: 12px 0 0; line-height: 1.5; }
 	.hint strong { color: #6D5BD0; }
 	.empty { font-size: 13px; color: #999; margin: 0; }
