@@ -1138,19 +1138,34 @@ async function insertRows(db, rows) {
 }
 
 async function writeRows(db, rows, { onlyYear, sinceYear }) {
-	// Replace exactly the window we just re-fetched: a single year, everything
-	// from `sinceYear` onward (daily cron), or the whole table (full rebuild).
-	if (onlyYear) {
-		await db
-			.prepare('DELETE FROM sales_deals WHERE close_date >= ? AND close_date < ?')
-			.bind(`${onlyYear}-01-01`, `${onlyYear + 1}-01-01`)
-			.run();
-	} else if (sinceYear) {
-		await db.prepare('DELETE FROM sales_deals WHERE close_date >= ?').bind(`${sinceYear}-01-01`).run();
-	} else {
-		await db.prepare('DELETE FROM sales_deals').run();
-	}
+	// Refresh the window we just re-fetched (a single year, everything from
+	// `sinceYear` onward, or the whole table). UPSERT FIRST, then prune only the
+	// stale rows — so a mid-write failure can never empty the window. The old
+	// delete-then-insert meant a transient D1 error after the DELETE wiped recent
+	// data until the next good run.
+	//
+	// Guard: if the fetch came back empty (HubSpot hiccup), do NOT prune — an
+	// empty result must never be allowed to blow away the window.
+	if (!rows.length) return;
+
 	await insertRows(db, rows);
+
+	const keep = new Set(rows.map((r) => r.deal_id));
+	let existing;
+	if (onlyYear) {
+		existing = await db
+			.prepare('SELECT deal_id FROM sales_deals WHERE close_date >= ? AND close_date < ?')
+			.bind(`${onlyYear}-01-01`, `${onlyYear + 1}-01-01`)
+			.all();
+	} else if (sinceYear) {
+		existing = await db.prepare('SELECT deal_id FROM sales_deals WHERE close_date >= ?').bind(`${sinceYear}-01-01`).all();
+	} else {
+		existing = await db.prepare('SELECT deal_id FROM sales_deals').all();
+	}
+	const stale = (existing.results || []).map((r) => r.deal_id).filter((id) => !keep.has(id));
+	for (const batch of chunks(stale, 100)) {
+		await db.prepare(`DELETE FROM sales_deals WHERE deal_id IN (${batch.map(() => '?').join(',')})`).bind(...batch).run();
+	}
 }
 
 async function getMeta(db) {
