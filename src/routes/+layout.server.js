@@ -1,6 +1,30 @@
 import { redirect, error } from '@sveltejs/kit';
-import { verifySession } from '$lib/auth.js';
+import { verifySession, createSession, sessionAgeMs } from '$lib/auth.js';
 import { getAllowedUser, getUserPermissions } from '$lib/db.js';
+
+const SESSION_TTL_S = 7 * 24 * 60 * 60;
+// Re-issue the session cookie once it's older than this, so active users never
+// hit the 7-day wall mid-work (sliding expiry).
+const SESSION_REFRESH_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Run an idempotent DB read with a couple of quick retries. portal-db is large
+ * and occasionally throws transient errors ("Network connection lost"); a single
+ * blip must NOT look like a failed query to the caller. Throws only if every
+ * attempt fails.
+ */
+async function dbRead(fn, tries = 3) {
+	let lastErr;
+	for (let i = 0; i < tries; i++) {
+		try {
+			return await fn();
+		} catch (e) {
+			lastErr = e;
+			if (i < tries - 1) await new Promise((r) => setTimeout(r, 60 * (i + 1)));
+		}
+	}
+	throw lastErr;
+}
 
 /** Map a pathname to the section key it requires. Returns null for unguarded paths. */
 function sectionForPath(pathname) {
@@ -39,13 +63,38 @@ export async function load({ cookies, url, platform }) {
 	const email = await verifySession(token ?? '', secret);
 	if (!email) redirect(303, `/login?next=${encodeURIComponent(url.pathname)}`);
 
-	const db   = platform?.env?.DB;
-	const user = db ? await getAllowedUser(db, email) : null;
+	// Identity is already proven by the signed token. From here, a DB problem is
+	// an infrastructure failure — surface it as "try again" (503), NEVER as a
+	// logout. Only a successful lookup that finds no row is a real auth failure.
+	const db = platform?.env?.DB;
+	if (!db) error(503, 'Service temporarily unavailable. Please try again.');
+
+	let user;
+	try {
+		user = await dbRead(() => getAllowedUser(db, email));
+	} catch {
+		error(503, 'Service temporarily unavailable. Please try again.');
+	}
 	if (!user) redirect(303, '/login?error=not_allowed');
 
-	const realPermissions = db
-		? await getUserPermissions(db, user)
-		: { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true };
+	// Sliding session: refresh the cookie for active users well before it expires.
+	const age = sessionAgeMs(token ?? '');
+	if (age != null && age > SESSION_REFRESH_AFTER_MS) {
+		cookies.set('session', await createSession(email, secret), {
+			path: '/',
+			httpOnly: true,
+			sameSite: 'lax',
+			maxAge: SESSION_TTL_S,
+			secure: url.protocol === 'https:',
+		});
+	}
+
+	let realPermissions;
+	try {
+		realPermissions = await dbRead(() => getUserPermissions(db, user));
+	} catch {
+		error(503, 'Service temporarily unavailable. Please try again.');
+	}
 
 	// ── Simulation (admins only) ─────────────────────────────────────────────
 	let simulatedAs = null;
@@ -56,9 +105,9 @@ export async function load({ cookies, url, platform }) {
 	if (user.role === 'admin' && db) {
 		const simEmail = cookies.get('simulate_as');
 		if (simEmail && simEmail !== email) {
-			const simUser = await getAllowedUser(db, simEmail);
+			const simUser = await dbRead(() => getAllowedUser(db, simEmail));
 			if (simUser) {
-				const simPerms = await getUserPermissions(db, simUser);
+				const simPerms = await dbRead(() => getUserPermissions(db, simUser));
 				simulatedAs = {
 					email:      simUser.email,
 					first_name: simUser.first_name ?? null,

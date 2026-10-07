@@ -65,6 +65,26 @@ export async function verifySession(token, secret) {
 	}
 }
 
+/**
+ * Best-effort age (ms) of a session token from its embedded timestamp, or null
+ * if unparseable. Does NOT verify the signature — only call after verifySession.
+ * Used to decide when to re-issue (slide) the cookie for active users.
+ */
+export function sessionAgeMs(token) {
+	try {
+		const dot = token.lastIndexOf('.');
+		if (dot === -1) return null;
+		const b64 = token.slice(0, dot).replace(/-/g, '+').replace(/_/g, '/');
+		const payload = atob(b64);
+		const pipeIdx = payload.lastIndexOf('|');
+		if (pipeIdx === -1) return null;
+		const ts = parseInt(payload.slice(pipeIdx + 1));
+		return Number.isFinite(ts) ? Date.now() - ts : null;
+	} catch {
+		return null;
+	}
+}
+
 /** Builds the Set-Cookie header value for a session */
 export function sessionCookie(token, clear = false) {
 	if (clear) {
