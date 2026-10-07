@@ -5,7 +5,7 @@ import { getAllowedUser, getUserPermissions } from '$lib/db.js';
 const HS = 'https://api.hubapi.com';
 const DEAL_PROPS = ['dealname', 'delivery_date', 'deal_currency_code', 'closedate', 'hubspot_owner_id'];
 const COMPANY_PROPS = ['name', 'address', 'zip', 'city', 'country'];
-const LINE_ITEM_PROPS = ['hs_sku', 'name', 'quantity', 'price'];
+const LINE_ITEM_PROPS = ['hs_sku', 'name', 'quantity', 'price', 'amount', 'hs_discount_percentage'];
 
 /** Country → market language. */
 function langForCountry(country) {
@@ -158,7 +158,15 @@ export async function POST({ request, cookies, platform }) {
 			const qty = Number(lp.quantity) || 0;
 			const unit = Number(lp.price) || 0;
 			const name = (sku && nameMap[sku.toLowerCase()]) || lp.name || sku || '—';
-			return { sku, name, qty, unitPrice: unit, lineTotal: qty * unit };
+			// HubSpot `amount` = the net line total AFTER discount. Fall back to
+			// qty × unit when it's missing. Discount % is taken from HubSpot when set,
+			// otherwise derived from gross vs net (covers fixed-kr discounts too).
+			const gross = qty * unit;
+			const net = lp.amount != null && lp.amount !== '' ? Number(lp.amount) : gross;
+			const discountPct = lp.hs_discount_percentage != null && lp.hs_discount_percentage !== ''
+				? Number(lp.hs_discount_percentage)
+				: (gross > 0 ? ((gross - net) / gross) * 100 : 0);
+			return { sku, name, qty, unitPrice: unit, discountPct, lineTotal: net };
 		});
 		const total = lines.reduce((s, l) => s + l.lineTotal, 0);
 		const lang = langForCountry(b.buyer?.country);

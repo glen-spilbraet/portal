@@ -10,10 +10,10 @@ const SELLER = ['Spilbræt ApS', 'Trekronergade 149B, 1. sal', '2500 Valby'];
 const SELLER_VAT = '';
 
 const LABELS = {
-	da: { title: 'Ordrebekræftelse', order: 'Ordre', delivery: 'Forventet leveringsdato', seller: 'Sælger', sku: 'SKU', product: 'PRODUKTER', qty: 'ANTAL', price: 'PRIS', total: 'SAMLET', grand: 'Total', none: '—', locale: 'da-DK' },
-	sv: { title: 'Orderbekräftelse', order: 'Order', delivery: 'Förväntat leveransdatum', seller: 'Säljare', sku: 'SKU', product: 'PRODUKTER', qty: 'ANTAL', price: 'PRIS', total: 'SUMMA', grand: 'Totalt', none: '—', locale: 'sv-SE' },
-	no: { title: 'Ordrebekreftelse', order: 'Ordre', delivery: 'Forventet leveringsdato', seller: 'Selger', sku: 'SKU', product: 'PRODUKTER', qty: 'ANTALL', price: 'PRIS', total: 'SUM', grand: 'Totalt', none: '—', locale: 'nb-NO' },
-	en: { title: 'Order Confirmation', order: 'Order', delivery: 'Expected delivery date', seller: 'Seller', sku: 'SKU', product: 'PRODUCTS', qty: 'QTY', price: 'PRICE', total: 'TOTAL', grand: 'Total', none: '—', locale: 'en-GB' },
+	da: { title: 'Ordrebekræftelse', order: 'Ordre', delivery: 'Forventet leveringsdato', seller: 'Sælger', sku: 'SKU', product: 'PRODUKTER', qty: 'ANTAL', price: 'ENHEDSPRIS', discount: 'RABAT', total: 'SAMLET', grand: 'Total', none: '—', locale: 'da-DK' },
+	sv: { title: 'Orderbekräftelse', order: 'Order', delivery: 'Förväntat leveransdatum', seller: 'Säljare', sku: 'SKU', product: 'PRODUKTER', qty: 'ANTAL', price: 'STYCKPRIS', discount: 'RABATT', total: 'SUMMA', grand: 'Totalt', none: '—', locale: 'sv-SE' },
+	no: { title: 'Ordrebekreftelse', order: 'Ordre', delivery: 'Forventet leveringsdato', seller: 'Selger', sku: 'SKU', product: 'PRODUKTER', qty: 'ANTALL', price: 'ENHETSPRIS', discount: 'RABATT', total: 'SUM', grand: 'Totalt', none: '—', locale: 'nb-NO' },
+	en: { title: 'Order Confirmation', order: 'Order', delivery: 'Expected delivery date', seller: 'Seller', sku: 'SKU', product: 'PRODUCTS', qty: 'QTY', price: 'UNIT PRICE', discount: 'DISCOUNT', total: 'TOTAL', grand: 'Total', none: '—', locale: 'en-GB' },
 };
 const LOGO = { da: '/logo-da.svg', sv: '/logo-se.svg', no: '/logo-no.svg', en: '/logo-da.svg' };
 
@@ -44,11 +44,12 @@ export async function renderOrderPdf(order) {
 	const pageW = 210, pageH = 297, M = 18, bottom = 24; // bottom = reserved space (footer + breathing room)
 	// Right-aligned numeric columns with fixed room; the product name wraps into
 	// whatever is left so SKU/ANTAL/PRIS/SAMLET always have space and never collide.
-	const colSku = M, colProd = M + 26;
-	const colTotal = pageW - M;      // SAMLET right edge (reserve ~34mm of value width)
-	const colPrice = colTotal - 36;  // PRIS right edge
-	const colQty = colPrice - 24;    // ANTAL right edge
-	const prodW = (colQty - 20) - colProd; // keep clear of the ANTAL column
+	const colSku = M, colProd = M + 25;
+	const colTotal = pageW - M;      // SAMLET right edge
+	const colDisc = colTotal - 30;   // RABAT right edge
+	const colPrice = colDisc - 20;   // ENHEDSPRIS right edge
+	const colQty = colPrice - 20;    // ANTAL right edge
+	const prodW = (colQty - 14) - colProd; // keep clear of the ANTAL column
 	let y = 16;
 
 	// ── Header: title LEFT, logo RIGHT, orange rule under both ────────────────────
@@ -104,12 +105,15 @@ export async function renderOrderPdf(order) {
 	const TOTAL_H = 16;        // space the grand total needs (kept with the last row)
 	function drawTableHead(yy) {
 		doc.setFillColor(251, 239, 203); doc.rect(M - 2, yy - 5, pageW - 2 * M + 4, 9, 'F');
-		doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(123, 56, 3);
+		doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(123, 56, 3);
 		doc.text(L.sku, colSku, yy); doc.text(L.product, colProd, yy);
-		doc.text(L.qty, colQty, yy, { align: 'right' }); doc.text(L.price, colPrice, yy, { align: 'right' }); doc.text(L.total, colTotal, yy, { align: 'right' });
+		doc.text(L.qty, colQty, yy, { align: 'right' }); doc.text(L.price, colPrice, yy, { align: 'right' });
+		doc.text(L.discount, colDisc, yy, { align: 'right' }); doc.text(L.total, colTotal, yy, { align: 'right' });
 		return yy + 4; // band bottom — rows follow directly for even spacing
 	}
-	const rowFont = () => { doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(40, 40, 40); };
+	const rowFont = () => { doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(40, 40, 40); };
+	// Discount shown as a percentage (works whether HubSpot stored % or fixed kr).
+	const pct = (v) => (v && Math.abs(v) >= 0.05 ? `${(Math.round(v * 10) / 10).toLocaleString(L.locale, { maximumFractionDigits: 1 })} %` : L.none);
 
 	y = drawTableHead(y);
 	rowFont();
@@ -124,7 +128,8 @@ export async function renderOrderPdf(order) {
 		doc.text(nameLines, colProd, tY);
 		doc.text(String(l.qty), colQty, tY, { align: 'right' });
 		doc.text(money(l.unitPrice, L.locale), colPrice, tY, { align: 'right' });
-		doc.text(`${money(l.lineTotal, L.locale)} ${order.currency}`, colTotal, tY, { align: 'right' });
+		doc.text(pct(l.discountPct), colDisc, tY, { align: 'right' });
+		doc.text(money(l.lineTotal, L.locale), colTotal, tY, { align: 'right' });
 		y += rowH;
 		doc.setDrawColor(240, 235, 215); doc.setLineWidth(0.1); doc.line(M - 2, y, pageW - M + 2, y);
 	});
