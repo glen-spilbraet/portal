@@ -1,5 +1,6 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
+	import CountrySelect from '$lib/components/CountrySelect.svelte';
 	import { invalidateAll } from '$app/navigation';
 
 	let { data } = $props();
@@ -104,7 +105,7 @@
 		<div class="modal-body">
 			<label class="fld"><span>Name *</span><input bind:value={form.name} placeholder="e.g. Guldbrikken" /></label>
 			<div class="row2">
-				<label class="fld"><span>Country</span><input bind:value={form.country} placeholder="e.g. Denmark" /></label>
+				<label class="fld"><span>Country</span><CountrySelect bind:value={form.country} /></label>
 				<label class="fld"><span>Review scale (max stars)</span>
 					<select bind:value={form.review_scale}>
 						<option value="">None</option>

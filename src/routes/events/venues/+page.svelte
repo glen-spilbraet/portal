@@ -1,5 +1,6 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
+	import CountrySelect from '$lib/components/CountrySelect.svelte';
 	import { invalidateAll } from '$app/navigation';
 
 	let { data } = $props();
@@ -151,7 +152,7 @@
 				<label class="fld span2"><span>Address</span><input bind:value={vForm.address} /></label>
 				<label class="fld"><span>Zip</span><input bind:value={vForm.zip} /></label>
 				<label class="fld"><span>City</span><input bind:value={vForm.city} /></label>
-				<label class="fld span2"><span>Country</span><input bind:value={vForm.country} /></label>
+				<label class="fld span2"><span>Country</span><CountrySelect bind:value={vForm.country} /></label>
 				<label class="fld span2"><span>Notes</span><textarea rows="2" bind:value={vForm.notes}></textarea></label>
 			</div>
 			<div class="modal-foot">
