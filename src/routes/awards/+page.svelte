@@ -184,7 +184,17 @@
 			await invalidateAll();
 		} finally { savingDate = false; }
 	}
-	const reviewsLabel = (s) => (s.score != null && s.score !== '' ? `${s.score}★ ` : '') + (s.statement ?? '');
+	// ── Statement chips: preview a few, open the rest in a modal, hover-to-copy ──
+	const STMT_PREVIEW = 3;
+	let stmtModal = $state(null); // { label, items: [{statement, score}] }
+	let copiedKey = $state('');
+	async function copyStmt(text, key) {
+		try {
+			await navigator.clipboard.writeText(text ?? '');
+			copiedKey = key;
+			setTimeout(() => { if (copiedKey === key) copiedKey = ''; }, 1400);
+		} catch { /* ignore */ }
+	}
 
 	const PEN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 	const COPY = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
@@ -193,6 +203,17 @@
 </script>
 
 <svelte:head><title>Awards &amp; Press · Product Portal</title></svelte:head>
+
+{#snippet stmtChip(s, key)}
+	<div class="stmt">
+		{#if s.score != null && s.score !== ''}<span class="stmt-score">{s.score}★</span>{/if}<span class="stmt-text">{s.statement}</span>
+		{#if (s.statement ?? '').trim()}
+			<button class="stmt-copy" title="Copy statement" aria-label="Copy statement" onclick={() => copyStmt(s.statement, key)}>
+				{#if copiedKey === key}<span class="ok">✓</span>{:else}{@html COPY}{/if}
+			</button>
+		{/if}
+	</div>
+{/snippet}
 
 <AppNav active="awards" user={data.user} />
 
@@ -266,7 +287,16 @@
 												<td class="c">{#if i.is_nominated}{#if i.nominee_badge_key}<img class="bdg" src="/api/img/{i.nominee_badge_key}" alt="nominee" />{:else}✓{/if}{:else}—{/if}</td>
 												<td class="c">{#if i.is_winner}{#if i.winner_badge_key}<img class="bdg" src="/api/img/{i.winner_badge_key}" alt="winner" />{:else}🏆{/if}{:else}—{/if}</td>
 												<td class="muted">{i.disclosure_date || '—'}</td>
-												<td class="reviews">{#if i.statements?.length}{#each i.statements as s}<div class="rv">{reviewsLabel(s)}</div>{/each}{:else}<span class="muted">—</span>{/if}</td>
+												<td class="reviews">
+													{#if i.statements?.length}
+														<div class="stmts">
+															{#each i.statements.slice(0, STMT_PREVIEW) as s, si}{@render stmtChip(s, i.id + ':' + si)}{/each}
+															{#if i.statements.length > STMT_PREVIEW}
+																<button class="more-pill" onclick={() => (stmtModal = { label: i.sheet_id ? (i.product_name || i.sku) : i.sku, items: i.statements })}>+ {i.statements.length - STMT_PREVIEW} more</button>
+															{/if}
+														</div>
+													{:else}<span class="muted">—</span>{/if}
+												</td>
 												<td class="c">{#if proofHref(i)}<a href={proofHref(i)} target="_blank" rel="noopener" title="Open proof">↗</a>{:else}—{/if}</td>
 												<td class="c acts">
 													<button class="icon" title="Edit" aria-label="Edit" onclick={() => openEdit(i)}>{@html PEN}</button>
@@ -422,6 +452,19 @@
 	</div>
 {/if}
 
+{#if stmtModal}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="backdrop" onclick={() => (stmtModal = null)}></div>
+	<div class="modal sm">
+		<div class="modal-head"><h2>Statements{stmtModal.label ? ` · ${stmtModal.label}` : ''}</h2><button class="x" onclick={() => (stmtModal = null)}>✕</button></div>
+		<div class="modal-body">
+			<div class="stmts modal-stmts">
+				{#each stmtModal.items as s, si}{@render stmtChip(s, 'm:' + si)}{/each}
+			</div>
+		</div>
+	</div>
+{/if}
+
 {#if dateEdit}
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div class="backdrop" onclick={() => (dateEdit = null)}></div>
@@ -484,8 +527,18 @@
 	.tbl .prod { font-weight: 700; color: #18181B; }
 	.tbl .sku { color: #6b5e4e; font-variant-numeric: tabular-nums; }
 	.muted { color: #98876e; }
-	.reviews { max-width: 340px; }
-	.rv { color: #3f3a33; padding: 1px 0; }
+	.reviews { max-width: 360px; min-width: 240px; }
+	.stmts { display: flex; flex-direction: column; gap: 6px; }
+	.stmt { position: relative; background: #FBF7EF; border: 1px solid #F1EADB; border-radius: 8px; padding: 6px 30px 6px 10px; color: #3f3a33; line-height: 1.45; }
+	.stmt-score { font-weight: 800; color: #B15A12; margin-right: 5px; white-space: nowrap; }
+	.stmt-text { word-break: break-word; }
+	.stmt-copy { position: absolute; top: 4px; right: 4px; opacity: 0; background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; cursor: pointer; color: #8A7550; display: inline-flex; align-items: center; line-height: 0; transition: opacity 0.12s, background 0.12s; }
+	.stmt:hover .stmt-copy, .stmt-copy:focus-visible { opacity: 1; }
+	.stmt-copy:hover { background: #FFF1D6; color: #7B3803; }
+	.stmt-copy .ok { font-size: 12px; font-weight: 800; color: #16794C; line-height: 1; }
+	.more-pill { align-self: flex-start; font-family: inherit; font-size: 11.5px; font-weight: 700; color: #1D4ED8; background: #EEF4FF; border: 1px solid #DBE4FF; border-radius: 100px; padding: 3px 11px; cursor: pointer; }
+	.more-pill:hover { background: #E0EAFF; }
+	.modal-stmts { gap: 8px; }
 	.bdg { height: 22px; width: auto; vertical-align: middle; }
 	.acts { white-space: nowrap; }
 	.icon { background: none; border: none; color: #8A7550; cursor: pointer; padding: 3px; border-radius: 6px; vertical-align: middle; }
