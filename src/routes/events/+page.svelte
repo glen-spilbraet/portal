@@ -106,13 +106,23 @@
 				<p class="empty">No events match the filters. <button class="link-btn" onclick={clearFilters}>Clear filters</button></p>
 			{:else}
 			<table class="tbl">
+				<colgroup>
+					<col class="c-date" />
+					<col class="c-event" />
+					<col class="c-venue" />
+					<col class="c-type" />
+					<col class="c-status" />
+					<col class="c-part" />
+					<col class="c-skus" />
+					<col class="c-assets" />
+				</colgroup>
 				<thead>
 					<tr><th>Date</th><th>Event</th><th>Venue</th><th>Type</th><th>Status</th><th class="num">Participants</th><th class="num">SKUs</th><th class="num">Assets</th></tr>
 				</thead>
 				<tbody>
 					{#each filtered as e (e.id)}
 						<tr class="clickable" onclick={() => goto(`/events/${e.id}`)}>
-							<td class="nowrap">{fmtWhen(e)}</td>
+							<td class="date-cell">{fmtWhen(e)}</td>
 							<td class="strong">{e.title || 'Untitled event'}</td>
 							<td>{e.venue_name ?? '—'}</td>
 							<td>{e.type_name ?? '—'}</td>
@@ -142,7 +152,20 @@
 	.btn.primary { background: #F57832; color: white; border-color: #F57832; }
 	.btn.primary:hover:not(:disabled) { background: #e26a26; }
 
-	.tbl { width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; font-size: 13px; }
+	.tbl { width: 100%; table-layout: fixed; border-collapse: collapse; background: white; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; font-size: 13px; }
+	/* Fixed column widths so they never shift between filtered views; the Event
+	   column takes the remaining space and wraps to multiple lines. */
+	.c-date { width: 116px; }
+	.date-cell { white-space: normal; word-break: normal; color: #52525B; }
+	.c-event { width: auto; }
+	.c-venue { width: 140px; }
+	.c-type { width: 118px; }
+	.c-status { width: 108px; }
+	.c-part { width: 104px; }
+	.c-skus { width: 66px; }
+	.c-assets { width: 78px; }
+	.tbl td, .tbl th { overflow: hidden; text-overflow: ellipsis; }
+	.tbl td.strong { white-space: normal; word-break: break-word; }
 	.tbl th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #A1A1AA; padding: 10px 14px; border-bottom: 1px solid var(--border); background: #FAFAFA; }
 	.tbl td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: #18181B; }
 	.tbl tbody tr:last-child td { border-bottom: none; }
