@@ -19,7 +19,7 @@
 				method: 'PUT', headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					title: form.title, venue_id: form.venue_id || null, type_id: form.type_id || null,
-					event_date: form.event_date, start_time: form.start_time, end_time: form.end_time,
+					event_date: form.event_date, end_date: form.end_date || null, start_time: form.start_time, end_time: form.end_time,
 					entry_fee: form.entry_fee === '' ? null : form.entry_fee,
 					entry_fee_currency: form.entry_fee_currency || 'DKK',
 					participants_expected: form.participants_expected === '' ? null : form.participants_expected,
@@ -203,9 +203,16 @@
 						{#each data.types as t}<option value={t.id}>{t.name}</option>{/each}
 					</select>
 				</label>
-				<div class="fld span2"><span>When</span>
+				<div class="fld span2">
+					<div class="when-head">
+						<span>When</span>
+						<label class="multi-chk"><input type="checkbox" checked={!!form.end_date} onchange={(e) => { form.end_date = e.currentTarget.checked ? (form.end_date || form.event_date || '') : ''; }} /> Multi-day</label>
+					</div>
 					<div class="combo">
-						<div class="seg seg-grow"><small>Date</small><input type="date" bind:value={form.event_date} /></div>
+						<div class="seg seg-grow"><small>{form.end_date ? 'Start date' : 'Date'}</small><input type="date" bind:value={form.event_date} /></div>
+						{#if !!form.end_date}
+							<div class="seg seg-grow"><small>End date</small><input type="date" min={form.event_date || undefined} bind:value={form.end_date} /></div>
+						{/if}
 						<div class="seg"><small>Start</small><input type="time" bind:value={form.start_time} /></div>
 						<div class="seg"><small>End</small><input type="time" bind:value={form.end_time} /></div>
 					</div>
@@ -480,6 +487,9 @@
 	.fee select { width: auto; }
 
 	/* Integrated multi-field ("combo") — several inputs in one bordered box */
+	.when-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+	.multi-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #71717A; cursor: pointer; text-transform: none; }
+	.multi-chk input { width: 14px; height: 14px; accent-color: #F57832; cursor: pointer; }
 	.combo { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: white; }
 	.combo .seg { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 	.combo .seg-grow { flex: 1.4; }

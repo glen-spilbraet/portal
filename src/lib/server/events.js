@@ -117,7 +117,7 @@ export async function listEvents(db) {
 		 FROM event e
 		 LEFT JOIN venue v ON v.id = e.venue_id
 		 LEFT JOIN event_type t ON t.id = e.type_id
-		 ORDER BY e.event_date DESC, e.created_at DESC`
+		 ORDER BY e.event_date IS NULL, e.event_date ASC, e.created_at ASC`
 	).all();
 	return rows.results ?? [];
 }
@@ -164,12 +164,12 @@ export async function createEvent(db, patch) {
 	const id = uid();
 	const share_token = makeShareToken();
 	await db.prepare(
-		`INSERT INTO event (id, venue_id, type_id, title, event_date, start_time, end_time,
+		`INSERT INTO event (id, venue_id, type_id, title, event_date, end_date, start_time, end_time,
 		                    entry_fee, entry_fee_currency, participants_expected, participants_actual, status, share_token, notes)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	).bind(
 		id, patch.venue_id ?? null, patch.type_id ?? null, patch.title ?? null,
-		patch.event_date ?? null, patch.start_time ?? null, patch.end_time ?? null,
+		patch.event_date ?? null, patch.end_date ?? null, patch.start_time ?? null, patch.end_time ?? null,
 		patch.entry_fee ?? null, patch.entry_fee_currency ?? 'DKK', patch.participants_expected ?? null, patch.participants_actual ?? null,
 		patch.status ?? 'planned', share_token, patch.notes ?? null
 	).run();
@@ -177,7 +177,7 @@ export async function createEvent(db, patch) {
 }
 
 export async function updateEvent(db, id, patch) {
-	const allowed = ['venue_id', 'type_id', 'title', 'event_date', 'start_time', 'end_time',
+	const allowed = ['venue_id', 'type_id', 'title', 'event_date', 'end_date', 'start_time', 'end_time',
 		'entry_fee', 'entry_fee_currency', 'participants_expected', 'participants_actual', 'status', 'notes'];
 	const fields = [], values = [];
 	for (const k of allowed) if (k in patch) { fields.push(`${k} = ?`); values.push(patch[k] === '' ? null : patch[k]); }
