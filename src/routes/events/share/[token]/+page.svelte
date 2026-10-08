@@ -46,11 +46,33 @@
 	function materialCount(p) { return materialsFor(p).length; }
 
 	const ev = data.event;
-	const when = $derived([fmtDate(ev.event_date), [ev.start_time, ev.end_time].filter(Boolean).join('–')].filter(Boolean).join(' · '));
+
+	// Date, or a tidy range for multi-day events (drops repeated month/year).
+	function fmtWhenDate() {
+		const s = ev.event_date, e = ev.end_date;
+		if (!s) return '';
+		if (!e || e === s) return fmtDate(s);
+		const sd = new Date(s + 'T00:00:00'), ed = new Date(e + 'T00:00:00');
+		const wd = (d) => d.toLocaleDateString('en-GB', { weekday: 'short' });
+		const day = (d) => d.toLocaleDateString('en-GB', { day: 'numeric' });
+		const mon = (d) => d.toLocaleDateString('en-GB', { month: 'short' });
+		const yr = (d) => d.getFullYear();
+		if (sd.getMonth() === ed.getMonth() && yr(sd) === yr(ed)) return `${wd(sd)} ${day(sd)} – ${wd(ed)} ${day(ed)} ${mon(ed)} ${yr(ed)}`;
+		if (yr(sd) === yr(ed)) return `${wd(sd)} ${day(sd)} ${mon(sd)} – ${wd(ed)} ${day(ed)} ${mon(ed)} ${yr(ed)}`;
+		return `${wd(sd)} ${day(sd)} ${mon(sd)} ${yr(sd)} – ${wd(ed)} ${day(ed)} ${mon(ed)} ${yr(ed)}`;
+	}
+	const isMultiDay = $derived(!!ev.end_date && ev.end_date !== ev.event_date);
+	const dayCount = $derived.by(() => {
+		if (!isMultiDay) return 1;
+		const ms = new Date(ev.end_date + 'T00:00:00') - new Date(ev.event_date + 'T00:00:00');
+		return Math.max(2, Math.round(ms / 86400000) + 1);
+	});
+	const when = $derived([fmtWhenDate(), [ev.start_time, ev.end_time].filter(Boolean).join('–')].filter(Boolean).join(' · '));
 
 	// ── Participants (venue-editable) ─────────────────────────────────────────────
 	const today = new Date().toISOString().slice(0, 10);
-	const afterEvent = !!ev.event_date && today > ev.event_date;
+	const endDay = ev.end_date || ev.event_date;
+	const afterEvent = !!endDay && today > endDay;
 	let pValue = $state(String((afterEvent ? ev.participants_actual : ev.participants_expected) ?? ''));
 	let pSaving = $state(false);
 	let pSaved = $state(false);
@@ -82,6 +104,7 @@
 		</p>
 		<div class="hero-meta">
 			{#if when}<span class="meta-chip">📅 {when}</span>{/if}
+			{#if isMultiDay}<span class="meta-chip days">{dayCount}-day event</span>{/if}
 			{#if ev.entry_fee != null && ev.entry_fee !== ''}<span class="meta-chip">🎟 {ev.entry_fee} {ev.entry_fee_currency || 'DKK'}</span>{/if}
 		</div>
 	</header>
@@ -228,6 +251,7 @@
 	.muted { color: #8A7B58; }
 	.hero-meta { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
 	.meta-chip { font-size: 13px; font-weight: 600; color: #5C4F31; background: rgba(255,255,255,0.75); border: 1px solid rgba(180,140,40,0.18); border-radius: 100px; padding: 6px 14px; }
+	.meta-chip.days { color: #B15A12; background: rgba(245,120,50,0.12); border-color: rgba(245,120,50,0.28); white-space: nowrap; }
 
 	.pcard { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; background: white; border: 1px solid rgba(255,255,255,0.8); border-radius: 18px; padding: 20px 22px; box-shadow: 0 30px 60px -34px rgba(150, 108, 20, 0.45); }
 	.pcard-text h2 { margin: 0 0 2px; }
