@@ -13,10 +13,34 @@
 	const proofHref = (i) => (i.proof_url ? i.proof_url : i.proof_key ? `/api/img/${i.proof_key}` : null);
 
 
+	// ── Filters (country · media · free text on SKU/product) ───────────────────
+	let fCountry = $state('');
+	let fMedia = $state('');
+	let fText = $state('');
+	const anyFilter = $derived(!!(fCountry || fMedia || fText.trim()));
+	const countryOpts = $derived([...new Set(data.media.map((m) => m.country).filter(Boolean))].sort((a, b) => a.localeCompare(b)));
+	const mediaOpts = $derived(data.media.filter((m) => !fCountry || m.country === fCountry).slice().sort((a, b) => a.name.localeCompare(b.name)));
+	// If the chosen media no longer belongs to the chosen country, drop it.
+	$effect(() => { if (fMedia && !mediaOpts.some((m) => m.id === fMedia)) fMedia = ''; });
+	function matchesText(i, q) {
+		const hay = [i.sku, i.product_name, ...(i.additional_products ?? []).flatMap((a) => [a.sku, a.product_name])]
+			.filter(Boolean).join(' ').toLowerCase();
+		return hay.includes(q);
+	}
+	const filteredInstances = $derived.by(() => {
+		const q = fText.trim().toLowerCase();
+		return data.instances.filter((i) =>
+			(!fCountry || i.media_country === fCountry) &&
+			(!fMedia || i.media_id === fMedia) &&
+			(!q || matchesText(i, q))
+		);
+	});
+	function clearFilters() { fCountry = ''; fMedia = ''; fText = ''; }
+
 	// ── Group: year → (media + date), newest first ─────────────────────────────
 	const years = $derived.by(() => {
 		const byYear = {};
-		for (const i of data.instances) {
+		for (const i of filteredInstances) {
 			const date = i.instance_date || '';
 			const yr = date.slice(0, 4) || 'Undated';
 			const key = i.media_id + '|' + date;
@@ -34,6 +58,8 @@
 
 	let expanded = $state({});
 	const toggle = (k) => (expanded[k] = !expanded[k]);
+	// While filtering, auto-expand every matching group.
+	const isOpen = (k) => anyFilter || !!expanded[k];
 
 	// ── Instance editor ────────────────────────────────────────────────────────
 	let open = $state(false);
@@ -179,10 +205,30 @@
 		</div>
 	</div>
 
+	{#if data.instances.length}
+		<div class="filters">
+			<select class="f-sel" bind:value={fCountry} aria-label="Filter by country">
+				<option value="">All countries</option>
+				{#each countryOpts as c}<option value={c}>{c}</option>{/each}
+			</select>
+			<select class="f-sel" bind:value={fMedia} aria-label="Filter by media">
+				<option value="">All media</option>
+				{#each mediaOpts as m}<option value={m.id}>{m.name}</option>{/each}
+			</select>
+			<input class="f-search" type="search" bind:value={fText} placeholder="Search SKU or product name…" />
+			{#if anyFilter}
+				<span class="f-count">{filteredInstances.length} match{filteredInstances.length === 1 ? '' : 'es'}</span>
+				<button class="btn sm" onclick={clearFilters}>Clear</button>
+			{/if}
+		</div>
+	{/if}
+
 	{#if !data.media.length}
 		<div class="empty">Add a media outlet first — <a href="/awards/media">Manage media</a> — then log press instances here.</div>
 	{:else if !data.instances.length}
 		<div class="empty">No instances yet. Click <strong>New instance</strong> to log a nomination or review.</div>
+	{:else if !years.length}
+		<div class="empty">No instances match the filters. <button class="link-btn" onclick={clearFilters}>Clear filters</button></div>
 	{:else}
 		{#each years as y (y.year)}
 			<div class="year">{y.year}</div>
@@ -190,7 +236,7 @@
 				<div class="grp">
 					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 					<div class="grp-row" onclick={() => toggle(g.key)}>
-						<span class="chev" class:open={expanded[g.key]}>{@html CHEV}</span>
+						<span class="chev" class:open={isOpen(g.key)}>{@html CHEV}</span>
 						<span class="grp-date">{monthYear(g.date)}</span>
 						<span class="grp-media">{g.media_name}{#if flagSvg(g.country)}<span class="flag" title={g.country}>{@html flagSvg(g.country)}</span>{:else if g.country}<span class="cc"> ({g.country})</span>{/if}</span>
 						<span class="counts">
@@ -199,7 +245,7 @@
 							{#if g.statements}<span class="pill st">{g.statements} statement{g.statements === 1 ? '' : 's'}</span>{/if}
 						</span>
 					</div>
-					{#if expanded[g.key]}
+					{#if isOpen(g.key)}
 						<div class="items">
 							<div class="items-bar">
 								<button class="btn sm" onclick={() => openDateEdit(g)}>✎ Edit date for all</button>
@@ -402,6 +448,13 @@
 	.btn.sm { font-size: 12px; padding: 6px 11px; }
 	.btn:disabled { opacity: 0.6; cursor: default; }
 	.empty { padding: 40px; text-align: center; color: #98876e; background: #fff; border: 1px solid var(--border); border-radius: 14px; }
+	.link-btn { background: none; border: none; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; padding: 0; text-decoration: underline; }
+
+	.filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+	.f-sel, .f-search { font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; background: #fff; }
+	.f-sel:focus, .f-search:focus { outline: none; border-color: var(--accent); }
+	.f-search { flex: 1; min-width: 180px; }
+	.f-count { font-size: 12px; font-weight: 700; color: #98876e; }
 
 	.year { font-size: 22px; font-weight: 800; color: #18181B; margin: 22px 0 10px; letter-spacing: -0.4px; }
 	.grp { background: #fff; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 8px; overflow: hidden; }
