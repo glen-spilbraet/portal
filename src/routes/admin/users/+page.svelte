@@ -169,7 +169,7 @@
 						<th>Role</th>
 						<th>Permissions</th>
 						<th>Added</th>
-						<th></th>
+						<th>Actions</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -243,6 +243,7 @@
 										<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
 											<path d="M2 3.5h10M5.5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M3.5 3.5l.5 7.5h6l.5-7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
 										</svg>
+										Remove
 									</button>
 								{:else}
 									<span class="you-badge">You</span>
@@ -407,15 +408,17 @@
 	.meta-cell { color: #aaa; font-size: 13px; }
 	.action-cell { text-align: right; }
 	.remove-btn {
-		padding: 6px 8px;
-		background: none; border: 1px solid transparent;
-		border-radius: 7px; color: #bbb; cursor: pointer;
+		padding: 6px 11px; gap: 6px;
+		background: #fff; border: 1px solid #f0c9c2;
+		border-radius: 8px; color: #c23b26; cursor: pointer;
+		font-family: inherit; font-size: 13px; font-weight: 600;
 		transition: background 0.12s, color 0.12s, border-color 0.12s;
 		display: inline-flex; align-items: center;
 	}
 	.remove-btn:hover:not(:disabled) {
-		background: #fef2f2; border-color: #fecaca; color: #dc2626;
+		background: #fef2f2; border-color: #fca5a5; color: #dc2626;
 	}
+	.remove-btn:disabled { opacity: 0.5; cursor: default; }
 	.you-badge {
 		font-size: 11px; font-weight: 700; color: #aaa;
 		background: #f0ede8; border-radius: 5px; padding: 3px 8px;
