@@ -15,7 +15,7 @@
 import { searchProducts, getProductBySku, getProductImageBytes } from '$lib/server/mcpProducts.js';
 import { getProductPress, listPress, listMediaOutlets, getMediaDetail } from '$lib/server/mcpAwards.js';
 import { runSalesQuery, salesMarketTotals, forecastAccuracy, salesSyncMeta, salesSchema } from '$lib/server/mcpSales.js';
-import { HUBSPOT_SCHEMA_DOC, hubspotSearch, hubspotGet } from '$lib/server/mcpHubspot.js';
+import { HUBSPOT_SCHEMA_DOC, hubspotSearch, hubspotGet, hubspotImportDeals } from '$lib/server/mcpHubspot.js';
 import { validateAccessToken } from '$lib/server/mcpOauth.js';
 import { getAllowedUser, getUserPermissions } from '$lib/db.js';
 
@@ -193,6 +193,52 @@ const TOOLS = [
 			},
 			required: ['id']
 		}
+	},
+	{
+		name: 'hubspot_import_deals',
+		description: 'Bulk-create HubSpot deals + line items from a spreadsheet import (admin only, WRITES to the CRM). Workflow: YOU first parse the file, normalise values (decimal comma/period, Excel date serials → YYYY-MM-DD), and GROUP rows into one deal per unique import_id (never one deal per line). Then call this with dry_run:true to preview what would be created/skipped (resolves company by Rackbeat ID, owner by name, pipeline+stage by name), show the user, and only on approval call again with dry_run:false. Company is matched ONLY on Rackbeat ID. Pass a deal_id to APPEND line items to an existing deal without creating/updating it. Dedupe: a create is skipped if its import_id already exists on a deal (an `import_id` deal property is auto-created). close_date defaults to today when omitted. Discount per line: discount_value + discount_is_percent (true = %, false/omitted = amount in the deal currency).',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				dry_run: { type: 'boolean', description: 'Default true. true = validate/resolve/compute and report WITHOUT writing. Set false to actually create.' },
+				deals: {
+					type: 'array',
+					description: 'One entry per deal (rows already grouped by import_id).',
+					items: {
+						type: 'object',
+						properties: {
+							import_id: { type: 'string', description: 'Grouping key (the file\'s "D - Import ID"); used for dedupe.' },
+							deal_id: { type: 'string', description: 'Existing HubSpot deal id — APPEND line items only, do not create/update the deal.' },
+							name: { type: 'string', description: 'Deal name.' },
+							company_rackbeat_id: { type: 'string', description: 'Rackbeat ID of the company (the only match key).' },
+							pipeline: { type: 'string', description: 'Pipeline name or id.' },
+							stage: { type: 'string', description: 'Stage/lane name or id within the pipeline.' },
+							currency: { type: 'string', description: 'Deal currency code, e.g. SEK, NOK, DKK.' },
+							close_date: { type: 'string', description: 'YYYY-MM-DD; defaults to today if omitted.' },
+							delivery_date: { type: 'string', description: 'YYYY-MM-DD for the delivery_date property.' },
+							owner_name: { type: 'string', description: 'Deal owner full name (resolved to owner id).' },
+							po_number: { type: 'string', description: 'PO number (written if a PO property exists).' },
+							line_items: {
+								type: 'array',
+								items: {
+									type: 'object',
+									properties: {
+										sku: { type: 'string' },
+										name: { type: 'string' },
+										quantity: { type: 'number' },
+										unit_price: { type: 'number' },
+										discount_value: { type: 'number', description: 'Optional discount; a percent when discount_is_percent is true, else an amount in the deal currency.' },
+										discount_is_percent: { type: 'boolean' }
+									},
+									required: ['quantity', 'unit_price']
+								}
+							}
+						}
+					}
+				}
+			},
+			required: ['deals']
+		}
 	}
 ];
 
@@ -207,7 +253,7 @@ const AWARDS_TOOLS = new Set(['get_product_press', 'list_press', 'list_media', '
 // Sales/reporting tools are admin-only in v1 (they can read all sales data).
 const SALES_TOOLS = new Set(['sales_schema', 'sales_query', 'sales_market_totals', 'forecast_accuracy', 'sales_sync_meta']);
 // Live HubSpot tools — admin-only, same as sales.
-const HUBSPOT_TOOLS = new Set(['hubspot_schema', 'hubspot_search', 'hubspot_get']);
+const HUBSPOT_TOOLS = new Set(['hubspot_schema', 'hubspot_search', 'hubspot_get', 'hubspot_import_deals']);
 function toolAllowed(name, { perms, isAdmin }) {
 	if (SALES_TOOLS.has(name) || HUBSPOT_TOOLS.has(name)) return perms === null || isAdmin; // shared key or admin
 	if (!perms) return true;
@@ -298,6 +344,11 @@ async function callTool(name, args, ctx) {
 		}
 		if (name === 'hubspot_get') {
 			const out = await hubspotGet(token, args ?? {});
+			if (out.error) return { ...textContent(out.error), isError: true };
+			return textContent(out);
+		}
+		if (name === 'hubspot_import_deals') {
+			const out = await hubspotImportDeals(token, args ?? {});
 			if (out.error) return { ...textContent(out.error), isError: true };
 			return textContent(out);
 		}
