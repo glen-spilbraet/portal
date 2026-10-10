@@ -23,10 +23,10 @@ function rulePredicate(rules) {
 	const frag = (r) => {
 		if (r.kind === 'publisher_sku') { binds.push(r.value); return `${PUB_SKU} = ?`; }
 		if (r.kind === 'publisher_mapped') { binds.push(r.value); return `li.publisher = ?`; }
-		if (r.kind === 'name_contains') {
-			const t = `%${String(r.value).toLowerCase()}%`;
-			binds.push(t, t);
-			return `(lower(COALESCE(${CAT_NAME}, '')) LIKE ? OR lower(COALESCE(li.name, '')) LIKE ?)`;
+		if (r.kind === '_skuset') { // pre-resolved name_contains → concrete SKU list
+			if (!r.skus.length) return '0';
+			binds.push(...r.skus);
+			return `lower(li.sku) IN (${r.skus.map(() => '?').join(',')})`;
 		}
 		binds.push(String(r.value).toLowerCase()); return `lower(li.sku) = ?`; // kind === 'sku'
 	};
@@ -75,8 +75,26 @@ async function totalsBySku(db, clause, binds, s, e, skus) {
 	return Object.fromEntries(rows.map((r) => [r.sku, r]));
 }
 
+/** Resolve a "product name contains" term to the set of matching SKUs (from the
+ * sales-sheet catalog) — done once, up front, so the heavy queries can filter by
+ * `sku IN (...)` instead of a per-row correlated LIKE (which times out). */
+async function resolveNameSkus(salesDb, term) {
+	const t = `%${String(term).toLowerCase()}%`;
+	const rows = (await salesDb.prepare(
+		`SELECT DISTINCT lower(s.sku) AS sku FROM sales_sheets s JOIN translations tr ON tr.sheet_id = s.id
+		 WHERE tr.key = 'product_name' AND lower(COALESCE(tr.value, '')) LIKE ? AND s.sku IS NOT NULL AND s.sku != ''`
+	).bind(t).all()).results ?? [];
+	return rows.map((r) => r.sku);
+}
+
 export async function computeReport(salesDb, rules, { metric = 'both', cur, prior, label } = {}) {
-	const { clause, binds } = rulePredicate(rules);
+	// Pre-resolve name_contains rules to concrete SKU lists (fast catalog lookup).
+	const resolved = [];
+	for (const r of rules ?? []) {
+		if (r.kind === 'name_contains') resolved.push({ ...r, kind: '_skuset', skus: await resolveNameSkus(salesDb, r.value) });
+		else resolved.push(r);
+	}
+	const { clause, binds } = rulePredicate(resolved);
 	const now = new Date();
 	if (!cur) { const d = ytd(now); cur = d.cur; prior = d.prior; label = d.label; }
 	const curYear = now.getUTCFullYear();
