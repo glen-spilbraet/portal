@@ -203,11 +203,12 @@
 	.empty-rule { font-size: 12.5px; color: #8a7550; background: #FBF7EF; border: 1px solid #F1EADB; border-radius: 8px; padding: 8px 10px; margin: 0 0 10px; }
 
 	.rules { display: flex; flex-direction: column; gap: 8px; }
-	.rule { display: grid; grid-template-columns: 86px 1fr auto; gap: 6px; align-items: start; background: #fafafa; border: 1px solid #eee; border-radius: 10px; padding: 8px; }
+	.rule { display: grid; grid-template-columns: 104px 1fr auto; gap: 6px; align-items: center; background: #fafafa; border: 1px solid #eee; border-radius: 10px; padding: 8px; }
 	.rule.exclude { background: #fdf5f3; border-color: #f3d8d2; }
 	.rule select, .rule input { font-family: inherit; font-size: 12.5px; color: #18181B; border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; background: #fff; width: 100%; box-sizing: border-box; }
-	.r-kind { grid-column: 1 / 3; }
-	.r-value { grid-column: 1 / 3; position: relative; min-width: 0; }
+	.r-action { grid-column: 1; grid-row: 1; }
+	.r-kind { grid-column: 2; grid-row: 1; }
+	.r-value { grid-column: 1 / 3; grid-row: 2; position: relative; min-width: 0; }
 	.r-del { grid-row: 1 / 3; grid-column: 3; align-self: center; background: none; border: none; color: #b6795a; font-size: 13px; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
 	.r-del:hover { background: #fce4de; color: #c4381b; }
 	.drop { position: absolute; z-index: 20; left: 0; right: 0; margin-top: 4px; background: #fff; border: 1px solid var(--border); border-radius: 8px; max-height: 200px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
