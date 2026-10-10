@@ -10,6 +10,7 @@
 	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false });
 	let creating = $state(false);
 	let createError = $state('');
+	let showCreate = $state(false);
 
 	// Editing state: { [id]: { name, access_sheets, ... } }
 	let editing = $state({});
@@ -97,6 +98,7 @@
 			}];
 			newName = '';
 			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false };
+			showCreate = false;
 		} catch (e) {
 			createError = e.message;
 		} finally {
@@ -213,40 +215,7 @@
 			<h1 class="page-title">Permission Sets</h1>
 			<p class="page-sub">Define named access profiles and assign them to users</p>
 		</div>
-	</div>
-
-	<!-- Create new set -->
-	<div class="card">
-		<h2 class="card-title">Create permission set</h2>
-		<div class="create-row">
-			<input
-				class="name-input"
-				type="text"
-				placeholder="e.g. Sales team, Read-only…"
-				bind:value={newName}
-				onkeydown={(e) => e.key === 'Enter' && createSet()}
-			/>
-			<button class="btn-primary" onclick={createSet} disabled={!newName.trim() || creating}>
-				{creating ? 'Creating…' : 'Create'}
-			</button>
-		</div>
-		<div class="perm-groups" style="margin-top: 14px">
-			{#each GROUPS as g}
-				<div class="perm-group">
-					<div class="perm-group-head">{g.label}</div>
-					<div class="access-grid">
-						{#each g.keys as k}
-							<label class="access-toggle" class:on={newAccess[k]}>
-								<input type="checkbox" bind:checked={newAccess[k]} style="display:none" />
-								<span class="toggle-dot"></span>
-								<span class="toggle-label">{LABEL[k]}</span>
-							</label>
-						{/each}
-					</div>
-				</div>
-			{/each}
-		</div>
-		{#if createError}<p class="error-text">{createError}</p>{/if}
+		<button class="btn-primary" onclick={() => { createError = ''; showCreate = true; }}>+ New permission set</button>
 	</div>
 
 	<!-- Existing sets -->
@@ -317,13 +286,63 @@
 	{/if}
 </main>
 
+{#if showCreate}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="backdrop" onclick={() => (showCreate = false)}></div>
+	<div class="modal">
+		<div class="modal-head"><h2>Create permission set</h2><button class="x" onclick={() => (showCreate = false)}>✕</button></div>
+		<div class="modal-body">
+			<input
+				class="name-input"
+				type="text"
+				placeholder="e.g. Sales team, Read-only…"
+				bind:value={newName}
+				onkeydown={(e) => e.key === 'Enter' && createSet()}
+			/>
+			<div class="perm-groups" style="margin-top: 16px">
+				{#each GROUPS as g}
+					<div class="perm-group">
+						<div class="perm-group-head">{g.label}</div>
+						<div class="access-grid">
+							{#each g.keys as k}
+								<label class="access-toggle" class:on={newAccess[k]}>
+									<input type="checkbox" bind:checked={newAccess[k]} style="display:none" />
+									<span class="toggle-dot"></span>
+									<span class="toggle-label">{LABEL[k]}</span>
+								</label>
+							{/each}
+						</div>
+					</div>
+				{/each}
+			</div>
+			{#if createError}<p class="error-text">{createError}</p>{/if}
+		</div>
+		<div class="modal-foot">
+			<button class="btn-sm btn-ghost" onclick={() => (showCreate = false)}>Cancel</button>
+			<button class="btn-primary" onclick={createSet} disabled={!newName.trim() || creating}>{creating ? 'Creating…' : 'Create'}</button>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.page {
 		max-width: 760px;
 		margin: 0 auto;
 		padding: 40px 28px 80px;
 	}
-	.page-header { margin-bottom: 32px; }
+	.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
+
+	/* Category dividers so the grouped toggles don't blend together. */
+	.perm-group + .perm-group { border-top: 1px solid #f0ebe1; padding-top: 14px; }
+
+	/* Create modal */
+	.backdrop { position: fixed; inset: 0; background: rgba(40,25,0,0.35); z-index: 300; }
+	.modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 310; width: min(620px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(50,30,0,0.28); }
+	.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+	.modal-head h2 { font-size: 15px; font-weight: 800; margin: 0; color: #18181B; }
+	.modal-body { padding: 18px 20px; }
+	.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--border); }
+	.x { background: none; border: none; font-size: 15px; color: #8A7550; cursor: pointer; }
 	.page-title {
 		font-size: 26px; font-weight: 800;
 		color: #18181B; letter-spacing: -0.5px; margin: 0 0 4px;
