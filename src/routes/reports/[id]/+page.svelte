@@ -6,6 +6,7 @@
 
 	let name = $state(data.report.name);
 	let metric = $state(data.report.metric);
+	let allowDate = $state(!!data.report.allow_date_filter);
 	let rules = $state(data.report.rules.map((r) => ({ action: r.action, kind: r.kind, value: r.value })));
 	let shareToken = $state(data.report.share_token);
 	let preview = $state(data.preview);
@@ -71,7 +72,7 @@
 		try {
 			const res = await fetch(`/api/reports/${data.report.id}`, {
 				method: 'PUT', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name, metric, rules: cleanRules() })
+				body: JSON.stringify({ name, metric, allow_date_filter: allowDate, rules: cleanRules() })
 			});
 			if (!res.ok) throw new Error('Save failed');
 			saved = true; setTimeout(() => (saved = false), 1600);
@@ -112,6 +113,8 @@
 						<option value="revenue">Revenue only</option>
 					</select>
 				</label>
+
+				<label class="chk"><input type="checkbox" bind:checked={allowDate} /> Let viewers change the date range on the shared report</label>
 
 				<div class="rules-head"><span>Product rules</span><button class="add" onclick={addRule}>+ Add rule</button></div>
 				<p class="hint">Include rules define the product set (no includes = all products). Exclude rules remove from it.</p>
@@ -191,6 +194,8 @@
 	.fld input, .fld select { font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 	.fld input:focus, .fld select:focus { outline: none; border-color: #F57832; }
 
+	.chk { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: #52525B; margin-bottom: 14px; cursor: pointer; }
+	.chk input { width: 15px; height: 15px; accent-color: #F57832; cursor: pointer; }
 	.rules-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #8a7550; margin-top: 6px; }
 	.add { font-family: inherit; font-size: 12px; font-weight: 700; color: #B15A12; background: #FDEEE4; border: 1px solid #F6CDAB; border-radius: 100px; padding: 4px 11px; cursor: pointer; }
 	.add:hover { background: #FBDDC7; }

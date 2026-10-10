@@ -1215,7 +1215,7 @@ export async function createReport(db, { name, metric, createdBy } = {}) {
 
 export async function updateReport(db, id, patch) {
 	const fields = [], values = [];
-	for (const k of ['name', 'metric']) if (k in patch) { fields.push(`${k} = ?`); values.push(patch[k]); }
+	for (const k of ['name', 'metric', 'allow_date_filter']) if (k in patch) { fields.push(`${k} = ?`); values.push(patch[k]); }
 	fields.push('updated_at = unixepoch()');
 	values.push(id);
 	await db.prepare(`UPDATE report SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
