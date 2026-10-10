@@ -41,59 +41,39 @@
 		busy = false;
 	}
 
-	async function changeRole(email, role) {
-		busy = true; error = '';
-		try {
-			await fetch(`/api/admin/users/${encodeURIComponent(email)}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ role }),
-			});
-			users = users.map(u => u.email === email ? { ...u, role } : u);
-		} catch (e) { error = e.message; }
-		busy = false;
-	}
+	// ── Row actions menu + edit modal ─────────────────────────────────────────────
+	let menuFor = $state('');       // email whose ⋯ menu is open
+	let editOpen = $state(false);
+	let editForm = $state(null);    // { email, first_name, send_from, role, permission_set_id }
 
-	async function changeFirstName(email, firstName) {
-		busy = true; error = '';
-		try {
-			await fetch(`/api/admin/users/${encodeURIComponent(email)}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ first_name: firstName.trim() || null }),
-			});
-			users = users.map(u => u.email === email ? { ...u, first_name: firstName.trim() || null } : u);
-		} catch (e) { error = e.message; }
-		busy = false;
+	function toggleMenu(email, e) { e.stopPropagation(); menuFor = menuFor === email ? '' : email; }
+	function openEdit(u) {
+		editForm = { email: u.email, first_name: u.first_name ?? '', send_from: u.send_from ?? '', role: u.role, permission_set_id: u.permission_set_id ?? '' };
+		menuFor = ''; error = ''; editOpen = true;
 	}
+	const isSelf = (email) => email === data.user?.email;
 
-	async function changeSendFrom(email, sendFrom) {
+	async function saveEdit() {
+		if (!editForm || busy) return;
 		busy = true; error = '';
 		try {
-			await fetch(`/api/admin/users/${encodeURIComponent(email)}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ send_from: sendFrom.trim() || null }),
+			const body = {
+				first_name: editForm.first_name.trim() || null,
+				send_from: editForm.send_from.trim() || null,
+				role: editForm.role,
+				permission_set_id: editForm.permission_set_id || null,
+			};
+			const res = await fetch(`/api/admin/users/${encodeURIComponent(editForm.email)}`, {
+				method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 			});
-			users = users.map(u => u.email === email ? { ...u, send_from: sendFrom.trim() || null } : u);
-		} catch (e) { error = e.message; }
-		busy = false;
-	}
-
-	async function changePermSet(email, permSetId) {
-		busy = true; error = '';
-		try {
-			await fetch(`/api/admin/users/${encodeURIComponent(email)}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ permission_set_id: permSetId || null }),
-			});
-			users = users.map(u => u.email === email ? { ...u, permission_set_id: permSetId || null } : u);
-		} catch (e) { error = e.message; }
-		busy = false;
+			if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? 'Failed');
+			users = users.map(u => u.email === editForm.email ? { ...u, ...body } : u);
+			editOpen = false;
+		} catch (e) { error = e.message; } finally { busy = false; }
 	}
 
 	async function removeUser(email) {
+		menuFor = '';
 		if (!confirm(`Remove access for ${email}?`)) return;
 		busy = true; error = '';
 		try {
@@ -163,91 +143,44 @@
 			<table class="table">
 				<thead>
 					<tr>
-						<th>Email</th>
-						<th>First name</th>
+						<th>User</th>
 						<th>Send from</th>
 						<th>Role</th>
 						<th>Permissions</th>
-						<th>Added</th>
-						<th>Actions</th>
+						<th class="c">Actions</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each users as u (u.email)}
 						<tr>
-							<td class="email-cell">
+							<td class="user-cell">
 								<div class="avatar">{(u.first_name?.[0] ?? u.email[0]).toUpperCase()}</div>
-								<span>{u.email}</span>
+								<div class="user-id">
+									<span class="u-name">{u.first_name?.trim() || u.email.split('@')[0]}</span>
+									<span class="u-email">{u.email}</span>
+								</div>
+							</td>
+							<td class="send-from">{u.send_from || '—'}</td>
+							<td>
+								<span class="role-tag" class:admin={u.role === 'admin'}>{u.role === 'admin' ? 'Admin' : 'User'}</span>
 							</td>
 							<td>
-								<input
-									type="text"
-									class="name-cell-input"
-									value={u.first_name ?? ''}
-									placeholder="—"
-									onblur={(e) => {
-										if (e.currentTarget.value !== (u.first_name ?? '')) {
-											changeFirstName(u.email, e.currentTarget.value);
-										}
-									}}
-									onkeydown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-								/>
-							</td>
-							<td>
-								<input
-									type="email"
-									class="name-cell-input send-from-input"
-									value={u.send_from ?? ''}
-									placeholder="glen@spilbraet.dk"
-									onblur={(e) => {
-										if (e.currentTarget.value !== (u.send_from ?? '')) {
-											changeSendFrom(u.email, e.currentTarget.value);
-										}
-									}}
-									onkeydown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-								/>
-							</td>
-							<td>
-								<select
-									class="role-pill"
-									class:admin={u.role === 'admin'}
-									value={u.role}
-									onchange={(e) => changeRole(u.email, e.currentTarget.value)}
-									disabled={busy || u.email === data.user?.email}
-								>
-									<option value="user">User</option>
-									<option value="admin">Admin</option>
-								</select>
-							</td>
-							<td>
-								{#if u.role === 'admin'}
-									<span class="perm-badge full">Full access (admin)</span>
+								{#if u.role === 'admin' || !u.permission_set_id}
+									<span class="perm-badge full">Full access</span>
 								{:else}
-									<select
-										class="perm-select"
-										value={u.permission_set_id ?? ''}
-										onchange={(e) => changePermSet(u.email, e.currentTarget.value)}
-										disabled={busy}
-									>
-										<option value="">Full access</option>
-										{#each permissionSets as ps}
-											<option value={ps.id}>{ps.name}</option>
-										{/each}
-									</select>
+									<span class="perm-badge set">{psName(u.permission_set_id)}</span>
 								{/if}
 							</td>
-							<td class="meta-cell">{formatDate(u.added_at)}</td>
-							<td class="action-cell">
-								{#if u.email !== data.user?.email}
-									<button class="remove-btn" onclick={() => removeUser(u.email)} disabled={busy} title="Remove access">
-										<svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-											<path d="M2 3.5h10M5.5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M3.5 3.5l.5 7.5h6l.5-7.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-										</svg>
-										Remove
-									</button>
-								{:else}
-									<span class="you-badge">You</span>
-								{/if}
+							<td class="c action-cell">
+								<div class="menu-wrap">
+									<button class="dots" onclick={(e) => toggleMenu(u.email, e)} title="Actions" aria-label="Actions">⋯</button>
+									{#if menuFor === u.email}
+										<div class="menu">
+											<button onclick={() => openEdit(u)}>Edit</button>
+											{#if !isSelf(u.email)}<button class="danger" onclick={() => removeUser(u.email)}>Delete</button>{/if}
+										</div>
+									{/if}
+								</div>
 							</td>
 						</tr>
 					{/each}
@@ -256,6 +189,44 @@
 		</div>
 	{/if}
 </main>
+
+{#if menuFor}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="menu-backdrop" onclick={() => (menuFor = '')}></div>
+{/if}
+
+{#if editOpen && editForm}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="backdrop" onclick={() => (editOpen = false)}></div>
+	<div class="modal">
+		<div class="modal-head"><h2>Edit user</h2><button class="x" onclick={() => (editOpen = false)}>✕</button></div>
+		<div class="modal-body">
+			<p class="edit-email">{editForm.email}</p>
+			<label class="fld"><span>First name</span><input type="text" bind:value={editForm.first_name} placeholder="—" /></label>
+			<label class="fld"><span>Send from</span><input type="email" bind:value={editForm.send_from} placeholder={editForm.email} /></label>
+			<label class="fld"><span>Role</span>
+				<select bind:value={editForm.role} disabled={isSelf(editForm.email)}>
+					<option value="user">User</option>
+					<option value="admin">Admin</option>
+				</select>
+			</label>
+			{#if editForm.role !== 'admin'}
+				<label class="fld"><span>Permissions</span>
+					<select bind:value={editForm.permission_set_id}>
+						<option value="">Full access</option>
+						{#each permissionSets as ps}<option value={ps.id}>{ps.name}</option>{/each}
+					</select>
+				</label>
+			{/if}
+			{#if isSelf(editForm.email)}<p class="hint">You can't change your own role.</p>{/if}
+			{#if error}<p class="error-text">{error}</p>{/if}
+		</div>
+		<div class="modal-foot">
+			<button class="btn-ghost" onclick={() => (editOpen = false)}>Cancel</button>
+			<button class="btn-save" onclick={saveEdit} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.page {
@@ -359,7 +330,7 @@
 		background: white;
 		border: 1px solid var(--border);
 		border-radius: 14px;
-		overflow-x: auto;
+		overflow: visible;
 	}
 	.table { width: 100%; border-collapse: collapse; }
 	.table thead tr { border-bottom: 1px solid var(--border); }
@@ -425,4 +396,44 @@
 		font-size: 11px; font-weight: 700; color: #aaa;
 		background: #f0ede8; border-radius: 5px; padding: 3px 8px;
 	}
+	/* ── Redesigned rows ──────────────────────────────────────────────────── */
+	.table th.c, .table td.c { text-align: right; }
+	.user-cell { display: flex; align-items: center; gap: 11px; }
+	.user-id { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+	.u-name { font-weight: 600; color: #18181B; font-size: 14px; }
+	.u-email { font-size: 12px; color: #a39a88; overflow: hidden; text-overflow: ellipsis; }
+	.send-from { color: #6b6b6b; font-size: 13px; }
+	.role-tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 11px; border-radius: 100px; background: #F4F4F5; color: #71717A; }
+	.role-tag.admin { background: #FDECCB; color: #8a5a06; }
+	.perm-badge.set { background: #F4F4F5; color: #52525B; }
+
+	.menu-wrap { position: relative; display: inline-block; }
+	.dots { background: none; border: none; font-size: 20px; line-height: 1; color: #8a7550; cursor: pointer; padding: 2px 10px; border-radius: 8px; }
+	.dots:hover { background: #F4F4F5; color: #18181B; }
+	.menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 50; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.14); min-width: 130px; overflow: hidden; }
+	.menu button { display: block; width: 100%; text-align: left; background: none; border: none; font-family: inherit; font-size: 13px; font-weight: 600; padding: 9px 14px; cursor: pointer; color: #3a3228; }
+	.menu button:hover { background: #F4F4F5; }
+	.menu button.danger { color: #c23b26; }
+	.menu button.danger:hover { background: #FEF2F2; }
+	.menu-backdrop { position: fixed; inset: 0; z-index: 40; }
+
+	/* Edit modal */
+	.backdrop { position: fixed; inset: 0; background: rgba(40,25,0,0.35); z-index: 300; }
+	.modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 310; width: min(440px, calc(100vw - 32px)); background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(50,30,0,0.28); }
+	.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+	.modal-head h2 { font-size: 15px; font-weight: 800; margin: 0; color: #18181B; }
+	.modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+	.modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--border); }
+	.x { background: none; border: none; font-size: 15px; color: #8A7550; cursor: pointer; }
+	.edit-email { font-size: 13px; color: #a39a88; margin: 0 0 2px; font-family: ui-monospace, monospace; }
+	.fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: #6b5e4e; }
+	.fld input, .fld select { font-family: inherit; font-size: 14px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; background: white; }
+	.fld input:focus, .fld select:focus { outline: none; border-color: #F57832; }
+	.hint { font-size: 12px; color: #a39a88; margin: 0; font-style: italic; }
+	.error-text { font-size: 13px; color: #c23b26; margin: 0; }
+	.btn-ghost { padding: 9px 16px; border: 1px solid var(--border); border-radius: 9px; background: #fff; font-family: inherit; font-size: 13px; font-weight: 600; color: #52525B; cursor: pointer; }
+	.btn-ghost:hover { background: #F4F4F5; }
+	.btn-save { padding: 9px 18px; border: none; border-radius: 9px; background: #F57832; color: #fff; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+	.btn-save:hover:not(:disabled) { background: #e26a26; }
+	.btn-save:disabled { opacity: 0.6; cursor: default; }
 </style>
