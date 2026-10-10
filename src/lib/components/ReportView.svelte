@@ -4,12 +4,15 @@
 
 	const showRevenue = $derived(metric === 'revenue' || metric === 'both');
 	const showUnits = $derived(metric === 'units' || metric === 'both');
-	const primary = $derived(showRevenue ? 'revenue' : 'units');
+	// When both are available, a toggle swaps which measure the chart/markets/pivot show.
+	let view = $state('revenue');
+	const primary = $derived(metric === 'both' ? view : (metric === 'units' ? 'units' : 'revenue'));
+	const primaryFmt = $derived(primary === 'revenue' ? money : (v) => units(v) + ' pcs');
 
 	const nf = new Intl.NumberFormat('da-DK');
 	const money = (v) => nf.format(Math.round(v || 0)) + ' kr';
 	const units = (v) => nf.format(Math.round(v || 0));
-	const fmtP = (v) => (showRevenue ? money(v) : units(v));
+	const fmtP = $derived(primary === 'revenue' ? money : units);
 	const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 	const MK_SHORT = { Denmark: 'DK', Sweden: 'SE', Norway: 'NO', International: 'Int.' };
 	const idx = (cur, prev) => (prev && prev > 0 ? Math.round((cur / prev) * 100) : null);
@@ -42,6 +45,12 @@
 {#if !data}
 	<p class="muted">No data.</p>
 {:else}
+	{#if metric === 'both'}
+		<div class="measure" role="group" aria-label="Measure">
+			<button class:active={view === 'revenue'} onclick={() => (view = 'revenue')}>Revenue</button>
+			<button class:active={view === 'units'} onclick={() => (view = 'units')}>Units</button>
+		</div>
+	{/if}
 	<div class="tiles">
 		{#if showRevenue}<div class="tile"><span class="tile-k">Revenue</span><span class="tile-v">{money(data.totals.revenue)}</span><span class="corner">{@render indexChip(data.totals.revenue, data.totals.revenuePrev)}</span></div>{/if}
 		{#if showUnits}<div class="tile"><span class="tile-k">Units sold</span><span class="tile-v">{units(data.totals.units)}</span><span class="corner">{@render indexChip(data.totals.units, data.totals.unitsPrev)}</span></div>{/if}
@@ -57,8 +66,7 @@
 					<span class="mk-flag">{#if flagSvg(m.market)}{@html flagSvg(m.market)}{:else}🌍{/if}</span>
 					<span class="mk-name">{m.market}</span>
 				</div>
-				{#if showRevenue}<div class="mk-v">{money(m.revenue)}</div>{/if}
-				{#if showUnits}<div class="mk-v" class:sm={showRevenue}>{units(m.units)} pcs</div>{/if}
+				<div class="mk-v">{primaryFmt(m[primary])}</div>
 				<div class="mk-foot">
 					<span class="mk-pct">{Math.round((m[primary] / marketTotal) * 100)}% of total</span>
 					{@render indexChip(m[primary], m[primary === 'revenue' ? 'revenuePrev' : 'unitsPrev'])}
@@ -73,19 +81,16 @@
 			<h3>Development over time · {data.chart.year}</h3>
 			{#if chartHasPrev}<span class="legend"><span class="dot prev"></span>{data.chart.year - 1}<span class="dot cur"></span>{data.chart.year}</span>{/if}
 		</div>
-		{#if showRevenue}
+		{#if primary === 'revenue'}
 			{@render devChart('revenue', 'revenuePrev', money, maxRev)}
-			{#if showUnits}<p class="chart-cap">Revenue per month</p>{/if}
-		{/if}
-		{#if showUnits}
+		{:else}
 			{@render devChart('units', 'unitsPrev', units, maxUnits)}
-			{#if showRevenue}<p class="chart-cap">Units per month</p>{/if}
 		{/if}
 	</section>
 
 	<!-- Best sellers: pivot by market -->
 	<section class="block">
-		<div class="block-head"><h3>Best sellers</h3><span class="legend">{showRevenue ? 'Revenue (kr)' : 'Units'} · by market</span></div>
+		<div class="block-head"><h3>Best sellers</h3><span class="legend">{primary === 'revenue' ? 'Revenue (kr)' : 'Units'} · by market</span></div>
 		{#if !data.topProducts.length}
 			<p class="muted">No products in range.</p>
 		{:else}
@@ -112,6 +117,10 @@
 
 <style>
 	.muted { color: #9a9a9a; font-size: 13px; }
+	.measure { display: inline-flex; border: 1px solid #ececec; border-radius: 9px; overflow: hidden; background: #fff; margin-bottom: 14px; }
+	.measure button { font-family: inherit; font-size: 12.5px; font-weight: 700; color: #52525B; background: #fff; border: none; padding: 7px 16px; cursor: pointer; }
+	.measure button + button { border-left: 1px solid #ececec; }
+	.measure button.active { background: #F57832; color: #fff; }
 	.tiles { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 	.tile { position: relative; flex: 1; min-width: 150px; background: #fff; border: 1px solid #ececec; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
 	.corner { position: absolute; top: 12px; right: 12px; }
@@ -157,9 +166,9 @@
 	.pivot th.l { text-align: left; }
 	.pivot td { text-align: right; padding: 8px 10px; border-bottom: 1px solid #f3efe6; color: #3f3a33; font-variant-numeric: tabular-nums; white-space: nowrap; }
 	.pivot tbody tr:last-child td { border-bottom: none; }
-	.pivot td.l { text-align: left; display: flex; flex-direction: column; gap: 1px; max-width: 220px; }
-	.p-name { font-weight: 600; color: #18181B; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.p-sku { font-size: 10.5px; color: #a1a1aa; }
+	.pivot td.l { text-align: left; max-width: 240px; }
+	.p-name { display: block; font-weight: 600; color: #18181B; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.p-sku { display: block; font-size: 10.5px; color: #a1a1aa; }
 	.pivot td.tot { font-weight: 800; color: #18181B; }
 	.pivot td.ix { text-align: right; }
 </style>
