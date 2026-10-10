@@ -26,7 +26,14 @@
 </div>
 
 <style>
-	:global(body) { background: linear-gradient(165deg, #FCFAF6 0%, #F1ECE3 55%, #ECE6DB 100%); background-attachment: fixed; min-height: 100vh; }
+	:global(body) {
+		background:
+			radial-gradient(1100px 520px at 100% -5%, rgba(245, 120, 50, 0.20), transparent 60%),
+			radial-gradient(900px 480px at 0% 8%, rgba(245, 120, 50, 0.10), transparent 55%),
+			linear-gradient(165deg, #FFF4E6 0%, #FBE4C6 48%, #F6D1A6 100%);
+		background-attachment: fixed;
+		min-height: 100vh;
+	}
 	.wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; }
 	.hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 26px; }
 	.logo { height: 58px; width: auto; }
