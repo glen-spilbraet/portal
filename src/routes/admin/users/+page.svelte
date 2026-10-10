@@ -400,6 +400,7 @@
 	.perm-select:disabled { opacity: 0.6; cursor: default; }
 
 	.perm-badge {
+		display: inline-block; white-space: nowrap;
 		font-size: 12px; font-weight: 600;
 		padding: 3px 10px; border-radius: 6px;
 	}

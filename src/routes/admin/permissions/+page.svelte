@@ -34,6 +34,17 @@
 		{ key: 'reports',     label: 'Reports' },
 	];
 
+	// Grouped by the app's nav structure, for an easier overview.
+	const LABEL = Object.fromEntries(SECTIONS.map((s) => [s.key, s.label]));
+	const GROUPS = [
+		{ label: 'Stats',  keys: ['stats', 'product', 'forecast', 'reports'] },
+		{ label: 'Sales',  keys: ['sheets', 'catalogues', 'planograms', 'awards', 'price_lists'] },
+		{ label: 'Orders', keys: ['orders', 'order_conf', 'rest_check', 'price_sync'] },
+		{ label: 'Events', keys: ['events'] },
+		{ label: 'Data',   keys: ['data'] },
+		{ label: 'Mail',   keys: ['mail'] },
+	];
+
 	async function createSet() {
 		const name = newName.trim();
 		if (!name || creating) return;
@@ -219,17 +230,20 @@
 				{creating ? 'Creating…' : 'Create'}
 			</button>
 		</div>
-		<div class="access-grid" style="margin-top: 14px">
-			{#each SECTIONS as s}
-				<label class="access-toggle" class:on={newAccess[s.key]}>
-					<input
-						type="checkbox"
-						bind:checked={newAccess[s.key]}
-						style="display:none"
-					/>
-					<span class="toggle-dot"></span>
-					<span class="toggle-label">{s.label}</span>
-				</label>
+		<div class="perm-groups" style="margin-top: 14px">
+			{#each GROUPS as g}
+				<div class="perm-group">
+					<div class="perm-group-head">{g.label}</div>
+					<div class="access-grid">
+						{#each g.keys as k}
+							<label class="access-toggle" class:on={newAccess[k]}>
+								<input type="checkbox" bind:checked={newAccess[k]} style="display:none" />
+								<span class="toggle-dot"></span>
+								<span class="toggle-label">{LABEL[k]}</span>
+							</label>
+						{/each}
+					</div>
+				</div>
 			{/each}
 		</div>
 		{#if createError}<p class="error-text">{createError}</p>{/if}
@@ -248,17 +262,20 @@
 						<!-- Edit mode -->
 						<div class="set-edit">
 							<input class="name-input" type="text" bind:value={ed.name} />
-							<div class="access-grid">
-								{#each SECTIONS as s}
-									<label class="access-toggle" class:on={ed['access_' + s.key]}>
-										<input
-											type="checkbox"
-											bind:checked={ed['access_' + s.key]}
-											style="display:none"
-										/>
-										<span class="toggle-dot"></span>
-										<span class="toggle-label">{s.label}</span>
-									</label>
+							<div class="perm-groups">
+								{#each GROUPS as g}
+									<div class="perm-group">
+										<div class="perm-group-head">{g.label}</div>
+										<div class="access-grid">
+											{#each g.keys as k}
+												<label class="access-toggle" class:on={ed['access_' + k]}>
+													<input type="checkbox" bind:checked={ed['access_' + k]} style="display:none" />
+													<span class="toggle-dot"></span>
+													<span class="toggle-label">{LABEL[k]}</span>
+												</label>
+											{/each}
+										</div>
+									</div>
 								{/each}
 							</div>
 							<div class="edit-actions">
@@ -275,15 +292,20 @@
 						<div class="set-view">
 							<span class="set-name">{set.name}</span>
 							<div class="set-badges">
-								{#each SECTIONS as s}
-									<span class="section-badge" class:on={!!set['access_' + s.key]} class:off={!set['access_' + s.key]}>
-										{#if set['access_' + s.key]}
-											<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-										{:else}
-											<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-										{/if}
-										{s.label}
-									</span>
+								{#each GROUPS as g}
+									<div class="badge-group">
+										<span class="badge-group-label">{g.label}</span>
+										{#each g.keys as k}
+											<span class="section-badge" class:on={!!set['access_' + k]} class:off={!set['access_' + k]}>
+												{#if set['access_' + k]}
+													<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+												{:else}
+													<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+												{/if}
+												{LABEL[k]}
+											</span>
+										{/each}
+									</div>
 								{/each}
 							</div>
 							<button class="btn-sm btn-ghost edit-btn" onclick={() => startEdit(set)}>Edit</button>
@@ -338,6 +360,11 @@
 	}
 
 	/* Access toggles */
+	.perm-groups { display: flex; flex-direction: column; gap: 14px; }
+	.perm-group { display: grid; grid-template-columns: 76px 1fr; gap: 12px; align-items: start; }
+	.perm-group-head { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: #a88b52; padding-top: 9px; }
+	@media (max-width: 560px) { .perm-group { grid-template-columns: 1fr; gap: 4px; } .perm-group-head { padding-top: 0; } }
+
 	.access-grid {
 		display: flex;
 		flex-wrap: wrap;
@@ -441,8 +468,10 @@
 		min-width: 140px; flex-shrink: 0;
 	}
 	.set-badges {
-		display: flex; flex-wrap: wrap; gap: 5px; flex: 1;
+		display: flex; flex-wrap: wrap; gap: 6px 10px; flex: 1;
 	}
+	.badge-group { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+	.badge-group-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #c3b48f; }
 	.section-badge {
 		display: inline-flex; align-items: center; gap: 4px;
 		font-size: 11px; font-weight: 700;
