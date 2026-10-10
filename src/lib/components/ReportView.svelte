@@ -122,7 +122,7 @@
 	.measure button + button { border-left: 1px solid #ececec; }
 	.measure button.active { background: #F57832; color: #fff; }
 	.tiles { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-	.tile { position: relative; flex: 1; min-width: 150px; background: #fff; border: 1px solid #ececec; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+	.tile { position: relative; flex: 1; min-width: 150px; background: #fff; border: none; border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 12px 32px rgba(60, 48, 25, 0.08); }
 	.corner { position: absolute; top: 12px; right: 12px; }
 	.tile-k { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #a1a1aa; }
 	.tile-v { font-size: 22px; font-weight: 800; color: #18181B; letter-spacing: -0.3px; }
@@ -134,7 +134,7 @@
 	/* Market widgets */
 	.markets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
 	@media (max-width: 760px) { .markets { grid-template-columns: repeat(2, 1fr); } }
-	.mk { background: #fff; border: 1px solid #ececec; border-radius: 12px; padding: 14px; }
+	.mk { background: #fff; border: none; border-radius: 16px; padding: 15px 16px; box-shadow: 0 12px 32px rgba(60, 48, 25, 0.08); }
 	.mk-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 	.mk-flag { display: inline-flex; line-height: 0; border-radius: 2px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,0,0,0.08); font-size: 16px; }
 	.mk-flag :global(svg) { width: 22px; height: 15px; display: block; }
@@ -144,7 +144,7 @@
 	.mk-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 10px; }
 	.mk-pct { font-size: 11px; color: #a1a1aa; font-weight: 600; }
 
-	.block { background: #fff; border: 1px solid #ececec; border-radius: 14px; padding: 16px 18px; margin-bottom: 16px; }
+	.block { background: #fff; border: none; border-radius: 18px; padding: 18px 20px; margin-bottom: 18px; box-shadow: 0 14px 38px rgba(60, 48, 25, 0.08); }
 	.block-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
 	.block h3 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #8a7550; margin: 0; }
 	.legend { font-size: 11px; color: #a1a1aa; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }

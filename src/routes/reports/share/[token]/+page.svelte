@@ -19,18 +19,20 @@
 		</div>
 	</header>
 
+
 	<ReportView data={data.data} metric={data.metric} />
 
 	<footer class="foot">Figures are updated live. Shared by Spilbræt.dk.</footer>
 </div>
 
 <style>
-	:global(body) { background: #F4F1EC; }
-	.wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 60px; }
-	.hero { display: flex; align-items: center; gap: 18px; margin-bottom: 22px; padding-bottom: 20px; border-bottom: 2px solid #F57832; }
-	.logo { height: 40px; width: auto; }
-	.hero-txt h1 { font-size: 24px; font-weight: 800; color: #18181B; margin: 0; letter-spacing: -0.4px; }
-	.sub { font-size: 13px; color: #8a7f6a; margin: 3px 0 0; font-weight: 600; }
-	.foot { margin-top: 26px; text-align: center; font-size: 12px; color: #a99f8c; }
-	@media (max-width: 520px) { .hero { flex-direction: column; align-items: flex-start; gap: 10px; } }
+	:global(body) { background: linear-gradient(165deg, #FCFAF6 0%, #F1ECE3 55%, #ECE6DB 100%); background-attachment: fixed; min-height: 100vh; }
+	.wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 64px; }
+	.hero { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 26px; }
+	.logo { height: 58px; width: auto; }
+	.hero-txt { text-align: right; }
+	.hero-txt h1 { font-size: 26px; font-weight: 800; color: #18181B; margin: 0; letter-spacing: -0.4px; }
+	.sub { font-size: 13px; color: #8a7f6a; margin: 4px 0 0; font-weight: 600; }
+	.foot { margin-top: 28px; text-align: center; font-size: 12px; color: #a99f8c; }
+	@media (max-width: 520px) { .hero { flex-direction: column; align-items: flex-start; gap: 12px; } .hero-txt { text-align: left; } }
 </style>
