@@ -23,7 +23,12 @@ function rulePredicate(rules) {
 	const frag = (r) => {
 		if (r.kind === 'publisher_sku') { binds.push(r.value); return `${PUB_SKU} = ?`; }
 		if (r.kind === 'publisher_mapped') { binds.push(r.value); return `li.publisher = ?`; }
-		binds.push(String(r.value).toLowerCase()); return `lower(li.sku) = ?`;
+		if (r.kind === 'name_contains') {
+			const t = `%${String(r.value).toLowerCase()}%`;
+			binds.push(t, t);
+			return `(lower(COALESCE(${CAT_NAME}, '')) LIKE ? OR lower(COALESCE(li.name, '')) LIKE ?)`;
+		}
+		binds.push(String(r.value).toLowerCase()); return `lower(li.sku) = ?`; // kind === 'sku'
 	};
 	const inc = (rules ?? []).filter((r) => r.action === 'include');
 	const exc = (rules ?? []).filter((r) => r.action === 'exclude');

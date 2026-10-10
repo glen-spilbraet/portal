@@ -32,9 +32,15 @@
 	<div class="chart">
 		{#each data.chart.monthly as m (m.month)}
 			<div class="col">
+				<div class="tip">
+					<div class="tip-h">{MONTHS[m.month - 1]}</div>
+					<div class="tip-row"><span class="tdot cur"></span>{data.chart.year}: <b>{fmt(m[key])}</b></div>
+					{#if chartHasPrev}<div class="tip-row"><span class="tdot prev"></span>{data.chart.year - 1}: {fmt(m[keyPrev])}</div>{/if}
+					{#if idx(m[key], m[keyPrev]) != null}<div class="tip-idx" class:up={idx(m[key], m[keyPrev]) >= 100} class:down={idx(m[key], m[keyPrev]) < 100}>Index {idx(m[key], m[keyPrev])}</div>{/if}
+				</div>
 				<div class="pair">
-					{#if chartHasPrev}<div class="bar prev" style="height:{Math.max(1, (m[keyPrev] / maxV) * 100)}%" title="{MONTHS[m.month - 1]} {data.chart.year - 1}: {fmt(m[keyPrev])}"></div>{/if}
-					<div class="bar cur" style="height:{Math.max(1, (m[key] / maxV) * 100)}%" title="{MONTHS[m.month - 1]} {data.chart.year}: {fmt(m[key])}"></div>
+					{#if chartHasPrev}<div class="bar prev" style="height:{Math.max(1, (m[keyPrev] / maxV) * 100)}%"></div>{/if}
+					<div class="bar cur" style="height:{Math.max(1, (m[key] / maxV) * 100)}%"></div>
 				</div>
 				<span class="col-lbl">{MONTHS[m.month - 1]}</span>
 			</div>
@@ -152,7 +158,17 @@
 	.legend .dot.cur { background: #F57832; } .legend .dot.prev { background: #E6DCC6; }
 
 	.chart { display: flex; align-items: flex-end; gap: 6px; height: 150px; padding-top: 6px; }
-	.col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 5px; min-width: 0; }
+	.col { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 5px; min-width: 0; }
+	/* Hover tooltip */
+	.tip { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 20; background: #1f2937; color: #fff; border-radius: 8px; padding: 8px 10px; font-size: 11.5px; line-height: 1.5; white-space: nowrap; box-shadow: 0 8px 22px rgba(0,0,0,0.22); opacity: 0; pointer-events: none; transition: opacity 0.12s; }
+	.col:hover .tip { opacity: 1; }
+	.tip-h { font-weight: 800; margin-bottom: 2px; }
+	.tip-row { display: flex; align-items: center; gap: 5px; color: #e5e7eb; }
+	.tip-row b { color: #fff; font-weight: 700; margin-left: 2px; }
+	.tdot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+	.tdot.cur { background: #F57832; } .tdot.prev { background: #E6DCC6; }
+	.tip-idx { margin-top: 3px; font-weight: 700; }
+	.tip-idx.up { color: #86efac; } .tip-idx.down { color: #fca5a5; }
 	.pair { display: flex; align-items: flex-end; justify-content: center; gap: 3px; width: 100%; height: 100%; }
 	.bar { width: 100%; max-width: 16px; border-radius: 3px 3px 0 0; transition: height 0.2s; }
 	.bar.cur { background: #F57832; }

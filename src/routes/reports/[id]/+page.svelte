@@ -20,14 +20,16 @@
 	const KINDS = [
 		{ v: 'publisher_sku', label: 'Publisher (by SKU prefix)' },
 		{ v: 'publisher_mapped', label: 'Publisher (mapped)' },
+		{ v: 'name_contains', label: 'Product name contains' },
 		{ v: 'sku', label: 'Specific SKU' },
 	];
+	const isPublisherKind = (k) => k === 'publisher_sku' || k === 'publisher_mapped';
 
 	function addRule() { rules = [...rules, { action: 'include', kind: 'publisher_sku', value: data.publishers[0] ?? '' }]; }
 	function removeRule(i) { rules = rules.filter((_, x) => x !== i); }
 	function onKindChange(i) {
 		const r = rules[i];
-		r.value = r.kind === 'sku' ? '' : (data.publishers[0] ?? '');
+		r.value = isPublisherKind(r.kind) ? (data.publishers[0] ?? '') : '';
 		rules = [...rules];
 	}
 
@@ -133,16 +135,18 @@
 								{#each KINDS as k}<option value={k.v}>{k.label}</option>{/each}
 							</select>
 							<div class="r-value">
-								{#if r.kind === 'sku'}
-									<input placeholder="Type SKU…" autocomplete="off" bind:value={r.value} oninput={() => onSkuInput(i)} />
-									{#if skuDrop.idx === i && skuDrop.results.length}
-										<div class="drop">{#each skuDrop.results as s}<button class="opt" onclick={() => pickSku(i, s)}><b>{s.sku}</b> {s.name}</button>{/each}</div>
-									{/if}
-								{:else}
+								{#if isPublisherKind(r.kind)}
 									<select bind:value={r.value}>
 										<option value="" disabled>Select publisher…</option>
 										{#each data.publishers as pub}<option value={pub}>{pub}</option>{/each}
 									</select>
+								{:else if r.kind === 'name_contains'}
+									<input placeholder="e.g. Unmatched" autocomplete="off" bind:value={r.value} />
+								{:else}
+									<input placeholder="Type SKU…" autocomplete="off" bind:value={r.value} oninput={() => onSkuInput(i)} />
+									{#if skuDrop.idx === i && skuDrop.results.length}
+										<div class="drop">{#each skuDrop.results as s}<button class="opt" onclick={() => pickSku(i, s)}><b>{s.sku}</b> {s.name}</button>{/each}</div>
+									{/if}
 								{/if}
 							</div>
 							<button class="r-del" title="Remove rule" onclick={() => removeRule(i)}>✕</button>
