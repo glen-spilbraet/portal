@@ -43,9 +43,10 @@
 	<p class="muted">No data.</p>
 {:else}
 	<div class="tiles">
-		{#if showRevenue}<div class="tile"><span class="tile-k">Revenue</span><span class="tile-v">{money(data.totals.revenue)}</span>{@render indexChip(data.totals.revenue, data.totals.revenuePrev)}</div>{/if}
-		{#if showUnits}<div class="tile"><span class="tile-k">Units sold</span><span class="tile-v">{units(data.totals.units)}</span>{@render indexChip(data.totals.units, data.totals.unitsPrev)}</div>{/if}
-		<div class="tile sub"><span class="tile-k">Period</span><span class="tile-v sm">{data.period?.label ?? 'Year to date'}</span></div>
+		{#if showRevenue}<div class="tile"><span class="tile-k">Revenue</span><span class="tile-v">{money(data.totals.revenue)}</span><span class="corner">{@render indexChip(data.totals.revenue, data.totals.revenuePrev)}</span></div>{/if}
+		{#if showUnits}<div class="tile"><span class="tile-k">Units sold</span><span class="tile-v">{units(data.totals.units)}</span><span class="corner">{@render indexChip(data.totals.units, data.totals.unitsPrev)}</span></div>{/if}
+		<div class="tile"><span class="tile-k">SKUs</span><span class="tile-v">{units(data.totals.skus)}</span></div>
+		<div class="tile"><span class="tile-k">Stores</span><span class="tile-v">{units(data.totals.stores)}</span></div>
 	</div>
 
 	<!-- By market: four widgets side by side -->
@@ -112,8 +113,8 @@
 <style>
 	.muted { color: #9a9a9a; font-size: 13px; }
 	.tiles { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-	.tile { flex: 1; min-width: 150px; background: #fff; border: 1px solid #ececec; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
-	.tile.sub { background: #fafafa; }
+	.tile { position: relative; flex: 1; min-width: 150px; background: #fff; border: 1px solid #ececec; border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+	.corner { position: absolute; top: 12px; right: 12px; }
 	.tile-k { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #a1a1aa; }
 	.tile-v { font-size: 22px; font-weight: 800; color: #18181B; letter-spacing: -0.3px; }
 	.tile-v.sm { font-size: 14px; font-weight: 700; }

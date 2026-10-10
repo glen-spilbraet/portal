@@ -43,7 +43,12 @@ function ytd(now = new Date()) {
 }
 
 async function totalsFor(db, clause, binds, s, e) {
-	return db.prepare(`SELECT ${sumExpr}, COUNT(*) AS lines FROM deal_line_items li WHERE ${clause} AND li.close_date >= ? AND li.close_date < ?`).bind(...binds, s, e).first();
+	return db.prepare(
+		`SELECT ${sumExpr}, COUNT(*) AS lines,
+		        COUNT(DISTINCT CASE WHEN li.sku IS NOT NULL AND li.sku != '' THEN li.sku END) AS skus,
+		        COUNT(DISTINCT li.company_id) AS stores
+		 FROM deal_line_items li WHERE ${clause} AND li.close_date >= ? AND li.close_date < ?`
+	).bind(...binds, s, e).first();
 }
 async function marketFor(db, clause, binds, s, e) {
 	return (await db.prepare(`SELECT d.market AS market, ${sumExpr} FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? GROUP BY d.market`).bind(...binds, s, e).all()).results ?? [];
@@ -119,7 +124,7 @@ export async function computeReport(salesDb, rules, { metric = 'both', cur, prio
 		markets: MARKETS,
 		period: { label: label ?? 'Year to date', start: cur.start, end: cur.end },
 		chart,
-		totals: { revenue: totalsCur?.revenue ?? 0, units: totalsCur?.units ?? 0, lines: totalsCur?.lines ?? 0, revenuePrev: totalsPrev?.revenue ?? 0, unitsPrev: totalsPrev?.units ?? 0 },
+		totals: { revenue: totalsCur?.revenue ?? 0, units: totalsCur?.units ?? 0, lines: totalsCur?.lines ?? 0, skus: totalsCur?.skus ?? 0, stores: totalsCur?.stores ?? 0, revenuePrev: totalsPrev?.revenue ?? 0, unitsPrev: totalsPrev?.units ?? 0 },
 		market,
 		topProducts,
 	};
