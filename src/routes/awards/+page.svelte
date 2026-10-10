@@ -17,7 +17,13 @@
 	let fCountry = $state('');
 	let fMedia = $state('');
 	let fText = $state('');
-	const anyFilter = $derived(!!(fCountry || fMedia || fText.trim()));
+	let fMissing = $state(false); // only instances where a SKU has no sales sheet
+	const anyFilter = $derived(!!(fCountry || fMedia || fText.trim() || fMissing));
+	// True if the main SKU or any additional product SKU exists but has no sheet.
+	function hasMissingSheet(i) {
+		if ((i.sku ?? '').trim() && !i.sheet_id) return true;
+		return (i.additional_products ?? []).some((a) => (a.sku ?? '').trim() && !a.sheet_id);
+	}
 	const countryOpts = $derived([...new Set(data.media.map((m) => m.country).filter(Boolean))].sort((a, b) => a.localeCompare(b)));
 	const mediaOpts = $derived(data.media.filter((m) => !fCountry || m.country === fCountry).slice().sort((a, b) => a.name.localeCompare(b.name)));
 	// If the chosen media no longer belongs to the chosen country, drop it.
@@ -32,15 +38,19 @@
 		return data.instances.filter((i) =>
 			(!fCountry || i.media_country === fCountry) &&
 			(!fMedia || i.media_id === fMedia) &&
+			(!fMissing || hasMissingSheet(i)) &&
 			(!q || matchesText(i, q))
 		);
 	});
-	function clearFilters() { fCountry = ''; fMedia = ''; fText = ''; }
+	function clearFilters() { fCountry = ''; fMedia = ''; fText = ''; fMissing = false; }
 
 	// ── Group: year → (media + date), newest first ─────────────────────────────
 	const years = $derived.by(() => {
 		const byYear = {};
+		const seenIds = new Set();
 		for (const i of filteredInstances) {
+			if (seenIds.has(i.id)) continue; // guard against any duplicate rows (keeps {#each} keys unique)
+			seenIds.add(i.id);
 			const date = i.instance_date || '';
 			const yr = date.slice(0, 4) || 'Undated';
 			const key = i.media_id + '|' + date;
@@ -237,6 +247,9 @@
 				{#each mediaOpts as m}<option value={m.id}>{m.name}</option>{/each}
 			</select>
 			<input class="f-search" type="search" bind:value={fText} placeholder="Search SKU or product name…" />
+			<label class="f-check" class:on={fMissing} title="Only instances where a SKU has no sales sheet">
+				<input type="checkbox" bind:checked={fMissing} /> Missing sheet
+			</label>
 			{#if anyFilter}
 				<span class="f-count">{filteredInstances.length} match{filteredInstances.length === 1 ? '' : 'es'}</span>
 				<button class="btn sm" onclick={clearFilters}>Clear</button>
@@ -497,6 +510,9 @@
 	.f-sel, .f-search { font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; background: #fff; }
 	.f-sel:focus, .f-search:focus { outline: none; border-color: var(--accent); }
 	.f-search { flex: 1; min-width: 180px; }
+	.f-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #6b5e4e; border: 1px solid var(--border); border-radius: 9px; padding: 7px 11px; background: #fff; cursor: pointer; white-space: nowrap; }
+	.f-check input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+	.f-check.on { border-color: var(--accent); background: #FFF5E9; color: #8a5a1a; }
 	.f-count { font-size: 12px; font-weight: 700; color: #98876e; }
 
 	.year { font-size: 22px; font-weight: 800; color: #18181B; margin: 22px 0 10px; letter-spacing: -0.4px; }

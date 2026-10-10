@@ -190,7 +190,7 @@ export async function listAllInstances(db) {
 		          ORDER BY CASE t.language WHEN 'en' THEN 0 WHEN 'da' THEN 1 WHEN 'sv' THEN 2 WHEN 'no' THEN 3 ELSE 4 END LIMIT 1) AS product_name
 		 FROM press_instance i
 		 JOIN award_media m ON m.id = i.media_id
-		 LEFT JOIN sales_sheets sh ON sh.sku = i.sku
+		 LEFT JOIN (SELECT sku, MIN(id) AS id FROM sales_sheets GROUP BY sku) sh ON sh.sku = i.sku
 		 ORDER BY i.instance_date DESC, m.name COLLATE NOCASE, i.created_at DESC`
 	).all()).results ?? [];
 	const stmts = (await db.prepare('SELECT * FROM award_statement ORDER BY rowid').all()).results ?? [];
@@ -205,7 +205,7 @@ export async function listAllInstances(db) {
 		          WHERE t.sheet_id = sh.id AND t.key = 'product_name' AND t.value != ''
 		          ORDER BY CASE t.language WHEN 'en' THEN 0 WHEN 'da' THEN 1 WHEN 'sv' THEN 2 WHEN 'no' THEN 3 ELSE 4 END LIMIT 1) AS product_name
 		 FROM press_instance_product p
-		 LEFT JOIN sales_sheets sh ON sh.sku = p.sku
+		 LEFT JOIN (SELECT sku, MIN(id) AS id FROM sales_sheets GROUP BY sku) sh ON sh.sku = p.sku
 		 ORDER BY p.rowid`
 	).all()).results ?? [];
 	const addlByInst = {};
