@@ -794,8 +794,8 @@ export async function getPermissionSet(db, id) {
 
 export async function createPermissionSet(db, id, name, access) {
 	await db.prepare(`
-		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_mail, access_product, access_forecast, access_awards, access_rest_check, access_price_sync, access_events, access_order_conf)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_mail, access_product, access_forecast, access_awards, access_rest_check, access_price_sync, access_events, access_order_conf, access_reports)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`).bind(id, name,
 		access.sheets       ? 1 : 0,
 		access.catalogues   ? 1 : 0,
@@ -811,7 +811,8 @@ export async function createPermissionSet(db, id, name, access) {
 		access.rest_check   ? 1 : 0,
 		access.price_sync   ? 1 : 0,
 		access.events       ? 1 : 0,
-		access.order_conf   ? 1 : 0
+		access.order_conf   ? 1 : 0,
+		access.reports      ? 1 : 0
 	).run();
 }
 
@@ -888,10 +889,10 @@ export async function deletePermissionSet(db, id) {
  */
 export async function getUserPermissions(db, user) {
 	if (user.role === 'admin' || !user.permission_set_id) {
-		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true };
+		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true };
 	}
 	const ps = await getPermissionSet(db, user.permission_set_id);
-	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true };
+	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true };
 	return {
 		sheets:       !!ps.access_sheets,
 		catalogues:   !!ps.access_catalogues,
@@ -908,6 +909,7 @@ export async function getUserPermissions(db, user) {
 		price_sync:   !!ps.access_price_sync,
 		events:       !!ps.access_events,
 		order_conf:   !!ps.access_order_conf,
+		reports:      !!ps.access_reports,
 	};
 }
 
@@ -1171,4 +1173,74 @@ export async function getContactSheetHistory(db, campaignId) {
     )
   `).bind(campaignId).all();
   return (rows.results ?? []).map(r => `${r.contact_id}:${r.sheet_id}`);
+}
+
+// ── Custom reports ───────────────────────────────────────────────────────────
+function reportToken() {
+	const b = crypto.getRandomValues(new Uint8Array(18));
+	let s = '';
+	for (const x of b) s += String.fromCharCode(x);
+	return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export async function listReports(db) {
+	const rows = await db.prepare(
+		`SELECT id, name, metric, share_token, updated_at,
+		        (SELECT COUNT(*) FROM report_rule r WHERE r.report_id = report.id) AS rule_count
+		 FROM report ORDER BY updated_at DESC`
+	).all();
+	return rows.results ?? [];
+}
+
+export async function getReport(db, id) {
+	const r = await db.prepare('SELECT * FROM report WHERE id = ?').bind(id).first();
+	if (!r) return null;
+	const rules = (await db.prepare('SELECT id, action, kind, value, sort FROM report_rule WHERE report_id = ? ORDER BY sort, rowid').bind(id).all()).results ?? [];
+	return { ...r, rules };
+}
+
+export async function getReportByToken(db, token) {
+	const r = await db.prepare('SELECT * FROM report WHERE share_token = ?').bind(token).first();
+	if (!r) return null;
+	const rules = (await db.prepare('SELECT action, kind, value FROM report_rule WHERE report_id = ? ORDER BY sort, rowid').bind(r.id).all()).results ?? [];
+	return { ...r, rules };
+}
+
+export async function createReport(db, { name, metric, createdBy } = {}) {
+	const id = crypto.randomUUID();
+	await db.prepare('INSERT INTO report (id, name, metric, share_token, created_by) VALUES (?, ?, ?, ?, ?)')
+		.bind(id, name || 'Untitled report', metric || 'both', reportToken(), createdBy ?? null).run();
+	return id;
+}
+
+export async function updateReport(db, id, patch) {
+	const fields = [], values = [];
+	for (const k of ['name', 'metric']) if (k in patch) { fields.push(`${k} = ?`); values.push(patch[k]); }
+	fields.push('updated_at = unixepoch()');
+	values.push(id);
+	await db.prepare(`UPDATE report SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+
+export async function setReportRules(db, id, rules) {
+	const valid = (rules ?? []).filter((r) => r && r.action && r.kind && String(r.value ?? '').trim());
+	const stmts = [db.prepare('DELETE FROM report_rule WHERE report_id = ?').bind(id)];
+	valid.forEach((r, i) => stmts.push(
+		db.prepare('INSERT INTO report_rule (id, report_id, action, kind, value, sort) VALUES (?, ?, ?, ?, ?, ?)')
+			.bind(crypto.randomUUID(), id, r.action, r.kind, String(r.value).trim(), i)
+	));
+	stmts.push(db.prepare('UPDATE report SET updated_at = unixepoch() WHERE id = ?').bind(id));
+	await db.batch(stmts);
+}
+
+export async function deleteReport(db, id) {
+	await db.batch([
+		db.prepare('DELETE FROM report_rule WHERE report_id = ?').bind(id),
+		db.prepare('DELETE FROM report WHERE id = ?').bind(id),
+	]);
+}
+
+export async function rotateReportToken(db, id) {
+	const t = reportToken();
+	await db.prepare('UPDATE report SET share_token = ? WHERE id = ?').bind(t, id).run();
+	return t;
 }

@@ -41,6 +41,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/orders'))                      return 'orders';
 	if (pathname.startsWith('/product'))                     return 'product';
 	if (pathname.startsWith('/forecast'))                    return 'forecast';
+	if (pathname.startsWith('/reports'))                     return 'reports';
 	if (pathname.startsWith('/awards'))                      return 'awards';
 	if (pathname.startsWith('/events'))                      return 'events';
 	return null;
@@ -55,6 +56,7 @@ export async function load({ cookies, url, platform }) {
 	if (url.pathname.startsWith('/planograms/share/')) return { isDev };
 	if (url.pathname.startsWith('/events/share/')) return { isDev }; // public venue event page (token-gated)
 	if (url.pathname.startsWith('/events/guru/')) return { isDev };  // public guru proposal page (token-gated)
+	if (url.pathname.startsWith('/reports/share/')) return { isDev }; // public shared report (token-gated)
 	if (url.pathname.startsWith('/auth/')) return { isDev };
 
 	const token  = cookies.get('session');
