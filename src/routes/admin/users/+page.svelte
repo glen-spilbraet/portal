@@ -334,7 +334,7 @@
 	}
 	.name-cell-input:hover { background: #F4F4F5; }
 	.name-cell-input:focus { border-color: #F57832; background: white; box-shadow: 0 0 0 3px rgba(245,120,50,0.10); }
-	.send-from-input { width: 170px; }
+	.send-from-input { width: 150px; }
 
 	.role-select {
 		padding: 9px 12px;
@@ -359,19 +359,20 @@
 		background: white;
 		border: 1px solid var(--border);
 		border-radius: 14px;
-		overflow: hidden;
+		overflow-x: auto;
 	}
 	.table { width: 100%; border-collapse: collapse; }
 	.table thead tr { border-bottom: 1px solid var(--border); }
 	.table th {
-		padding: 11px 20px;
+		padding: 11px 14px;
 		font-size: 12px; font-weight: 700; color: #a0998a;
 		text-align: left; text-transform: uppercase; letter-spacing: 0.05em;
+		white-space: nowrap;
 	}
 	.table tbody tr { border-bottom: 1px solid #f5f3ef; transition: background 0.1s; }
 	.table tbody tr:last-child { border-bottom: none; }
 	.table tbody tr:hover { background: #fdfcfa; }
-	.table td { padding: 13px 20px; font-size: 14px; color: #3a3228; vertical-align: middle; }
+	.table td { padding: 12px 14px; font-size: 14px; color: #3a3228; vertical-align: middle; }
 
 	.email-cell { display: flex; align-items: center; gap: 10px; }
 	.avatar {
