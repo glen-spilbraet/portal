@@ -50,7 +50,7 @@
 		const key = JSON.stringify({ metric, rules });
 		if (key === lastKey) return;
 		lastKey = key;
-		const t = setTimeout(refreshPreview, 450);
+		const t = setTimeout(refreshPreview, 300);
 		return () => clearTimeout(t);
 	});
 	async function refreshPreview() {
