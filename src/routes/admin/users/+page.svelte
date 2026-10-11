@@ -5,6 +5,16 @@
 	let { data } = $props();
 
 	let users = $state(data.users);
+	// Group users by department (declared order), with "No department" last.
+	const grouped = $derived.by(() => {
+		const by = new Map();
+		for (const u of users) { const d = u.department || null; if (!by.has(d)) by.set(d, []); by.get(d).push(u); }
+		const out = [];
+		for (const d of DEPARTMENTS) if (by.has(d)) out.push({ dept: d, users: by.get(d) });
+		for (const [d, us] of by) if (d && !DEPARTMENTS.includes(d)) out.push({ dept: d, users: us }); // legacy values
+		if (by.has(null)) out.push({ dept: null, users: by.get(null) });
+		return out;
+	});
 	let permissionSets = $state(data.permissionSets);
 	let newEmail = $state('');
 	let newFirstName = $state('');
@@ -153,7 +163,9 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each users as u (u.email)}
+					{#each grouped as g (g.dept ?? '__none')}
+						<tr class="group-row"><td colspan="5">{g.dept ?? 'No department'}</td></tr>
+						{#each g.users as u (u.email)}
 						<tr>
 							<td class="user-cell">
 								<div class="avatar">{(u.first_name?.[0] ?? u.email[0]).toUpperCase()}</div>
@@ -185,6 +197,7 @@
 								</div>
 							</td>
 						</tr>
+					{/each}
 					{/each}
 				</tbody>
 			</table>
@@ -352,6 +365,7 @@
 	.table tbody tr:last-child { border-bottom: none; }
 	.table tbody tr:hover { background: #fdfcfa; }
 	.table td { padding: 12px 14px; font-size: 14px; color: #3a3228; vertical-align: middle; }
+	.group-row td { background: #FBF7EF; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #a88b52; padding: 7px 14px; border-bottom: 1px solid var(--border); }
 
 	.email-cell { display: flex; align-items: center; gap: 10px; }
 	.avatar {
