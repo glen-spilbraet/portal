@@ -19,7 +19,7 @@ export async function GET({ url, cookies, platform }) {
 	if (!db) error(500, 'Sales DB unavailable');
 	const q = (url.searchParams.get('q') ?? '').trim();
 	if (q.length < 2) return json([]);
-	return json(await searchLineItemSkus(db, q));
+	return json(await searchLineItemSkus(db, q, url.searchParams.get('publisher')));
 }
 
 // Create a registry publisher (may have no SKU prefix).

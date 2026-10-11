@@ -27,7 +27,7 @@
 		const q = query.trim();
 		if (q.length < 2) { results = []; hi = 0; return; }
 		timer = setTimeout(async () => {
-			const res = await fetch(`/api/admin/publishers?q=${encodeURIComponent(q)}`);
+			const res = await fetch(`/api/admin/publishers?q=${encodeURIComponent(q)}&publisher=${encodeURIComponent(data.name)}`);
 			results = res.ok ? await res.json() : [];
 			hi = 0;
 		}, 160);
@@ -107,6 +107,8 @@
 						<span class="r-name">{r.name || '—'}</span>
 						{#if r.override_pub}
 							<span class="map-pill {r.override_pub === data.name ? 'here' : 'other'}">{r.override_pub === data.name ? '✓ Mapped here' : `Mapped → ${r.override_pub}`}</span>
+						{:else if r.prefix_pub === data.name}
+							<span class="map-pill prefix">✓ Via SKU prefix</span>
 						{:else}
 							<span class="map-pill none">Not mapped</span>
 						{/if}
@@ -192,6 +194,7 @@
 	.map-pill.here { background: #E9F7EC; color: #16a34a; }
 	.map-pill.other { background: #FEF3C7; color: #92400E; }
 	.map-pill.none { background: #F4F4F5; color: #A1A1AA; }
+	.map-pill.prefix { background: #EEF4FF; color: #1D4ED8; }
 	.res.empty { display: block; text-align: center; color: #A1A1AA; cursor: default; }
 
 	.selbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #EAF7EF; border: 1px solid #bbf7d0; border-radius: 12px; padding: 10px 16px; font-size: 14px; color: #166534; margin-bottom: 20px; }

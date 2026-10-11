@@ -62,14 +62,23 @@ export async function getPublisherMappings(db, name) {
  * the line text), so rep-edited titles don't show. Returns the current override
  * (if any) so the UI can warn about swaps.
  */
-export async function searchLineItemSkus(db, q) {
+export async function searchLineItemSkus(db, q, publisher = null) {
 	const term = `%${(q ?? '').trim()}%`;
+	const pub = publisher ?? '';
+	// Publisher implied by the SKU-prefix model (ignores overrides).
+	const prefixPub = `COALESCE((SELECT pp.publisher FROM publisher_prefix pp WHERE pp.prefix = li.sku_prefix), li.sku_prefix)`;
+	const overridePub = `(SELECT publisher FROM product_publisher_override o WHERE o.sku = li.sku)`;
+	// A SKU is "already connected to this publisher" if it's overridden to it, OR
+	// (no override) its prefix already resolves to it — no point mapping those.
+	const alreadyThis = `CASE WHEN ${overridePub} = ? THEN 1 WHEN ${overridePub} IS NULL AND ${prefixPub} = ? THEN 1 ELSE 0 END`;
 	const rows = await db.prepare(
 		`SELECT li.sku,
 		        COALESCE(${catalogName('li.sku')}, MAX(li.name)) AS name,
 		        (${catalogName('li.sku')} IS NOT NULL) AS from_catalog,
 		        MAX(li.sku_prefix) AS prefix,
-		        (SELECT publisher FROM product_publisher_override o WHERE o.sku = li.sku) AS override_pub,
+		        ${prefixPub} AS prefix_pub,
+		        ${overridePub} AS override_pub,
+		        ${alreadyThis} AS already_this,
 		        ROUND(SUM(li.amount_dkk)) AS dkk
 		 FROM deal_line_items li
 		 WHERE li.sku IS NOT NULL AND li.sku != '' AND (
@@ -79,8 +88,8 @@ export async function searchLineItemSkus(db, q) {
 		         WHERE tr3.key = 'product_name' AND tr3.value LIKE ?
 		     )
 		 )
-		 GROUP BY li.sku ORDER BY (override_pub IS NULL) DESC, dkk DESC LIMIT 40`
-	).bind(term, term, term).all();
+		 GROUP BY li.sku ORDER BY already_this ASC, (override_pub IS NULL) DESC, dkk DESC LIMIT 40`
+	).bind(pub, pub, term, term, term).all();
 	return rows.results ?? [];
 }
 
