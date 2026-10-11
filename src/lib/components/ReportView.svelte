@@ -2,6 +2,17 @@
 	import { flagSvg } from '$lib/flags.js';
 	let { data, metric = 'both' } = $props();
 
+	let info = $state(null); // { title, body } shown in the info modal, or null
+	const STORES_INFO = {
+		title: 'About the “Stores” figure',
+		body: [
+			'This counts the distinct customer accounts that bought the product in the period.',
+			'A number lower than last year does not necessarily mean fewer shops carry the product. When a product gets listed with a larger key account, that chain often starts ordering through a single central account instead of each individual store — so several shops can be served through one account.',
+			'In other words, you may actually have gained presence in more shops even though this figure goes down, because the buying has moved to a central account.',
+			'So treat this as a helpful indicator of reach, but keep in mind that central-buying setups can move the number for reasons unrelated to the product’s actual presence in stores.',
+		],
+	};
+
 	const showRevenue = $derived(metric === 'revenue' || metric === 'both');
 	const showUnits = $derived(metric === 'units' || metric === 'both');
 	// When both are available, a toggle swaps which measure the chart/markets/pivot show.
@@ -25,7 +36,7 @@
 
 {#snippet indexChip(cur, prev)}
 	{@const v = idx(cur, prev)}
-	{#if v != null}<span class="idx" class:up={v >= 100} class:down={v < 100}>Index {v}</span>{/if}
+	{#if v != null}<span class="idx" class:up={v >= 100} class:mid={v >= 90 && v < 100} class:down={v < 90}>Index {v}</span>{/if}
 {/snippet}
 
 {#snippet metricIcon(kind)}
@@ -42,8 +53,9 @@
 	</span>
 {/snippet}
 
-{#snippet tile(kind, label, value, prevValue, cur, prev)}
+{#snippet tile(kind, label, value, prevValue, cur, prev, infoText = null)}
 	<div class="tile">
+		{#if infoText}<button class="tile-info" title="More info" aria-label="More info" onclick={() => (info = infoText)}>i</button>{/if}
 		<div class="tile-head">{@render metricIcon(kind)}<span class="tile-k">{label}</span></div>
 		<div class="tile-v">{value}</div>
 		<div class="tile-foot"><span class="was">Last year: {prevValue}</span>{@render indexChip(cur, prev)}</div>
@@ -58,7 +70,7 @@
 					<div class="tip-h">{MONTHS[m.month - 1]}</div>
 					<div class="tip-row"><span class="tdot cur"></span>{data.chart.year}: <b>{fmt(m[key])}</b></div>
 					{#if chartHasPrev}<div class="tip-row"><span class="tdot prev"></span>{data.chart.year - 1}: {fmt(m[keyPrev])}</div>{/if}
-					{#if idx(m[key], m[keyPrev]) != null}<div class="tip-idx" class:up={idx(m[key], m[keyPrev]) >= 100} class:down={idx(m[key], m[keyPrev]) < 100}>Index {idx(m[key], m[keyPrev])}</div>{/if}
+					{#if idx(m[key], m[keyPrev]) != null}<div class="tip-idx" class:up={idx(m[key], m[keyPrev]) >= 100} class:mid={idx(m[key], m[keyPrev]) >= 90 && idx(m[key], m[keyPrev]) < 100} class:down={idx(m[key], m[keyPrev]) < 90}>Index {idx(m[key], m[keyPrev])}</div>{/if}
 				</div>
 				<div class="pair">
 					{#if chartHasPrev}<div class="bar prev" style="height:{Math.max(1, (m[keyPrev] / maxV) * 100)}%"></div>{/if}
@@ -83,7 +95,7 @@
 		{#if showRevenue}{@render tile('rev', 'Revenue', money(data.totals.revenue), money(data.totals.revenuePrev), data.totals.revenue, data.totals.revenuePrev)}{/if}
 		{#if showUnits}{@render tile('units', 'Units sold', units(data.totals.units), units(data.totals.unitsPrev), data.totals.units, data.totals.unitsPrev)}{/if}
 		{@render tile('skus', 'SKUs', units(data.totals.skus), units(data.totals.skusPrev), data.totals.skus, data.totals.skusPrev)}
-		{@render tile('stores', 'Stores', units(data.totals.stores), units(data.totals.storesPrev), data.totals.stores, data.totals.storesPrev)}
+		{@render tile('stores', 'Stores', units(data.totals.stores), units(data.totals.storesPrev), data.totals.stores, data.totals.storesPrev, STORES_INFO)}
 	</div>
 
 	<!-- By market: four widgets side by side -->
@@ -143,6 +155,15 @@
 	</section>
 {/if}
 
+{#if info}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="info-backdrop" onclick={() => (info = null)}></div>
+	<div class="info-modal">
+		<div class="info-head"><h2>{info.title}</h2><button class="x" onclick={() => (info = null)} aria-label="Close">✕</button></div>
+		<div class="info-body">{#each info.body as p}<p>{p}</p>{/each}</div>
+	</div>
+{/if}
+
 <style>
 	.muted { color: #9a9a9a; font-size: 13px; }
 	.measure { display: inline-flex; border: 1px solid #ececec; border-radius: 9px; overflow: hidden; background: #fff; margin-bottom: 14px; }
@@ -150,7 +171,18 @@
 	.measure button + button { border-left: 1px solid #ececec; }
 	.measure button.active { background: #F57832; color: #fff; }
 	.tiles { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-	.tile { flex: 1; min-width: 160px; background: #fff; border: none; border-radius: 16px; padding: 15px 16px; display: flex; flex-direction: column; box-shadow: 0 12px 32px rgba(60, 48, 25, 0.08); }
+	.tile { position: relative; flex: 1; min-width: 160px; background: #fff; border: none; border-radius: 16px; padding: 15px 16px; display: flex; flex-direction: column; box-shadow: 0 12px 32px rgba(60, 48, 25, 0.08); }
+	.tile-info { position: absolute; top: 12px; right: 12px; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid #d9d2c4; background: #fff; color: #a1917a; font-size: 11px; font-weight: 800; font-style: italic; font-family: Georgia, serif; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+	.tile-info:hover { border-color: #F57832; color: #F57832; }
+
+	.info-backdrop { position: fixed; inset: 0; background: rgba(40,25,0,0.35); z-index: 300; }
+	.info-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 310; width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(50,30,0,0.28); }
+	.info-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #eee; }
+	.info-head h2 { font-size: 15px; font-weight: 800; margin: 0; color: #18181B; }
+	.info-head .x { background: none; border: none; font-size: 15px; color: #8A7550; cursor: pointer; }
+	.info-body { padding: 16px 20px; }
+	.info-body p { font-size: 13.5px; color: #3a3228; line-height: 1.6; margin: 0 0 10px; }
+	.info-body p:last-child { margin-bottom: 0; }
 	.tile-head { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
 	.tile-k { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #a1a1aa; }
 	.tile-v { font-size: 22px; font-weight: 800; color: #18181B; letter-spacing: -0.3px; }
@@ -164,6 +196,7 @@
 	.metric-ico.stores { background: #E7F6EC; color: #16794C; }
 	.idx { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 100px; background: #F4F4F5; color: #71717A; white-space: nowrap; }
 	.idx.up { background: #E7F6EC; color: #16794C; }
+	.idx.mid { background: #FDF0E0; color: #B4690E; }
 	.idx.down { background: #FDECEA; color: #C0392B; }
 
 	/* Market widgets */
@@ -197,7 +230,7 @@
 	.tdot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 	.tdot.cur { background: #F57832; } .tdot.prev { background: #E6DCC6; }
 	.tip-idx { margin-top: 3px; font-weight: 700; }
-	.tip-idx.up { color: #86efac; } .tip-idx.down { color: #fca5a5; }
+	.tip-idx.up { color: #86efac; } .tip-idx.mid { color: #fcd34d; } .tip-idx.down { color: #fca5a5; }
 	.pair { display: flex; align-items: flex-end; justify-content: center; gap: 3px; width: 100%; height: 100%; }
 	.bar { width: 100%; max-width: 16px; border-radius: 3px 3px 0 0; transition: height 0.2s; }
 	.bar.cur { background: #F57832; }
