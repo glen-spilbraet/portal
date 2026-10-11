@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false });
+	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false });
 	let creating = $state(false);
 	let createError = $state('');
 	let showCreate = $state(false);
@@ -33,6 +33,7 @@
 		{ key: 'events',      label: 'Events' },
 		{ key: 'order_conf',  label: 'Order Confirmations' },
 		{ key: 'reports',     label: 'Reports' },
+		{ key: 'knowledge',   label: 'Knowledge' },
 	];
 
 	// Grouped by the app's nav structure, for an easier overview.
@@ -44,6 +45,7 @@
 		{ label: 'Events', keys: ['events'] },
 		{ label: 'Data',   keys: ['data'] },
 		{ label: 'Mail',   keys: ['mail'] },
+		{ label: 'Knowledge', keys: ['knowledge'] },
 	];
 
 	async function createSet() {
@@ -72,6 +74,7 @@
 					access_events:      newAccess.events,
 					access_order_conf:  newAccess.order_conf,
 					access_reports:     newAccess.reports,
+					access_knowledge:   newAccess.knowledge,
 				})
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
@@ -95,9 +98,10 @@
 				access_events:      newAccess.events       ? 1 : 0,
 				access_order_conf:  newAccess.order_conf    ? 1 : 0,
 				access_reports:     newAccess.reports     ? 1 : 0,
+				access_knowledge:   newAccess.knowledge   ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false };
+			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false };
 			showCreate = false;
 		} catch (e) {
 			createError = e.message;
@@ -125,6 +129,7 @@
 			access_events:      !!set.access_events,
 			access_order_conf:  !!set.access_order_conf,
 			access_reports:     !!set.access_reports,
+			access_knowledge:   !!set.access_knowledge,
 		};
 	}
 
@@ -159,6 +164,7 @@
 					access_events:      e.access_events,
 					access_order_conf:  e.access_order_conf,
 					access_reports:     e.access_reports,
+					access_knowledge:   e.access_knowledge,
 				})
 			});
 			if (!res.ok) throw new Error('Failed to save');
@@ -181,6 +187,7 @@
 				access_events:      e.access_events      ? 1 : 0,
 				access_order_conf:  e.access_order_conf  ? 1 : 0,
 				access_reports:     e.access_reports  ? 1 : 0,
+				access_knowledge:   e.access_knowledge  ? 1 : 0,
 			});
 			cancelEdit(id);
 		} catch (err) {

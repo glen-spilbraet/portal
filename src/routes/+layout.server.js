@@ -42,6 +42,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/product'))                     return 'product';
 	if (pathname.startsWith('/forecast'))                    return 'forecast';
 	if (pathname.startsWith('/reports'))                     return 'reports';
+	if (pathname.startsWith('/knowledge'))                   return 'knowledge';
 	if (pathname.startsWith('/awards'))                      return 'awards';
 	if (pathname.startsWith('/events'))                      return 'events';
 	return null;

@@ -36,6 +36,7 @@ export async function PUT({ params, request, cookies, platform }) {
 	if (typeof body.access_events      === 'boolean') patch.access_events      = body.access_events      ? 1 : 0;
 	if (typeof body.access_order_conf  === 'boolean') patch.access_order_conf  = body.access_order_conf  ? 1 : 0;
 	if (typeof body.access_reports     === 'boolean') patch.access_reports     = body.access_reports     ? 1 : 0;
+	if (typeof body.access_knowledge   === 'boolean') patch.access_knowledge   = body.access_knowledge   ? 1 : 0;
 
 	if (Object.keys(patch).length === 0) error(400, 'Nothing to update');
 	await updatePermissionSet(db, params.id, patch);

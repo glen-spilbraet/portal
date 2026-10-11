@@ -33,6 +33,9 @@ export async function PATCH({ params, request, cookies, platform }) {
 	if ('send_from' in body) {
 		patch.send_from = typeof body.send_from === 'string' ? body.send_from.trim() || null : null;
 	}
+	if ('department' in body) {
+		patch.department = typeof body.department === 'string' ? body.department.trim() || null : null;
+	}
 	if (Object.keys(patch).length === 0) error(400, 'Nothing to update');
 	await updateAllowedUser(db, targetEmail, patch);
 	return json({ ok: true });

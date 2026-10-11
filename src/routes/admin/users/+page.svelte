@@ -1,5 +1,6 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
+	import { DEPARTMENTS } from '$lib/departments.js';
 
 	let { data } = $props();
 
@@ -48,7 +49,7 @@
 
 	function toggleMenu(email, e) { e.stopPropagation(); menuFor = menuFor === email ? '' : email; }
 	function openEdit(u) {
-		editForm = { email: u.email, first_name: u.first_name ?? '', send_from: u.send_from ?? '', role: u.role, permission_set_id: u.permission_set_id ?? '' };
+		editForm = { email: u.email, first_name: u.first_name ?? '', send_from: u.send_from ?? '', role: u.role, permission_set_id: u.permission_set_id ?? '', department: u.department ?? '' };
 		menuFor = ''; error = ''; editOpen = true;
 	}
 	const isSelf = (email) => email === data.user?.email;
@@ -62,6 +63,7 @@
 				send_from: editForm.send_from.trim() || null,
 				role: editForm.role,
 				permission_set_id: editForm.permission_set_id || null,
+				department: editForm.department || null,
 			};
 			const res = await fetch(`/api/admin/users/${encodeURIComponent(editForm.email)}`, {
 				method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -204,6 +206,12 @@
 			<p class="edit-email">{editForm.email}</p>
 			<label class="fld"><span>First name</span><input type="text" bind:value={editForm.first_name} placeholder="—" /></label>
 			<label class="fld"><span>Send from</span><input type="email" bind:value={editForm.send_from} placeholder={editForm.email} /></label>
+			<label class="fld"><span>Department</span>
+				<select bind:value={editForm.department}>
+					<option value="">— None —</option>
+					{#each DEPARTMENTS as d}<option value={d}>{d}</option>{/each}
+				</select>
+			</label>
 			<label class="fld"><span>Role</span>
 				<select bind:value={editForm.role} disabled={isSelf(editForm.email)}>
 					<option value="user">User</option>

@@ -753,12 +753,12 @@ export async function getPlaceholdersBySku(db, sku) {
 // ── Allowed users ──────────────────────────────────────────────────────────────
 
 export async function listAllowedUsers(db) {
-	const rows = await db.prepare('SELECT email, role, name, first_name, added_at, permission_set_id, send_from FROM allowed_users ORDER BY added_at ASC').all();
+	const rows = await db.prepare('SELECT email, role, name, first_name, added_at, permission_set_id, send_from, department FROM allowed_users ORDER BY added_at ASC').all();
 	return rows.results;
 }
 
 export async function getAllowedUser(db, email) {
-	return db.prepare('SELECT email, role, name, first_name, permission_set_id, send_from FROM allowed_users WHERE email = ?').bind(email).first();
+	return db.prepare('SELECT email, role, name, first_name, permission_set_id, send_from, department FROM allowed_users WHERE email = ?').bind(email).first();
 }
 
 export async function addAllowedUser(db, email, role = 'user', name = null, permissionSetId = null, firstName = null) {
@@ -794,8 +794,8 @@ export async function getPermissionSet(db, id) {
 
 export async function createPermissionSet(db, id, name, access) {
 	await db.prepare(`
-		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_mail, access_product, access_forecast, access_awards, access_rest_check, access_price_sync, access_events, access_order_conf, access_reports)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_mail, access_product, access_forecast, access_awards, access_rest_check, access_price_sync, access_events, access_order_conf, access_reports, access_knowledge)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`).bind(id, name,
 		access.sheets       ? 1 : 0,
 		access.catalogues   ? 1 : 0,
@@ -812,7 +812,8 @@ export async function createPermissionSet(db, id, name, access) {
 		access.price_sync   ? 1 : 0,
 		access.events       ? 1 : 0,
 		access.order_conf   ? 1 : 0,
-		access.reports      ? 1 : 0
+		access.reports      ? 1 : 0,
+		access.knowledge    ? 1 : 0
 	).run();
 }
 
@@ -889,10 +890,10 @@ export async function deletePermissionSet(db, id) {
  */
 export async function getUserPermissions(db, user) {
 	if (user.role === 'admin' || !user.permission_set_id) {
-		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true };
+		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true };
 	}
 	const ps = await getPermissionSet(db, user.permission_set_id);
-	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true };
+	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true };
 	return {
 		sheets:       !!ps.access_sheets,
 		catalogues:   !!ps.access_catalogues,
@@ -910,6 +911,7 @@ export async function getUserPermissions(db, user) {
 		events:       !!ps.access_events,
 		order_conf:   !!ps.access_order_conf,
 		reports:      !!ps.access_reports,
+		knowledge:    !!ps.access_knowledge,
 	};
 }
 
@@ -1243,4 +1245,119 @@ export async function rotateReportToken(db, id) {
 	const t = reportToken();
 	await db.prepare('UPDATE report SET share_token = ? WHERE id = ?').bind(t, id).run();
 	return t;
+}
+
+// ── Company knowledge (meetings etc.) ────────────────────────────────────────
+export { DEPARTMENTS } from './departments.js';
+
+/** WHERE fragment (+ binds) limiting knowledge to what a user may see. */
+function knowledgeVisibleWhere(user) {
+	if (user?.role === 'admin') return { sql: '1=1', binds: [] };
+	return {
+		sql: `(ki.visibility = 'all_staff'
+			OR EXISTS (SELECT 1 FROM knowledge_participant p WHERE p.item_id = ki.id AND p.user_email = ?)
+			OR EXISTS (SELECT 1 FROM knowledge_department d WHERE d.item_id = ki.id AND d.department = ?))`,
+		binds: [user?.email ?? '', user?.department ?? '\u0000'],
+	};
+}
+
+function parseItem(r) {
+	const j = (v) => { try { return v ? JSON.parse(v) : []; } catch { return []; } };
+	return { ...r, decisions: j(r.decisions), action_items: j(r.action_items), topics: j(r.topics) };
+}
+
+/** List knowledge the user may see, with optional {q, type, team} filters. */
+export async function listKnowledge(db, user, { q, type, team } = {}) {
+	const vis = knowledgeVisibleWhere(user);
+	const where = [vis.sql], binds = [...vis.binds];
+	if (type) { where.push('ki.type = ?'); binds.push(type); }
+	if (team) { where.push('EXISTS (SELECT 1 FROM knowledge_department d WHERE d.item_id = ki.id AND d.department = ?)'); binds.push(team); }
+	if (q && q.trim()) {
+		const t = `%${q.trim().toLowerCase()}%`;
+		where.push(`(lower(COALESCE(ki.title,'')) LIKE ? OR lower(COALESCE(ki.tldr,'')) LIKE ? OR lower(COALESCE(ki.decisions,'')) LIKE ? OR lower(COALESCE(ki.topics,'')) LIKE ? OR lower(COALESCE(ki.transcript,'')) LIKE ?)`);
+		binds.push(t, t, t, t, t);
+	}
+	const rows = (await db.prepare(
+		`SELECT ki.id, ki.type, ki.title, ki.happened_on, ki.tldr, ki.visibility, ki.created_by, ki.created_at,
+		        (SELECT GROUP_CONCAT(d.department, ', ') FROM knowledge_department d WHERE d.item_id = ki.id) AS teams,
+		        (SELECT COUNT(*) FROM knowledge_participant p WHERE p.item_id = ki.id) AS participant_count
+		 FROM knowledge_item ki WHERE ${where.join(' AND ')}
+		 ORDER BY ki.happened_on DESC, ki.created_at DESC LIMIT 200`
+	).bind(...binds).all()).results ?? [];
+	return rows;
+}
+
+/** Admin overview — every item regardless of visibility. */
+export async function listAllKnowledge(db) {
+	const rows = (await db.prepare(
+		`SELECT ki.id, ki.type, ki.title, ki.happened_on, ki.visibility, ki.created_by, ki.created_at,
+		        (SELECT GROUP_CONCAT(d.department, ', ') FROM knowledge_department d WHERE d.item_id = ki.id) AS teams,
+		        (SELECT COUNT(*) FROM knowledge_participant p WHERE p.item_id = ki.id) AS participant_count
+		 FROM knowledge_item ki ORDER BY ki.created_at DESC LIMIT 500`
+	).all()).results ?? [];
+	return rows;
+}
+
+/** One item with participants + teams. `user`=null skips the visibility check (admin/server). */
+export async function getKnowledge(db, id, user = undefined) {
+	const item = await db.prepare('SELECT * FROM knowledge_item WHERE id = ?').bind(id).first();
+	if (!item) return null;
+	const participants = (await db.prepare('SELECT user_email, external_name FROM knowledge_participant WHERE item_id = ?').bind(id).all()).results ?? [];
+	const teams = ((await db.prepare('SELECT department FROM knowledge_department WHERE item_id = ?').bind(id).all()).results ?? []).map((r) => r.department);
+	if (user !== undefined && user?.role !== 'admin') {
+		const emails = participants.map((p) => p.user_email).filter(Boolean);
+		const ok = item.visibility === 'all_staff' || emails.includes(user?.email) || (user?.department && teams.includes(user.department));
+		if (!ok) return null;
+	}
+	return { ...parseItem(item), participants, teams };
+}
+
+const KN_COLS = ['type', 'title', 'happened_on', 'source', 'transcript', 'tldr', 'decisions', 'action_items', 'topics', 'visibility'];
+const asJson = (v) => (v == null ? null : JSON.stringify(v));
+
+export async function createKnowledge(db, d, createdBy) {
+	const id = crypto.randomUUID();
+	await db.prepare(`INSERT INTO knowledge_item (id, ${KN_COLS.join(', ')}, created_by) VALUES (?, ${KN_COLS.map(() => '?').join(', ')}, ?)`)
+		.bind(id,
+			d.type || 'meeting', d.title ?? null, d.happened_on ?? null, d.source ?? null, d.transcript ?? null,
+			d.tldr ?? null, asJson(d.decisions), asJson(d.action_items), asJson(d.topics),
+			d.visibility === 'all_staff' ? 'all_staff' : 'participants', createdBy ?? null
+		).run();
+	await setKnowledgeLinks(db, id, d.participants, d.teams);
+	return id;
+}
+
+export async function updateKnowledge(db, id, d) {
+	const fields = [], values = [];
+	for (const k of KN_COLS) if (k in d) {
+		fields.push(`${k} = ?`);
+		values.push(['decisions', 'action_items', 'topics'].includes(k) ? asJson(d[k]) : d[k]);
+	}
+	if (fields.length) { values.push(id); await db.prepare(`UPDATE knowledge_item SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run(); }
+	if ('participants' in d || 'teams' in d) await setKnowledgeLinks(db, id, d.participants, d.teams);
+}
+
+async function setKnowledgeLinks(db, id, participants, teams) {
+	const stmts = [];
+	if (participants !== undefined) {
+		stmts.push(db.prepare('DELETE FROM knowledge_participant WHERE item_id = ?').bind(id));
+		for (const p of participants ?? []) {
+			const email = typeof p === 'string' ? (p.includes('@') ? p : null) : (p.user_email ?? null);
+			const name = typeof p === 'string' ? (p.includes('@') ? null : p) : (p.external_name ?? null);
+			if (email || name) stmts.push(db.prepare('INSERT INTO knowledge_participant (id, item_id, user_email, external_name) VALUES (?,?,?,?)').bind(crypto.randomUUID(), id, email, name));
+		}
+	}
+	if (teams !== undefined) {
+		stmts.push(db.prepare('DELETE FROM knowledge_department WHERE item_id = ?').bind(id));
+		for (const t of [...new Set((teams ?? []).filter(Boolean))]) stmts.push(db.prepare('INSERT INTO knowledge_department (item_id, department) VALUES (?,?)').bind(id, t));
+	}
+	if (stmts.length) await db.batch(stmts);
+}
+
+export async function deleteKnowledge(db, id) {
+	await db.batch([
+		db.prepare('DELETE FROM knowledge_participant WHERE item_id = ?').bind(id),
+		db.prepare('DELETE FROM knowledge_department WHERE item_id = ?').bind(id),
+		db.prepare('DELETE FROM knowledge_item WHERE id = ?').bind(id),
+	]);
 }

@@ -2,7 +2,7 @@
 	let { active = 'sheets', user = null } = $props();
 
 	// Permissions — default to full access so the nav never breaks if not provided
-	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true });
+	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true });
 
 	const salesItems = $derived([
 		p.sheets       && { href: '/sheets',       label: 'Sheets',      key: 'sheets' },
@@ -34,6 +34,7 @@
 	const showStats = $derived(statsItems.length > 0);
 	const statsActive = $derived(active === 'stats' || active === 'product' || active === 'forecast' || active === 'reports');
 	const showData  = $derived(p.data);
+	const showKnowledge = $derived(!!p.knowledge);
 	const showMail  = $derived(!!p.mail);
 	const showOrders = $derived(!!p.orders || !!p.rest_check || !!p.price_sync || !!p.order_conf);
 
@@ -209,6 +210,9 @@
 				{/if}
 
 				<!-- Data (direct link) -->
+				{#if showKnowledge}
+					<a href="/knowledge" class="nav-link" class:active={active === 'knowledge'}>Knowledge</a>
+				{/if}
 				{#if showData}
 					<a href="/data" class="nav-link" class:active={active === 'data'}>Data</a>
 				{/if}

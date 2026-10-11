@@ -17,7 +17,7 @@ import { getProductPress, listPress, listMediaOutlets, getMediaDetail } from '$l
 import { runSalesQuery, salesMarketTotals, forecastAccuracy, salesSyncMeta, salesSchema } from '$lib/server/mcpSales.js';
 import { HUBSPOT_SCHEMA_DOC, hubspotSearch, hubspotGet, hubspotImportDeals } from '$lib/server/mcpHubspot.js';
 import { validateAccessToken } from '$lib/server/mcpOauth.js';
-import { getAllowedUser, getUserPermissions } from '$lib/db.js';
+import { getAllowedUser, getUserPermissions, listKnowledge, getKnowledge, createKnowledge } from '$lib/db.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_INFO = { name: 'spilbraet-portal', version: '1.2.0' };
@@ -239,6 +239,45 @@ const TOOLS = [
 			},
 			required: ['deals']
 		}
+	},
+	{
+		name: 'search_knowledge',
+		description: 'Search the company knowledge base (meeting transcripts & notes) for decisions, discussions and context. Use this whenever the user asks what was decided/discussed/agreed, or for background on a topic, customer, product or project. Returns matching items (title, date, TL;DR, teams) — then call get_knowledge for the full notes + transcript. Results are already filtered to what the signed-in user is allowed to see.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				query: { type: 'string', description: 'Free-text search over titles, summaries, decisions, topics and transcripts.' },
+				type: { type: 'string', description: "Filter by item type, e.g. 'meeting'." },
+				team: { type: 'string', description: 'Filter by team tag (Marketing, Purchase, Sales, Customer Service).' }
+			}
+		}
+	},
+	{
+		name: 'get_knowledge',
+		description: 'Fetch one knowledge item by id: full structured notes (TL;DR, decisions, action items, topics), participants, teams and the full transcript. Cite the title + date when you use it.',
+		inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }
+	},
+	{
+		name: 'create_knowledge',
+		description: 'Add an item to the company knowledge base (e.g. a transcribed meeting). Provide the transcript and, ideally, a structured summary you generate: tldr, decisions[], action_items[{text,owner}], topics[]. Set participants (emails for internal people, names for externals), teams[] (Marketing/Purchase/Sales/Customer Service), and visibility ("participants" default, or "all_staff"). Use this to save meetings so they become searchable later.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				type: { type: 'string', description: "Default 'meeting'." },
+				title: { type: 'string' },
+				date: { type: 'string', description: 'YYYY-MM-DD the meeting happened.' },
+				participants: { type: 'array', items: { type: 'string' }, description: 'Emails (internal) or names (external).' },
+				teams: { type: 'array', items: { type: 'string' }, description: 'Team tags granting access.' },
+				visibility: { type: 'string', enum: ['participants', 'all_staff'] },
+				transcript: { type: 'string' },
+				tldr: { type: 'string' },
+				decisions: { type: 'array', items: { type: 'string' } },
+				action_items: { type: 'array', items: { type: 'object' } },
+				topics: { type: 'array', items: { type: 'string' } },
+				source: { type: 'string' }
+			},
+			required: ['title']
+		}
 	}
 ];
 
@@ -254,8 +293,10 @@ const AWARDS_TOOLS = new Set(['get_product_press', 'list_press', 'list_media', '
 const SALES_TOOLS = new Set(['sales_schema', 'sales_query', 'sales_market_totals', 'forecast_accuracy', 'sales_sync_meta']);
 // Live HubSpot tools — admin-only, same as sales.
 const HUBSPOT_TOOLS = new Set(['hubspot_schema', 'hubspot_search', 'hubspot_get', 'hubspot_import_deals']);
+const KNOWLEDGE_TOOLS = new Set(['search_knowledge', 'get_knowledge', 'create_knowledge']);
 function toolAllowed(name, { perms, isAdmin }) {
 	if (SALES_TOOLS.has(name) || HUBSPOT_TOOLS.has(name)) return perms === null || isAdmin; // shared key or admin
+	if (KNOWLEDGE_TOOLS.has(name)) return perms === null || isAdmin || !!perms.knowledge;
 	if (!perms) return true;
 	if (SHEET_TOOLS.has(name)) return !!perms.sheets;
 	if (AWARDS_TOOLS.has(name)) return !!perms.awards;
@@ -351,6 +392,29 @@ async function callTool(name, args, ctx) {
 			const out = await hubspotImportDeals(token, args ?? {});
 			if (out.error) return { ...textContent(out.error), isError: true };
 			return textContent(out);
+		}
+	}
+
+	if (KNOWLEDGE_TOOLS.has(name)) {
+		if (!db) return { ...textContent('Database unavailable.'), isError: true };
+		// Visibility is scoped to the signed-in user (shared key → admin/full).
+		const user = ctx.perms === null ? { role: 'admin' } : (ctx.email ? await getAllowedUser(db, ctx.email) : null);
+		if (name === 'search_knowledge') {
+			const rows = await listKnowledge(db, user, { q: args?.query, type: args?.type, team: args?.team });
+			return textContent({ count: rows.length, results: rows.map((r) => ({ id: r.id, type: r.type, title: r.title, date: r.happened_on, tldr: r.tldr, teams: r.teams, participants: r.participant_count, visibility: r.visibility })) });
+		}
+		if (name === 'get_knowledge') {
+			const item = await getKnowledge(db, String(args?.id ?? ''), user);
+			if (!item) return { ...textContent('Not found or not visible to you.'), isError: true };
+			return textContent({ id: item.id, type: item.type, title: item.title, date: item.happened_on, tldr: item.tldr, decisions: item.decisions, action_items: item.action_items, topics: item.topics, teams: item.teams, participants: item.participants, transcript: item.transcript });
+		}
+		if (name === 'create_knowledge') {
+			const id = await createKnowledge(db, {
+				type: args?.type || 'meeting', title: args?.title, happened_on: args?.date, source: args?.source || 'cowork',
+				transcript: args?.transcript, tldr: args?.tldr, decisions: args?.decisions, action_items: args?.action_items, topics: args?.topics,
+				visibility: args?.visibility, participants: args?.participants, teams: args?.teams,
+			}, ctx.email ?? 'mcp');
+			return textContent({ ok: true, id });
 		}
 	}
 	return { ...textContent(`Unknown tool: ${name}`), isError: true };
