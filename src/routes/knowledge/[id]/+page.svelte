@@ -33,8 +33,10 @@
 		</div>
 
 		<div class="chips">
+			{#each i.customer_groups ?? [] as c}<span class="tag customer">{c}</span>{/each}
 			{#each i.teams as t}<span class="tag">{t}</span>{/each}
 			{#each i.participants as p}<span class="tag person">{pName(p)}</span>{/each}
+			{#each i.tags ?? [] as t}<span class="tag label">#{t}</span>{/each}
 		</div>
 
 		{#if i.tldr}<section class="block"><h3>Summary</h3><p class="tldr">{i.tldr}</p></section>{/if}
@@ -73,6 +75,8 @@
 	.tag { font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 100px; background: #F4EEDF; color: #8a6a2a; }
 	.tag.person { background: #EEF4FF; color: #1D4ED8; }
 	.tag.topic { background: #F4F4F5; color: #52525B; }
+	.tag.customer { background: #FDEEE4; color: #B15A12; }
+	.tag.label { background: #EFEDFB; color: #6D5BD0; }
 	.block { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin-top: 14px; box-shadow: var(--shadow); }
 	.block h3 { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #8a7550; margin: 0 0 10px; }
 	.tldr { font-size: 14px; color: #3a3228; line-height: 1.6; margin: 0; }

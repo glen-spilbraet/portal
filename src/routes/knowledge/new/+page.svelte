@@ -4,7 +4,7 @@
 
 	let { data } = $props();
 	const today = new Date().toISOString().slice(0, 10);
-	let f = $state({ title: '', happened_on: today, visibility: 'participants', participants: '', transcript: '', tldr: '', decisions: '', topics: '' });
+	let f = $state({ type: 'meeting', title: '', happened_on: today, visibility: 'participants', participants: '', transcript: '', tldr: '', decisions: '', topics: '', tags: '', customer_groups: '' });
 	let teams = $state(new Set());
 	let saving = $state(false);
 	let error = $state('');
@@ -36,7 +36,15 @@
 		<p class="sub">Paste a transcript now; a TL;DR / decisions can be added here or generated via Claude later. Tip: for the full flow, drop the transcript into Claude and let it write the structured notes straight into the portal.</p>
 
 		<div class="form">
-			<label class="fld"><span>Title *</span><input bind:value={f.title} placeholder="e.g. Sales weekly — week 42" /></label>
+			<div class="row2">
+				<label class="fld"><span>Type</span>
+					<select bind:value={f.type}>
+						<option value="meeting">Meeting</option>
+						<option value="note">Note</option>
+					</select>
+				</label>
+				<label class="fld"><span>Title *</span><input bind:value={f.title} placeholder="e.g. Sales weekly — week 42" /></label>
+			</div>
 			<div class="row2">
 				<label class="fld"><span>Date</span><input type="date" bind:value={f.happened_on} /></label>
 				<label class="fld"><span>Visibility</span>
@@ -53,6 +61,14 @@
 					{/each}
 				</div>
 			</div>
+			<label class="fld"><span>Customer groups <small>(accounts this is about — comma-separated)</small></span>
+				<input bind:value={f.customer_groups} list="cg-list" placeholder="e.g. Indeks Retail Hovedkontor" />
+				<datalist id="cg-list">{#each data.customerGroups as g}<option value={g}></option>{/each}</datalist>
+			</label>
+			<label class="fld"><span>Tags <small>(comma-separated — new tags are created automatically)</small></span>
+				<input bind:value={f.tags} list="tag-list" placeholder="e.g. images, catalog, logistics" />
+				<datalist id="tag-list">{#each data.tags as t}<option value={t}></option>{/each}</datalist>
+			</label>
 			<label class="fld"><span>Participants <small>(emails for internal, names for external — one per line or comma-separated)</small></span><textarea rows="2" bind:value={f.participants} placeholder="glen@spilbraet.dk, External Guest"></textarea></label>
 			<label class="fld"><span>Transcript</span><textarea rows="8" bind:value={f.transcript} placeholder="Paste the meeting transcript…"></textarea></label>
 			<label class="fld"><span>TL;DR <small>(optional)</small></span><textarea rows="2" bind:value={f.tldr}></textarea></label>

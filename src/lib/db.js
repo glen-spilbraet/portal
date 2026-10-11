@@ -1267,11 +1267,13 @@ function parseItem(r) {
 }
 
 /** List knowledge the user may see, with optional {q, type, team} filters. */
-export async function listKnowledge(db, user, { q, type, team } = {}) {
+export async function listKnowledge(db, user, { q, type, team, tag, customerGroup } = {}) {
 	const vis = knowledgeVisibleWhere(user);
 	const where = [vis.sql], binds = [...vis.binds];
 	if (type) { where.push('ki.type = ?'); binds.push(type); }
 	if (team) { where.push('EXISTS (SELECT 1 FROM knowledge_department d WHERE d.item_id = ki.id AND d.department = ?)'); binds.push(team); }
+	if (tag) { where.push('EXISTS (SELECT 1 FROM knowledge_tag kt JOIN tag t ON t.id = kt.tag_id WHERE kt.item_id = ki.id AND t.name = ?)'); binds.push(tag); }
+	if (customerGroup) { where.push('EXISTS (SELECT 1 FROM knowledge_customer_group g WHERE g.item_id = ki.id AND g.customer_group = ?)'); binds.push(customerGroup); }
 	if (q && q.trim()) {
 		const t = `%${q.trim().toLowerCase()}%`;
 		where.push(`(lower(COALESCE(ki.title,'')) LIKE ? OR lower(COALESCE(ki.tldr,'')) LIKE ? OR lower(COALESCE(ki.decisions,'')) LIKE ? OR lower(COALESCE(ki.topics,'')) LIKE ? OR lower(COALESCE(ki.transcript,'')) LIKE ?)`);
@@ -1280,6 +1282,8 @@ export async function listKnowledge(db, user, { q, type, team } = {}) {
 	const rows = (await db.prepare(
 		`SELECT ki.id, ki.type, ki.title, ki.happened_on, ki.tldr, ki.visibility, ki.created_by, ki.created_at,
 		        (SELECT GROUP_CONCAT(d.department, ', ') FROM knowledge_department d WHERE d.item_id = ki.id) AS teams,
+		        (SELECT GROUP_CONCAT(g.customer_group, ', ') FROM knowledge_customer_group g WHERE g.item_id = ki.id) AS customer_groups,
+		        (SELECT GROUP_CONCAT(t.name, ', ') FROM knowledge_tag kt JOIN tag t ON t.id = kt.tag_id WHERE kt.item_id = ki.id) AS tags,
 		        (SELECT COUNT(*) FROM knowledge_participant p WHERE p.item_id = ki.id) AS participant_count
 		 FROM knowledge_item ki WHERE ${where.join(' AND ')}
 		 ORDER BY ki.happened_on DESC, ki.created_at DESC LIMIT 200`
@@ -1309,7 +1313,9 @@ export async function getKnowledge(db, id, user = undefined) {
 		const ok = item.visibility === 'all_staff' || emails.includes(user?.email) || (user?.department && teams.includes(user.department));
 		if (!ok) return null;
 	}
-	return { ...parseItem(item), participants, teams };
+	const tags = ((await db.prepare('SELECT t.name FROM knowledge_tag kt JOIN tag t ON t.id = kt.tag_id WHERE kt.item_id = ? ORDER BY t.name COLLATE NOCASE').bind(id).all()).results ?? []).map((r) => r.name);
+	const customer_groups = ((await db.prepare('SELECT customer_group FROM knowledge_customer_group WHERE item_id = ?').bind(id).all()).results ?? []).map((r) => r.customer_group);
+	return { ...parseItem(item), participants, teams, tags, customer_groups };
 }
 
 const KN_COLS = ['type', 'title', 'happened_on', 'source', 'transcript', 'tldr', 'decisions', 'action_items', 'topics', 'visibility'];
@@ -1323,7 +1329,8 @@ export async function createKnowledge(db, d, createdBy) {
 			d.tldr ?? null, asJson(d.decisions), asJson(d.action_items), asJson(d.topics),
 			d.visibility === 'all_staff' ? 'all_staff' : 'participants', createdBy ?? null
 		).run();
-	await setKnowledgeLinks(db, id, d.participants, d.teams);
+	await setKnowledgeLinks(db, id, d.participants, d.teams, d.customer_groups);
+	await setKnowledgeTags(db, id, d.tags);
 	return id;
 }
 
@@ -1334,10 +1341,11 @@ export async function updateKnowledge(db, id, d) {
 		values.push(['decisions', 'action_items', 'topics'].includes(k) ? asJson(d[k]) : d[k]);
 	}
 	if (fields.length) { values.push(id); await db.prepare(`UPDATE knowledge_item SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run(); }
-	if ('participants' in d || 'teams' in d) await setKnowledgeLinks(db, id, d.participants, d.teams);
+	if ('participants' in d || 'teams' in d || 'customer_groups' in d) await setKnowledgeLinks(db, id, d.participants, d.teams, d.customer_groups);
+	if ('tags' in d) await setKnowledgeTags(db, id, d.tags);
 }
 
-async function setKnowledgeLinks(db, id, participants, teams) {
+async function setKnowledgeLinks(db, id, participants, teams, customerGroups) {
 	const stmts = [];
 	if (participants !== undefined) {
 		stmts.push(db.prepare('DELETE FROM knowledge_participant WHERE item_id = ?').bind(id));
@@ -1351,7 +1359,35 @@ async function setKnowledgeLinks(db, id, participants, teams) {
 		stmts.push(db.prepare('DELETE FROM knowledge_department WHERE item_id = ?').bind(id));
 		for (const t of [...new Set((teams ?? []).filter(Boolean))]) stmts.push(db.prepare('INSERT INTO knowledge_department (item_id, department) VALUES (?,?)').bind(id, t));
 	}
+	if (customerGroups !== undefined) {
+		stmts.push(db.prepare('DELETE FROM knowledge_customer_group WHERE item_id = ?').bind(id));
+		for (const g of [...new Set((customerGroups ?? []).map((x) => (x ?? '').trim()).filter(Boolean))]) stmts.push(db.prepare('INSERT OR IGNORE INTO knowledge_customer_group (item_id, customer_group) VALUES (?,?)').bind(id, g));
+	}
 	if (stmts.length) await db.batch(stmts);
+}
+
+// Tags are created on first use (reusable vocabulary), then linked.
+async function setKnowledgeTags(db, id, tags) {
+	if (tags === undefined) return;
+	const names = [...new Set((tags ?? []).map((t) => (t ?? '').trim()).filter(Boolean))];
+	const ids = [];
+	for (const n of names) {
+		let row = await db.prepare('SELECT id FROM tag WHERE lower(name) = lower(?)').bind(n).first();
+		if (!row) { const tid = crypto.randomUUID(); await db.prepare('INSERT INTO tag (id, name) VALUES (?, ?)').bind(tid, n).run(); row = { id: tid }; }
+		ids.push(row.id);
+	}
+	const stmts = [db.prepare('DELETE FROM knowledge_tag WHERE item_id = ?').bind(id)];
+	for (const tid of ids) stmts.push(db.prepare('INSERT OR IGNORE INTO knowledge_tag (item_id, tag_id) VALUES (?, ?)').bind(id, tid));
+	await db.batch(stmts);
+}
+
+export async function listTags(db) {
+	return ((await db.prepare('SELECT name FROM tag ORDER BY name COLLATE NOCASE').all()).results ?? []).map((r) => r.name);
+}
+/** Distinct customer groups from the sales mirror (SALES_DB). */
+export async function listCustomerGroups(salesDb) {
+	if (!salesDb) return [];
+	return ((await salesDb.prepare("SELECT DISTINCT customer_group AS g FROM sales_deals WHERE customer_group IS NOT NULL AND customer_group != '' ORDER BY customer_group COLLATE NOCASE").all()).results ?? []).map((r) => r.g);
 }
 
 export async function deleteKnowledge(db, id) {

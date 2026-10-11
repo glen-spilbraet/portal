@@ -5,12 +5,20 @@
 	let { data } = $props();
 	let q = $state('');
 	let team = $state('');
+	let tag = $state('');
+	let group = $state('');
+
+	const splitList = (s) => (s ?? '').split(', ').map((x) => x.trim()).filter(Boolean);
+	const tagOpts = $derived([...new Set(data.items.flatMap((i) => splitList(i.tags)))].sort((a, b) => a.localeCompare(b)));
+	const groupOpts = $derived([...new Set(data.items.flatMap((i) => splitList(i.customer_groups)))].sort((a, b) => a.localeCompare(b)));
 
 	const filtered = $derived(data.items.filter((i) => {
-		if (team && !(i.teams ?? '').split(', ').includes(team)) return false;
+		if (team && !splitList(i.teams).includes(team)) return false;
+		if (tag && !splitList(i.tags).includes(tag)) return false;
+		if (group && !splitList(i.customer_groups).includes(group)) return false;
 		const s = q.trim().toLowerCase();
 		if (!s) return true;
-		return `${i.title ?? ''} ${i.tldr ?? ''} ${i.teams ?? ''}`.toLowerCase().includes(s);
+		return `${i.title ?? ''} ${i.tldr ?? ''} ${i.teams ?? ''} ${i.tags ?? ''} ${i.customer_groups ?? ''}`.toLowerCase().includes(s);
 	}));
 
 	function fmt(d) { return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; }
@@ -38,6 +46,18 @@
 				<option value="">All teams</option>
 				{#each data.departments as d}<option value={d}>{d}</option>{/each}
 			</select>
+			{#if groupOpts.length}
+				<select class="sel" bind:value={group}>
+					<option value="">All customers</option>
+					{#each groupOpts as g}<option value={g}>{g}</option>{/each}
+				</select>
+			{/if}
+			{#if tagOpts.length}
+				<select class="sel" bind:value={tag}>
+					<option value="">All tags</option>
+					{#each tagOpts as t}<option value={t}>{t}</option>{/each}
+				</select>
+			{/if}
 		</div>
 
 		{#if filtered.length === 0}
@@ -53,7 +73,9 @@
 						{#if i.tldr}<p class="card-tldr">{i.tldr}</p>{/if}
 						<div class="card-meta">
 							<span class="type">{i.type}</span>
+							{#if i.customer_groups}{#each i.customer_groups.split(', ') as c}<span class="tag customer">{c}</span>{/each}{/if}
 							{#if i.teams}{#each i.teams.split(', ') as t}<span class="tag">{t}</span>{/each}{/if}
+							{#if i.tags}{#each i.tags.split(', ') as t}<span class="tag label">#{t}</span>{/each}{/if}
 							{#if i.visibility === 'all_staff'}<span class="tag all">All staff</span>{/if}
 							<span class="pcount">{i.participants} participant{i.participants === 1 ? '' : 's'}</span>
 						</div>
@@ -90,5 +112,7 @@
 	.type { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #8a7550; }
 	.tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 100px; background: #F4EEDF; color: #8a6a2a; }
 	.tag.all { background: #E7F6EC; color: #16794C; }
+	.tag.customer { background: #FDEEE4; color: #B15A12; }
+	.tag.label { background: #EFEDFB; color: #6D5BD0; }
 	.pcount { font-size: 11px; color: #A1A1AA; margin-left: auto; }
 </style>

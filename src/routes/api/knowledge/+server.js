@@ -20,6 +20,8 @@ export async function POST(event) {
 		visibility: b.visibility === 'all_staff' ? 'all_staff' : 'participants',
 		participants: lines(b.participants),
 		teams: Array.isArray(b.teams) ? b.teams : lines(b.teams),
+		customer_groups: Array.isArray(b.customer_groups) ? b.customer_groups : lines(b.customer_groups),
+		tags: Array.isArray(b.tags) ? b.tags : lines(b.tags),
 	}, user.email);
 	return json({ ok: true, id });
 }

@@ -247,8 +247,10 @@ const TOOLS = [
 			type: 'object',
 			properties: {
 				query: { type: 'string', description: 'Free-text search over titles, summaries, decisions, topics and transcripts.' },
-				type: { type: 'string', description: "Filter by item type, e.g. 'meeting'." },
-				team: { type: 'string', description: 'Filter by team tag (Marketing, Purchase, Sales, Customer Service).' }
+				type: { type: 'string', description: "Filter by item type, e.g. 'meeting' or 'note'." },
+				team: { type: 'string', description: 'Filter by team tag (Marketing, Purchase, Sales, Customer Service).' },
+				tag: { type: 'string', description: 'Filter by a tag label.' },
+				customer_group: { type: 'string', description: 'Filter to knowledge about a HubSpot customer group.' }
 			}
 		}
 	},
@@ -259,15 +261,17 @@ const TOOLS = [
 	},
 	{
 		name: 'create_knowledge',
-		description: 'Add an item to the company knowledge base (e.g. a transcribed meeting). Provide the transcript and, ideally, a structured summary you generate: tldr, decisions[], action_items[{text,owner}], topics[]. Set participants (emails for internal people, names for externals), teams[] (Marketing/Purchase/Sales/Customer Service), and visibility ("participants" default, or "all_staff"). Use this to save meetings so they become searchable later.',
+		description: 'Add an item to the company knowledge base. Two common kinds: a transcribed meeting (type "meeting", with transcript + a structured summary), or a durable note/fact (type "note", e.g. a customer preference or process rule). Provide tldr and, for meetings, decisions[]/action_items[{text,owner}]/topics[]. Set participants (emails internal, names external), teams[] (Marketing/Purchase/Sales/Customer Service), and visibility ("participants" default, or "all_staff" for things everyone should see). Link customer_groups[] when the knowledge is about specific accounts (use the exact HubSpot customer_group names). Always apply tags[] — short reusable labels (e.g. "images", "catalog", "logistics"); new tags are created automatically.',
 		inputSchema: {
 			type: 'object',
 			properties: {
-				type: { type: 'string', description: "Default 'meeting'." },
+				type: { type: 'string', description: "'meeting' or 'note' (default 'meeting')." },
 				title: { type: 'string' },
-				date: { type: 'string', description: 'YYYY-MM-DD the meeting happened.' },
+				date: { type: 'string', description: 'YYYY-MM-DD (when it happened / when the note is from).' },
 				participants: { type: 'array', items: { type: 'string' }, description: 'Emails (internal) or names (external).' },
 				teams: { type: 'array', items: { type: 'string' }, description: 'Team tags granting access.' },
+				customer_groups: { type: 'array', items: { type: 'string' }, description: 'HubSpot customer_group names this is about (for account-specific knowledge).' },
+				tags: { type: 'array', items: { type: 'string' }, description: 'Short reusable topic labels; created on first use. Always apply at least one.' },
 				visibility: { type: 'string', enum: ['participants', 'all_staff'] },
 				transcript: { type: 'string' },
 				tldr: { type: 'string' },
@@ -400,19 +404,20 @@ async function callTool(name, args, ctx) {
 		// Visibility is scoped to the signed-in user (shared key → admin/full).
 		const user = ctx.perms === null ? { role: 'admin' } : (ctx.email ? await getAllowedUser(db, ctx.email) : null);
 		if (name === 'search_knowledge') {
-			const rows = await listKnowledge(db, user, { q: args?.query, type: args?.type, team: args?.team });
-			return textContent({ count: rows.length, results: rows.map((r) => ({ id: r.id, type: r.type, title: r.title, date: r.happened_on, tldr: r.tldr, teams: r.teams, participants: r.participant_count, visibility: r.visibility })) });
+			const rows = await listKnowledge(db, user, { q: args?.query, type: args?.type, team: args?.team, tag: args?.tag, customerGroup: args?.customer_group });
+			return textContent({ count: rows.length, results: rows.map((r) => ({ id: r.id, type: r.type, title: r.title, date: r.happened_on, tldr: r.tldr, teams: r.teams, customer_groups: r.customer_groups, tags: r.tags, participants: r.participant_count, visibility: r.visibility })) });
 		}
 		if (name === 'get_knowledge') {
 			const item = await getKnowledge(db, String(args?.id ?? ''), user);
 			if (!item) return { ...textContent('Not found or not visible to you.'), isError: true };
-			return textContent({ id: item.id, type: item.type, title: item.title, date: item.happened_on, tldr: item.tldr, decisions: item.decisions, action_items: item.action_items, topics: item.topics, teams: item.teams, participants: item.participants, transcript: item.transcript });
+			return textContent({ id: item.id, type: item.type, title: item.title, date: item.happened_on, tldr: item.tldr, decisions: item.decisions, action_items: item.action_items, topics: item.topics, teams: item.teams, customer_groups: item.customer_groups, tags: item.tags, participants: item.participants, transcript: item.transcript });
 		}
 		if (name === 'create_knowledge') {
 			const id = await createKnowledge(db, {
 				type: args?.type || 'meeting', title: args?.title, happened_on: args?.date, source: args?.source || 'cowork',
 				transcript: args?.transcript, tldr: args?.tldr, decisions: args?.decisions, action_items: args?.action_items, topics: args?.topics,
 				visibility: args?.visibility, participants: args?.participants, teams: args?.teams,
+				customer_groups: args?.customer_groups, tags: args?.tags,
 			}, ctx.email ?? 'mcp');
 			return textContent({ ok: true, id });
 		}
