@@ -88,7 +88,9 @@
 						<label class="avatar" title="Upload photo">
 							{#if g.image_key}<img src="/api/img/{g.image_key}" alt={g.name} />{:else}<span class="avatar-ph">{g.name?.[0]?.toUpperCase() ?? '?'}</span>{/if}
 							<input type="file" hidden accept="image/*" onchange={(e) => uploadPhoto(e, g.id)} />
-							<span class="avatar-edit">✎</span>
+							<span class="avatar-ov">
+								<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+							</span>
 						</label>
 						<div class="guru-id">
 							<span class="guru-name">{g.name}</span>
@@ -175,7 +177,8 @@
 	.avatar { position: relative; width: 48px; height: 48px; border-radius: 50%; overflow: hidden; background: #F4F4F5; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 	.avatar img { width: 100%; height: 100%; object-fit: cover; }
 	.avatar-ph { font-size: 18px; font-weight: 700; color: #A1A1AA; }
-	.avatar-edit { position: absolute; bottom: 0; right: 0; background: rgba(0,0,0,0.55); color: white; font-size: 10px; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; border-top-left-radius: 6px; }
+	.avatar-ov { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); color: #fff; opacity: 0; transition: opacity 0.15s; }
+	.avatar:hover .avatar-ov { opacity: 1; }
 	.guru-id { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	.guru-name { font-weight: 700; font-size: 14px; color: #18181B; }
 
