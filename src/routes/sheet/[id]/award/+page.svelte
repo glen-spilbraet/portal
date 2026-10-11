@@ -59,20 +59,32 @@
 		});
 	}
 
+	// Always composite at a high internal resolution so small exports stay crisp:
+	// we draw everything at BASE px, then downscale once to the requested side
+	// with high-quality smoothing (supersampling). Drawing straight at 300px uses
+	// the browser's default low-quality smoothing and looks pixelated.
+	const BASE = 1000;
+
+	function hq(ctx) {
+		ctx.imageSmoothingEnabled = true;
+		ctx.imageSmoothingQuality = 'high';
+	}
+
 	async function render(side) {
 		const canvas = document.createElement('canvas');
-		canvas.width = side;
-		canvas.height = side;
+		canvas.width = BASE;
+		canvas.height = BASE;
 		const ctx = canvas.getContext('2d');
+		hq(ctx);
 		ctx.fillStyle = '#ffffff';
-		ctx.fillRect(0, 0, side, side);
+		ctx.fillRect(0, 0, BASE, BASE);
 
 		if (data.boxImageKey) {
 			const box = await loadImage(`/api/img/${data.boxImageKey}?size=1000`);
-			const r = Math.min(side / box.naturalWidth, side / box.naturalHeight);
+			const r = Math.min(BASE / box.naturalWidth, BASE / box.naturalHeight);
 			const w = box.naturalWidth * r;
 			const h = box.naturalHeight * r;
-			ctx.drawImage(box, (side - w) / 2, (side - h) / 2, w, h);
+			ctx.drawImage(box, (BASE - w) / 2, (BASE - h) / 2, w, h);
 		}
 
 		const seen = {};
@@ -82,17 +94,27 @@
 			seen[corner] = n + 1;
 			const size = Number(b.size_pct) || 15;
 			const p = Number(b.pad_pct) || 0;
-			const img = await loadImage(`/api/img/${b.image_key}?size=400`);
-			const bw = (size / 100) * side;
+			const img = await loadImage(`/api/img/${b.image_key}?size=600`);
+			const bw = (size / 100) * BASE;
 			const bh = bw * (img.naturalHeight / img.naturalWidth);
-			const offX = ((b.pad_x ? p : 0) + n * (size + BADGE_GAP)) / 100 * side;
-			const offY = (b.pad_y ? p : 0) / 100 * side;
+			const offX = ((b.pad_x ? p : 0) + n * (size + BADGE_GAP)) / 100 * BASE;
+			const offY = (b.pad_y ? p : 0) / 100 * BASE;
 			const [vy, vx] = corner.split('-');
-			const x = vx === 'left' ? offX : side - offX - bw;
-			const y = vy === 'top' ? offY : side - offY - bh;
+			const x = vx === 'left' ? offX : BASE - offX - bw;
+			const y = vy === 'top' ? offY : BASE - offY - bh;
 			ctx.drawImage(img, x, y, bw, bh);
 		}
-		return canvas;
+
+		if (side === BASE) return canvas;
+
+		// Downscale the finished composite to the requested size in one HQ step.
+		const out = document.createElement('canvas');
+		out.width = side;
+		out.height = side;
+		const octx = out.getContext('2d');
+		hq(octx);
+		octx.drawImage(canvas, 0, 0, side, side);
+		return out;
 	}
 
 	let previewEl = $state(null);
@@ -122,7 +144,7 @@
 		downloading = side;
 		try {
 			const canvas = await render(side);
-			const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.92));
+			const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
 			const link = `${side}x${side}`;
 			const a = document.createElement('a');
 			a.href = URL.createObjectURL(blob);
