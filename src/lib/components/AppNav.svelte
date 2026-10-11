@@ -141,7 +141,6 @@
 					{:else}
 						<div class="nav-group" class:active={statsActive}>
 							<button class="nav-top" class:active={statsActive}>{@html ICONS.stats}Stats
-								<svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
 							</button>
 							<div class="dropdown"><div class="dropdown-inner">
 								{#each statsItems as item}<a href={item.href} class="dropdown-item" class:active={active === item.key}>{item.label}</a>{/each}
@@ -154,7 +153,6 @@
 				{#if showSales}
 					<div class="nav-group" class:active={salesActive}>
 						<button class="nav-top" class:active={salesActive}>{@html ICONS.sales}Sales
-							<svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
 						</button>
 						<div class="dropdown"><div class="dropdown-inner">
 							{#each salesItems as item}<a href={item.href} class="dropdown-item" class:active={active === item.key || (item.key === 'mail' && mailActive)}>{item.label}</a>{/each}
@@ -166,7 +164,6 @@
 				{#if showEvents}
 					<div class="nav-group" class:active={eventsActive}>
 						<button class="nav-top" class:active={eventsActive}>{@html ICONS.events}Events
-							<svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
 						</button>
 						<div class="dropdown"><div class="dropdown-inner">
 							{#each eventItems as item}<a href={item.href} class="dropdown-item" class:active={active === item.key}>{item.label}</a>{/each}
@@ -178,7 +175,6 @@
 				{#if showOrders}
 					<div class="nav-group" class:active={orderActive}>
 						<button class="nav-top" class:active={orderActive}>{@html ICONS.orders}Orders
-							<svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
 						</button>
 						<div class="dropdown"><div class="dropdown-inner">
 							{#each orderItems as item}<a href={item.href} class="dropdown-item" class:active={active === item.key}>{item.label}</a>{/each}
@@ -209,9 +205,6 @@
 				<button class="nav-top user-btn">
 					<div class="user-avatar">{displayName[0]?.toUpperCase() ?? '?'}</div>
 					{displayName}
-					<svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none">
-						<path d="M2 3.5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-					</svg>
 				</button>
 				<div class="dropdown dropdown-right">
 					<div class="dropdown-inner">
@@ -360,7 +353,7 @@
 	.nav-links {
 		display: flex;
 		align-items: center;
-		gap: 2px;
+		gap: 10px;
 	}
 
 	/* Direct link */
