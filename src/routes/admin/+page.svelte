@@ -11,7 +11,8 @@
 			blurb: 'Who can sign in, and what they can see.',
 			tools: [
 				{ title: 'Users', href: '/admin/users', desc: 'Manage who can sign in and their roles.', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>' },
-				{ title: 'Permission Sets', href: '/admin/permissions', desc: 'Bundle section access and assign to users.', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>' }
+				{ title: 'Permission Sets', href: '/admin/permissions', desc: 'Bundle section access and assign to users.', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>' },
+				{ title: 'Departments', href: '/admin/departments', desc: 'Create and edit the teams users belong to.', icon: '<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01M9 12v.01M9 15v.01M9 18v.01"/>' }
 			]
 		},
 		{

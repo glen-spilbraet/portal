@@ -1,6 +1,5 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
-	import { DEPARTMENTS } from '$lib/departments.js';
 
 	let { data } = $props();
 
@@ -10,8 +9,8 @@
 		const by = new Map();
 		for (const u of users) { const d = u.department || null; if (!by.has(d)) by.set(d, []); by.get(d).push(u); }
 		const out = [];
-		for (const d of DEPARTMENTS) if (by.has(d)) out.push({ dept: d, users: by.get(d) });
-		for (const [d, us] of by) if (d && !DEPARTMENTS.includes(d)) out.push({ dept: d, users: us }); // legacy values
+		for (const d of data.departments) if (by.has(d)) out.push({ dept: d, users: by.get(d) });
+		for (const [d, us] of by) if (d && !data.departments.includes(d)) out.push({ dept: d, users: us }); // legacy values
 		if (by.has(null)) out.push({ dept: null, users: by.get(null) });
 		return out;
 	});
@@ -222,7 +221,7 @@
 			<label class="fld"><span>Department</span>
 				<select bind:value={editForm.department}>
 					<option value="">— None —</option>
-					{#each DEPARTMENTS as d}<option value={d}>{d}</option>{/each}
+					{#each data.departments as d}<option value={d}>{d}</option>{/each}
 				</select>
 			</label>
 			<label class="fld"><span>Role</span>

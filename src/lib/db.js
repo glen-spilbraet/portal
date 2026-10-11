@@ -1361,3 +1361,30 @@ export async function deleteKnowledge(db, id) {
 		db.prepare('DELETE FROM knowledge_item WHERE id = ?').bind(id),
 	]);
 }
+
+// ── Departments (editable) ───────────────────────────────────────────────────
+export async function listDepartments(db) {
+	const r = await db.prepare('SELECT id, name, sort FROM department ORDER BY sort, name COLLATE NOCASE').all();
+	return r.results ?? [];
+}
+export async function createDepartment(db, name) {
+	const clean = (name ?? '').trim();
+	if (!clean) return;
+	const row = await db.prepare('SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM department').first();
+	await db.prepare('INSERT OR IGNORE INTO department (id, name, sort) VALUES (?, ?, ?)').bind(crypto.randomUUID(), clean, row?.n ?? 0).run();
+}
+export async function renameDepartment(db, id, name) {
+	const clean = (name ?? '').trim();
+	if (!clean) return;
+	const row = await db.prepare('SELECT name FROM department WHERE id = ?').bind(id).first();
+	if (!row || row.name === clean) return;
+	// Cascade so existing user + knowledge assignments keep pointing at it.
+	await db.batch([
+		db.prepare('UPDATE department SET name = ? WHERE id = ?').bind(clean, id),
+		db.prepare('UPDATE allowed_users SET department = ? WHERE department = ?').bind(clean, row.name),
+		db.prepare('UPDATE knowledge_department SET department = ? WHERE department = ?').bind(clean, row.name),
+	]);
+}
+export async function deleteDepartment(db, id) {
+	await db.prepare('DELETE FROM department WHERE id = ?').bind(id).run();
+}
