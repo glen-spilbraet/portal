@@ -40,11 +40,10 @@
 	const LABEL = Object.fromEntries(SECTIONS.map((s) => [s.key, s.label]));
 	const GROUPS = [
 		{ label: 'Stats',  keys: ['stats', 'product', 'forecast', 'reports'] },
-		{ label: 'Sales',  keys: ['sheets', 'catalogues', 'planograms', 'awards', 'price_lists'] },
+		{ label: 'Sales',  keys: ['sheets', 'catalogues', 'planograms', 'awards', 'price_lists', 'mail'] },
 		{ label: 'Orders', keys: ['orders', 'order_conf', 'rest_check', 'price_sync'] },
 		{ label: 'Events', keys: ['events'] },
 		{ label: 'Data',   keys: ['data'] },
-		{ label: 'Mail',   keys: ['mail'] },
 		{ label: 'Knowledge', keys: ['knowledge'] },
 	];
 
