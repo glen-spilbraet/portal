@@ -147,7 +147,12 @@ export async function computeReport(salesDb, rules, { metric = 'both', cur, prio
 		markets: MARKETS,
 		period: { label: label ?? 'Year to date', start: cur.start, end: cur.end },
 		chart,
-		totals: { revenue: totalsCur?.revenue ?? 0, units: totalsCur?.units ?? 0, lines: totalsCur?.lines ?? 0, skus: totalsCur?.skus ?? 0, stores: totalsCur?.stores ?? 0, revenuePrev: totalsPrev?.revenue ?? 0, unitsPrev: totalsPrev?.units ?? 0 },
+		totals: {
+			revenue: totalsCur?.revenue ?? 0, units: totalsCur?.units ?? 0, lines: totalsCur?.lines ?? 0,
+			skus: totalsCur?.skus ?? 0, stores: totalsCur?.stores ?? 0,
+			revenuePrev: totalsPrev?.revenue ?? 0, unitsPrev: totalsPrev?.units ?? 0,
+			skusPrev: totalsPrev?.skus ?? 0, storesPrev: totalsPrev?.stores ?? 0,
+		},
 		market,
 		topProducts,
 	};

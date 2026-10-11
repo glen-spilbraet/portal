@@ -23,7 +23,10 @@ const F = {
 	PL: '<svg viewBox="0 0 20 14"><rect width="20" height="14" fill="#DC143C"/><rect width="20" height="7" fill="#fff"/></svg>',
 	AT: '<svg viewBox="0 0 20 14"><rect width="20" height="14" fill="#ED2939"/><rect y="4.67" width="20" height="4.67" fill="#fff"/></svg>',
 	CH: '<svg viewBox="0 0 20 14"><rect width="20" height="14" fill="#DA291C"/><rect x="8.5" y="3" width="3" height="8" fill="#fff"/><rect x="6" y="5.5" width="8" height="3" fill="#fff"/></svg>',
-	US: '<svg viewBox="0 0 20 14"><rect width="20" height="14" fill="#B22234"/><g fill="#fff"><rect y="2" width="20" height="1.08"/><rect y="4.15" width="20" height="1.08"/><rect y="6.3" width="20" height="1.08"/><rect y="8.45" width="20" height="1.08"/><rect y="10.6" width="20" height="1.08"/></g><rect width="9" height="7.54" fill="#3C3B6E"/></svg>'
+	US: '<svg viewBox="0 0 20 14"><rect width="20" height="14" fill="#B22234"/><g fill="#fff"><rect y="2" width="20" height="1.08"/><rect y="4.15" width="20" height="1.08"/><rect y="6.3" width="20" height="1.08"/><rect y="8.45" width="20" height="1.08"/><rect y="10.6" width="20" height="1.08"/></g><rect width="9" height="7.54" fill="#3C3B6E"/></svg>',
+	EU: '<svg viewBox="0 0 20 14"><rect width="20" height="14" fill="#003399"/><g fill="#FFCC00">' +
+		Array.from({ length: 12 }, (_, i) => { const a = (i / 12) * 2 * Math.PI - Math.PI / 2; const x = 10 + 3.6 * Math.cos(a); const y = 7 + 3.6 * Math.sin(a); return `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="0.7"/>`; }).join('') +
+		'</g></svg>'
 };
 
 const NAME2CODE = {
@@ -34,7 +37,8 @@ const NAME2CODE = {
 	'united kingdom': 'GB', uk: 'GB', 'great britain': 'GB', england: 'GB', storbritannien: 'GB',
 	ireland: 'IE', irland: 'IE', austria: 'AT', østrig: 'AT', switzerland: 'CH', schweiz: 'CH',
 	italy: 'IT', italien: 'IT', spain: 'ES', spanien: 'ES', portugal: 'PT',
-	poland: 'PL', polen: 'PL', usa: 'US', 'united states': 'US'
+	poland: 'PL', polen: 'PL', usa: 'US', 'united states': 'US',
+	international: 'EU', eu: 'EU', europe: 'EU', 'european union': 'EU'
 };
 
 export function flagCode(country) {
