@@ -1,5 +1,6 @@
 <script>
   import AppNav from '$lib/components/AppNav.svelte';
+  import MailTabs from '$lib/components/MailTabs.svelte';
 
   let { data } = $props();
 
@@ -108,6 +109,7 @@
 
 <div class="page">
   <AppNav active="mail-contacts" user={data.user} />
+  <MailTabs active="contacts" />
   <main>
     <div class="page-header">
       <div>
