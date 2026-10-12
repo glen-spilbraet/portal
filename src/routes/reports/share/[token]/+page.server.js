@@ -27,6 +27,8 @@ export async function load({ params, platform, url }) {
 		data,
 		selected,
 		range: { start: cur.start, endInclusive: addDaysStr(cur.end, -1) },
+		token: params.token,
+		dateQuery: allow && hasParams ? url.search : '',
 		...opts,
 	};
 }

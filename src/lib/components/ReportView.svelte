@@ -1,6 +1,6 @@
 <script>
 	import { flagSvg } from '$lib/flags.js';
-	let { data, metric = 'both' } = $props();
+	let { data, metric = 'both', exportBase = null } = $props();
 
 	let info = $state(null); // { title, body } shown in the info modal, or null
 	const STORES_INFO = {
@@ -32,6 +32,8 @@
 	const maxUnits = $derived(Math.max(1, ...(data?.chart?.monthly ?? []).flatMap((m) => [m.units, m.unitsPrev])));
 	const marketTotal = $derived(Math.max(1, (data?.market ?? []).reduce((s, m) => s + (m[primary] || 0), 0)));
 	const chartHasPrev = $derived((data?.chart?.monthly ?? []).some((m) => m.revenuePrev > 0 || m.unitsPrev > 0));
+	// Export link carries the measure currently in view; all countries, not grouped.
+	const exportHref = $derived(exportBase ? `${exportBase}${exportBase.includes('?') ? '&' : '?'}measure=${primary}` : null);
 </script>
 
 {#snippet indexChip(cur, prev)}
@@ -130,7 +132,17 @@
 
 	<!-- Best sellers: pivot by market -->
 	<section class="block">
-		<div class="block-head"><h3>Best sellers</h3><span class="legend">{primary === 'revenue' ? 'Revenue (kr)' : 'Units'} · by market</span></div>
+		<div class="block-head"><h3>Best sellers</h3>
+			<div class="bh-right">
+				<span class="legend">{primary === 'revenue' ? 'Revenue (kr)' : 'Units'} · by market</span>
+				{#if exportHref}
+					<a class="export" href={exportHref} download>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+						Export CSV
+					</a>
+				{/if}
+			</div>
+		</div>
 		{#if !data.topProducts.length}
 			<p class="muted">No products in range.</p>
 		{:else}
@@ -218,6 +230,10 @@
 	.legend { font-size: 11px; color: #a1a1aa; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
 	.legend .dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-left: 8px; }
 	.legend .dot.cur { background: #F57832; } .legend .dot.prev { background: #E6DCC6; }
+	.bh-right { display: flex; align-items: center; gap: 12px; }
+	.export { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: #B15A12; background: #FDEEE4; border: 1px solid #F6CDAB; border-radius: 100px; padding: 5px 12px; text-decoration: none; white-space: nowrap; }
+	.export:hover { background: #FBDDC7; }
+	.export svg { width: 13px; height: 13px; }
 
 	.chart { display: flex; align-items: flex-end; gap: 6px; height: 150px; padding-top: 6px; }
 	.col { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 5px; min-width: 0; }

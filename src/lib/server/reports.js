@@ -87,14 +87,19 @@ async function resolveNameSkus(salesDb, term) {
 	return rows.map((r) => r.sku);
 }
 
-export async function computeReport(salesDb, rules, { metric = 'both', cur, prior, label } = {}) {
-	// Pre-resolve name_contains rules to concrete SKU lists (fast catalog lookup).
+/** Build the WHERE clause + binds for a rule set, pre-resolving name_contains
+ * rules to concrete SKU lists (fast catalog lookup) once up front. */
+async function buildPredicate(salesDb, rules) {
 	const resolved = [];
 	for (const r of rules ?? []) {
 		if (r.kind === 'name_contains') resolved.push({ ...r, kind: '_skuset', skus: await resolveNameSkus(salesDb, r.value) });
 		else resolved.push(r);
 	}
-	const { clause, binds } = rulePredicate(resolved);
+	return rulePredicate(resolved);
+}
+
+export async function computeReport(salesDb, rules, { metric = 'both', cur, prior, label } = {}) {
+	const { clause, binds } = await buildPredicate(salesDb, rules);
 	const now = new Date();
 	if (!cur) { const d = ytd(now); cur = d.cur; prior = d.prior; label = d.label; }
 	const curYear = now.getUTCFullYear();
@@ -156,4 +161,85 @@ export async function computeReport(salesDb, rules, { metric = 'both', cur, prio
 		market,
 		topProducts,
 	};
+}
+
+// ─── Export: products in rows, one column per country ───────────────────────
+// Same layout as the on-screen best-sellers pivot, but covering ALL matching
+// products and splitting the "International" bucket into its individual
+// countries (DK/SE/NO stay as their own columns). Used for the CSV download.
+
+const CC = { Denmark: 'DK', Sweden: 'SE', Norway: 'NO' }; // short labels for the big three
+
+export async function computeExport(salesDb, rules, { measure = 'units', cur, prior } = {}) {
+	const m = measure === 'revenue' ? 'revenue' : 'units';
+	const col = m === 'revenue' ? 'li.amount_dkk' : 'li.quantity';
+	const { clause, binds } = await buildPredicate(salesDb, rules);
+	const now = new Date();
+	if (!cur) { const d = ytd(now); cur = d.cur; prior = d.prior; }
+
+	// Keep DK/SE/NO on their market label; everything else breaks out by the raw
+	// company country (blank → "Unknown") instead of collapsing to International.
+	const bucket = `CASE WHEN d.market IN ('Denmark','Sweden','Norway') THEN d.market
+	                     ELSE COALESCE(NULLIF(TRIM(d.country),''), 'Unknown') END`;
+	const rows = (await salesDb.prepare(
+		`SELECT li.sku AS sku, COALESCE(${CAT_NAME}, MAX(li.name)) AS name, ${bucket} AS country,
+		        COALESCE(SUM(${col}),0) AS val
+		 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
+		 WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? AND li.sku IS NOT NULL AND li.sku != ''
+		 GROUP BY li.sku, country`
+	).bind(...binds, cur.start, cur.end).all()).results ?? [];
+
+	const bySku = new Map();
+	const countryTotal = new Map();
+	for (const r of rows) {
+		const val = Math.round(r.val || 0);
+		if (!val && val !== 0) continue;
+		if (!bySku.has(r.sku)) bySku.set(r.sku, { sku: r.sku, name: r.name || r.sku, values: new Map(), total: 0 });
+		const row = bySku.get(r.sku);
+		row.values.set(r.country, (row.values.get(r.country) || 0) + val);
+		row.total += val;
+		countryTotal.set(r.country, (countryTotal.get(r.country) || 0) + val);
+	}
+
+	// Column order: DK, SE, NO first, then remaining countries by total desc.
+	const LEAD = ['Denmark', 'Sweden', 'Norway'];
+	const rest = [...countryTotal.keys()]
+		.filter((c) => !LEAD.includes(c))
+		.sort((a, b) => (countryTotal.get(b) - countryTotal.get(a)) || a.localeCompare(b));
+	const countries = [...LEAD.filter((c) => countryTotal.has(c)), ...rest];
+	const outRows = [...bySku.values()].sort((a, b) => b.total - a.total || (a.name || '').localeCompare(b.name || ''));
+	return { measure: m, countries, rows: outRows, period: { start: cur.start, end: cur.end } };
+}
+
+const csvCell = (v) => {
+	const s = v == null ? '' : String(v);
+	return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/** Render an export (from computeExport) to semicolon-delimited CSV with a BOM,
+ * so it opens with correct columns and æøå in Nordic Excel. */
+export function exportToCsv(exp) {
+	const header = ['Product', 'SKU', ...exp.countries.map((c) => CC[c] ?? c), 'Total'];
+	const lines = [header.map(csvCell).join(';')];
+	for (const r of exp.rows) {
+		const cells = [
+			r.name || r.sku, r.sku,
+			...exp.countries.map((c) => { const v = r.values.get(c) || 0; return v ? v : ''; }),
+			r.total,
+		];
+		lines.push(cells.map(csvCell).join(';'));
+	}
+	return '﻿' + lines.join('\r\n') + '\r\n';
+}
+
+/** Build a CSV download Response with a safe, unicode-friendly filename. */
+export function csvResponse(csv, filename) {
+	const ascii = filename.replace(/[^\w.\- ]+/g, '_');
+	return new Response(csv, {
+		headers: {
+			'Content-Type': 'text/csv; charset=utf-8',
+			'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+			'Cache-Control': 'no-store',
+		},
+	});
 }

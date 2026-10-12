@@ -20,7 +20,7 @@
 	</header>
 
 
-	<ReportView data={data.data} metric={data.metric} />
+	<ReportView data={data.data} metric={data.metric} exportBase={`/reports/share/${data.token}/export${data.dateQuery || ''}`} />
 
 	<footer class="foot">Figures are updated live. Shared by Spilbræt.dk.</footer>
 </div>

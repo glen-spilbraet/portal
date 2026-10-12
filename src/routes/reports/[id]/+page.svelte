@@ -168,7 +168,7 @@
 			<!-- Preview -->
 			<section class="preview">
 				<div class="preview-head"><h2>Preview</h2>{#if previewing}<span class="muted">Updating…</span>{/if}</div>
-				<ReportView data={preview} {metric} />
+				<ReportView data={preview} {metric} exportBase={`/reports/${data.report.id}/export`} />
 			</section>
 		</div>
 	</main>
