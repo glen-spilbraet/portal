@@ -43,17 +43,30 @@ export async function markSheetAwardsUpdated(db, id) {
  * awards_updated_at, or the sheet was never updated. Never-updated first, then
  * most-recently-changed. `last_created` = epoch of the newest matching instance.
  */
-export async function listSheetsNeedingAwardUpdate(db) {
+export async function listSheetsNeedingAwardUpdate(db, today = new Date().toISOString().slice(0, 10)) {
+	// A sheet needs a webshop update when something award-related is newer than its
+	// last awards update. "Something" = a press instance's created_at, OR a winner's
+	// disclosure_date once it has passed (the badge/text flips nominee→winner then,
+	// so the product must be refreshed again). Timestamps are unix-epoch integers.
 	const rows = await db.prepare(`
 		WITH sku_sig AS (
-			SELECT lower(sku) AS skl, MAX(created_at) AS last_created, COUNT(*) AS cnt
+			SELECT skl, MAX(ev) AS last_created, SUM(is_assoc) AS cnt
 			FROM (
-				SELECT i.sku AS sku, i.created_at FROM press_instance i
-				  WHERE i.sku IS NOT NULL AND i.sku != ''
+				SELECT lower(i.sku) AS skl, i.created_at AS ev, 1 AS is_assoc
+				  FROM press_instance i WHERE i.sku IS NOT NULL AND i.sku != ''
 				UNION ALL
-				SELECT p.sku AS sku, i.created_at
+				SELECT lower(p.sku), i.created_at, 1
 				  FROM press_instance_product p JOIN press_instance i ON i.id = p.instance_id
-			) GROUP BY lower(sku)
+				UNION ALL
+				SELECT lower(i.sku), unixepoch(i.disclosure_date), 0
+				  FROM press_instance i
+				  WHERE i.sku IS NOT NULL AND i.sku != '' AND i.is_winner = 1
+				    AND i.disclosure_date IS NOT NULL AND i.disclosure_date <= ?
+				UNION ALL
+				SELECT lower(p.sku), unixepoch(i.disclosure_date), 0
+				  FROM press_instance_product p JOIN press_instance i ON i.id = p.instance_id
+				  WHERE i.is_winner = 1 AND i.disclosure_date IS NOT NULL AND i.disclosure_date <= ?
+			) GROUP BY skl
 		)
 		SELECT s.id, s.sku, s.box_image_key, s.updated_at, s.awards_updated_at,
 		       t_en.value AS name_en, t_da.value AS name_da, t_sv.value AS name_sv, t_no.value AS name_no,
@@ -66,7 +79,7 @@ export async function listSheetsNeedingAwardUpdate(db) {
 		LEFT JOIN translations t_no ON t_no.sheet_id = s.id AND t_no.language = 'no' AND t_no.key = 'product_name'
 		WHERE s.awards_updated_at IS NULL OR sig.last_created > s.awards_updated_at
 		ORDER BY (s.awards_updated_at IS NULL) DESC, sig.last_created DESC`
-	).all();
+	).bind(today, today).all();
 	return rows.results ?? [];
 }
 
