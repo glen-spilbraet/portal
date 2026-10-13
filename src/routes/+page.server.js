@@ -7,14 +7,17 @@ export async function load({ platform, url, cookies, parent }) {
 	const db = platform?.env?.SALES_DB;
 	const { user } = await parent();
 
-	// Admins see every owner's deals; others only their own company-owner rows.
+	// Admins — and users with the Stats "all data" level — see every owner's deals;
+	// everyone else only their own company-owner rows.
 	const isAdmin = user?.role === 'admin';
+	const canAll = isAdmin || !!user?.permissions?.statsAll;
 	const email = await getEffectiveEmail(cookies, platform);
 
-	// Filter bar. Sales-rep filter is admin-only (reps are already scoped to self).
+	// Filter bar. The sales-rep filter is all-data-only (own-data reps are already
+	// scoped to themselves).
 	const csv = (name) =>
 		(url.searchParams.get(name) ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-	const repParam = isAdmin ? url.searchParams.get('rep') || null : null;
+	const repParam = canAll ? url.searchParams.get('rep') || null : null;
 	const activeFilters = {
 		levels: csv('level'),
 		groups: csv('group'),
@@ -22,7 +25,7 @@ export async function load({ platform, url, cookies, parent }) {
 		rep: repParam,
 	};
 	const filters = {
-		ownerEmail: isAdmin ? repParam : email,
+		ownerEmail: canAll ? repParam : email,
 		levels: activeFilters.levels,
 		groups: activeFilters.groups,
 		countries: activeFilters.countries,
@@ -36,7 +39,7 @@ export async function load({ platform, url, cookies, parent }) {
 
 	const emptyOptions = { levels: [], groups: [], countries: [] };
 	if (!db) {
-		return { widgets: [], companyWidgets: [], companies: [], dims: { countries: [], groups: [], levels: [], owners: [] }, monthly: { year: curYear, cur: Array(12).fill(0), prior: Array(12).fill(0) }, yearCols: ['—', '—', '—'], colNoData: [false, false, false], crossing: false, attention: [], snoozed: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, filterOptions: emptyOptions, reps: [], activeFilters };
+		return { widgets: [], companyWidgets: [], companies: [], dims: { countries: [], groups: [], levels: [], owners: [] }, monthly: { year: curYear, cur: Array(12).fill(0), prior: Array(12).fill(0) }, yearCols: ['—', '—', '—'], colNoData: [false, false, false], crossing: false, attention: [], snoozed: [], quarterOptions, monthOptions, yearOptions, selected, range, periodLabel: label, priorLabel, meta: null, isAdmin, canAllData: canAll, filterOptions: emptyOptions, reps: [], activeFilters };
 	}
 
 	const todayStr = now.toISOString().slice(0, 10);
@@ -61,12 +64,12 @@ export async function load({ platform, url, cookies, parent }) {
 		getAttentionData(db, cur, prior, filters),
 		getActiveHides(db, email, todayStr),
 		getSyncMeta(db),
-		getFilterOptions(db, isAdmin ? null : email),
-		isAdmin ? getReps(db) : Promise.resolve([]),
+		getFilterOptions(db, canAll ? null : email),
+		canAll ? getReps(db) : Promise.resolve([]),
 		getDimensionBreakdown(db, dimWindows, 'country', filters),
 		getDimensionBreakdown(db, dimWindows, 'customer_group', filters),
 		getDimensionBreakdown(db, dimWindows, 'customer_level', filters),
-		isAdmin ? getDimensionBreakdown(db, dimWindows, 'owner_email', filters) : Promise.resolve([]),
+		canAll ? getDimensionBreakdown(db, dimWindows, 'owner_email', filters) : Promise.resolve([]),
 		getMonthlyTotals(db, curYear, filters),
 		getMonthlyTotals(db, curYear - 1, filters),
 	]);
@@ -186,6 +189,7 @@ export async function load({ platform, url, cookies, parent }) {
 		priorLabel,
 		meta,
 		isAdmin,
+		canAllData: canAll,
 		filterOptions,
 		reps,
 		activeFilters,

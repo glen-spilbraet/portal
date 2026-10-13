@@ -27,6 +27,7 @@ export async function PUT({ params, request, cookies, platform }) {
 	if (typeof body.access_price_lists === 'boolean') patch.access_price_lists = body.access_price_lists ? 1 : 0;
 	if (typeof body.access_orders      === 'boolean') patch.access_orders      = body.access_orders      ? 1 : 0;
 	if (typeof body.access_stats       === 'boolean') patch.access_stats       = body.access_stats       ? 1 : 0;
+	if (typeof body.access_stats_all   === 'boolean') patch.access_stats_all   = body.access_stats_all   ? 1 : 0;
 	if (typeof body.access_mail        === 'boolean') patch.access_mail        = body.access_mail        ? 1 : 0;
 	if (typeof body.access_product     === 'boolean') patch.access_product     = body.access_product     ? 1 : 0;
 	if (typeof body.access_forecast    === 'boolean') patch.access_forecast    = body.access_forecast    ? 1 : 0;

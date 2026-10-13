@@ -15,7 +15,7 @@
 		{ key: 'countries', label: 'Countries' },
 		{ key: 'groups', label: 'Customer Groups' },
 		{ key: 'levels', label: 'Customer Levels' },
-		...(data.isAdmin ? [{ key: 'owners', label: 'Owner' }] : []),
+		...(data.canAllData ? [{ key: 'owners', label: 'Owner' }] : []),
 	]);
 	let dimTab = $state('customers');
 	const dimTitle = { countries: 'Country', groups: 'Customer Group', levels: 'Customer Level', owners: 'Owner' };
@@ -250,7 +250,7 @@
 				onApply={(v) => applyFilter('groups', v)} />
 			<MultiFilter label="Country" options={countryOpts} selected={data.activeFilters.countries}
 				onApply={(v) => applyFilter('countries', v)} />
-			{#if data.isAdmin}
+			{#if data.canAllData}
 				<MultiFilter label="Owner" single allLabel="All owners" options={repOpts}
 					selected={data.activeFilters.rep ? [data.activeFilters.rep] : []}
 					onApply={(v) => applyFilter('rep', v)} />
@@ -401,7 +401,7 @@
 				{/each}
 			</div>
 			<span class="count">{numFmt.format(tabCount)}</span>
-			{#if data.isAdmin}
+			{#if data.canAllData}
 				<button class="export-btn" onclick={exportCsv} title="Export the current view to CSV">
 					<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />

@@ -4,7 +4,9 @@
  * use (`$lib/salesStats.js`, `$lib/forecastStats.js`) plus a guarded read-only
  * SQL tool for ad-hoc reports.
  *
- * These tools are gated to admins in v1 (see `src/routes/mcp/+server.js`).
+ * Gating (see `src/routes/mcp/+server.js`): "all data" callers (admins + the
+ * Stats all-data level) get everything incl. the free-form SQL tool; "own data"
+ * callers get only the structured tools, self-scoped to their owner_email.
  * Everything here is SELECT-only; nothing writes.
  */
 import { getMarketTotals, getSyncMeta, getFilterOptions, MARKETS } from '$lib/salesStats.js';

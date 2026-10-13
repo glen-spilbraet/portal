@@ -3,7 +3,12 @@
  * data to Claude. Tools are gated by the caller's portal permissions:
  *   - product sales sheets   (perms.sheets)
  *   - awards & press         (perms.awards)
- *   - sales / reporting + forecasts (admins only in v1; read SALES_DB)
+ *   - knowledge              (perms.knowledge)
+ *   - sales / reporting + forecasts: mirror the Stats level — "all data"
+ *     (admins + perms.statsAll) get everything incl. free-form sales_query and
+ *     HubSpot read; "own data" (perms.stats) get self-scoped structured tools
+ *     only (no free SQL, no HubSpot read).
+ *   - hubspot_import_deals (WRITES): perms.orders ("Create orders") or admin.
  *
  * Auth: an OAuth 2.1 bearer token (claude.ai / Desktop, org-locked to
  * allowed_users) OR the shared `MCP_API_KEY` (Claude Code CLI → full access).
@@ -196,7 +201,7 @@ const TOOLS = [
 	},
 	{
 		name: 'hubspot_import_deals',
-		description: 'Bulk-create HubSpot deals + line items from a spreadsheet import (admin only, WRITES to the CRM). Workflow: YOU first parse the file, normalise values (decimal comma/period, Excel date serials → YYYY-MM-DD), and GROUP rows into one deal per unique import_id (never one deal per line). Then call this with dry_run:true to preview what would be created/skipped (resolves company by Rackbeat ID, owner by name, pipeline+stage by name), show the user, and only on approval call again with dry_run:false. Company is matched ONLY on Rackbeat ID. Pass a deal_id to APPEND line items to an existing deal without creating/updating it. Dedupe: a create is skipped if its import_id already exists on a deal (an `import_id` deal property is auto-created). close_date defaults to today when omitted. Discount per line: discount_value + discount_is_percent (true = %, false/omitted = amount in the deal currency).',
+		description: 'Bulk-create HubSpot deals + line items from a spreadsheet import (requires the "Create orders" permission; WRITES to the CRM). Workflow: YOU first parse the file, normalise values (decimal comma/period, Excel date serials → YYYY-MM-DD), and GROUP rows into one deal per unique import_id (never one deal per line). Then call this with dry_run:true to preview what would be created/skipped (resolves company by Rackbeat ID, owner by name, pipeline+stage by name), show the user, and only on approval call again with dry_run:false. Company is matched ONLY on Rackbeat ID. Pass a deal_id to APPEND line items to an existing deal without creating/updating it. Dedupe: a create is skipped if its import_id already exists on a deal (an `import_id` deal property is auto-created). close_date defaults to today when omitted. Discount per line: discount_value + discount_is_percent (true = %, false/omitted = amount in the deal currency).',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -293,15 +298,32 @@ function textContent(obj) { return { content: [{ type: 'text', text: typeof obj 
 // (legacy MCP_API_KEY); otherwise gate by the OAuth user's portal permissions.
 const SHEET_TOOLS = new Set(['search_products', 'get_product', 'get_product_image']);
 const AWARDS_TOOLS = new Set(['get_product_press', 'list_press', 'list_media', 'get_media']);
-// Sales/reporting tools are admin-only in v1 (they can read all sales data).
 const SALES_TOOLS = new Set(['sales_schema', 'sales_query', 'sales_market_totals', 'forecast_accuracy', 'sales_sync_meta']);
-// Live HubSpot tools — admin-only, same as sales.
-const HUBSPOT_TOOLS = new Set(['hubspot_schema', 'hubspot_search', 'hubspot_get', 'hubspot_import_deals']);
+// Sales tools that are safe for "own data" users — self-scoped at dispatch.
+// sales_query (free-form SQL) is deliberately NOT here: all-data only.
+const SALES_SELF_TOOLS = new Set(['sales_schema', 'sales_market_totals', 'forecast_accuracy', 'sales_sync_meta']);
+const HUBSPOT_READ_TOOLS = new Set(['hubspot_schema', 'hubspot_search', 'hubspot_get']);
+const HUBSPOT_TOOLS = new Set([...HUBSPOT_READ_TOOLS, 'hubspot_import_deals']);
 const KNOWLEDGE_TOOLS = new Set(['search_knowledge', 'get_knowledge', 'create_knowledge']);
-function toolAllowed(name, { perms, isAdmin }) {
-	if (SALES_TOOLS.has(name) || HUBSPOT_TOOLS.has(name)) return perms === null || isAdmin; // shared key or admin
+
+// Sales-data level mirrors the portal Stats permission: 'all' (every owner),
+// 'own' (the caller's own customers) or 'none'. Admins + the shared MCP key = all.
+function salesAccess({ perms, isAdmin }) {
+	if (perms === null) return 'all';          // legacy shared key
+	if (isAdmin || perms.statsAll) return 'all';
+	if (perms.stats) return 'own';
+	return 'none';
+}
+
+function toolAllowed(name, ctx) {
+	const { perms, isAdmin } = ctx;
+	const sales = salesAccess(ctx);
+	if (name === 'sales_query') return sales === 'all';                 // free SQL → all-data only
+	if (SALES_SELF_TOOLS.has(name)) return sales !== 'none';            // structured → own or all
+	if (HUBSPOT_READ_TOOLS.has(name)) return sales === 'all';          // CRM read → all-data only
+	if (name === 'hubspot_import_deals') return perms === null || isAdmin || !!perms.orders; // Create orders
 	if (KNOWLEDGE_TOOLS.has(name)) return perms === null || isAdmin || !!perms.knowledge;
-	if (!perms) return true;
+	if (!perms) return true;                                            // shared key → sheets/awards
 	if (SHEET_TOOLS.has(name)) return !!perms.sheets;
 	if (AWARDS_TOOLS.has(name)) return !!perms.awards;
 	return true;
@@ -365,12 +387,16 @@ async function callTool(name, args, ctx) {
 		return textContent(out);
 	}
 	if (name === 'sales_market_totals') {
-		const out = await salesMarketTotals(salesDb, args ?? {});
+		const a = { ...(args ?? {}) };
+		if (salesAccess(ctx) === 'own') a.owner = ctx.email; // force self-scope
+		const out = await salesMarketTotals(salesDb, a);
 		if (out.error) return { ...textContent(out.error), isError: true };
 		return textContent(out);
 	}
 	if (name === 'forecast_accuracy') {
-		const out = await forecastAccuracy(salesDb, args ?? {});
+		const a = { ...(args ?? {}) };
+		if (salesAccess(ctx) === 'own') a.owner = ctx.email; // force self-scope
+		const out = await forecastAccuracy(salesDb, a);
 		if (out.error) return { ...textContent(out.error), isError: true };
 		return textContent(out);
 	}

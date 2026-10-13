@@ -24,14 +24,16 @@ export async function GET({ url, cookies, platform }) {
 	// Simulation-aware effective identity (matches the dashboard).
 	let effEmail = email;
 	let effRole = user.role;
+	let effStatsAll = !!perms.statsAll;
 	if (user.role === 'admin') {
 		const sim = cookies.get('simulate_as');
 		if (sim && sim !== email) {
 			const su = await getAllowedUser(db, sim);
-			if (su) { effEmail = sim; effRole = su.role; }
+			if (su) { effEmail = sim; effRole = su.role; effStatsAll = !!(await getUserPermissions(db, su)).statsAll; }
 		}
 	}
-	const ownerScope = effRole === 'admin' ? null : effEmail;
+	// All-data users (and admins) see any company's detail; own-data users only theirs.
+	const ownerScope = (effRole === 'admin' || effStatsAll) ? null : effEmail;
 
 	const id = url.searchParams.get('id');
 	if (!id) error(400, 'Missing id');

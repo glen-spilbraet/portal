@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false });
+	let newAccess = $state({ stats: true, stats_all: false, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false });
 	let creating = $state(false);
 	let createError = $state('');
 	let showCreate = $state(false);
@@ -18,6 +18,7 @@
 
 	const SECTIONS = [
 		{ key: 'stats',       label: 'Stats' },
+		{ key: 'stats_all',   label: 'All data' },
 		{ key: 'sheets',      label: 'Sheets' },
 		{ key: 'catalogues',  label: 'Catalogues' },
 		{ key: 'planograms',  label: 'Planograms' },
@@ -39,7 +40,7 @@
 	// Grouped by the app's nav structure, for an easier overview.
 	const LABEL = Object.fromEntries(SECTIONS.map((s) => [s.key, s.label]));
 	const GROUPS = [
-		{ label: 'Stats',  keys: ['stats', 'product', 'forecast', 'reports'] },
+		{ label: 'Stats',  keys: ['stats', 'stats_all', 'product', 'forecast', 'reports'] },
 		{ label: 'Sales',  keys: ['sheets', 'catalogues', 'planograms', 'awards', 'price_lists', 'mail'] },
 		{ label: 'Orders', keys: ['orders', 'order_conf', 'rest_check', 'price_sync'] },
 		{ label: 'Events', keys: ['events'] },
@@ -64,6 +65,7 @@
 					access_price_lists: newAccess.price_lists,
 					access_orders:      newAccess.orders,
 					access_stats:       newAccess.stats,
+					access_stats_all:   newAccess.stats_all,
 					access_mail:        newAccess.mail,
 					access_product:     newAccess.product,
 					access_forecast:    newAccess.forecast,
@@ -88,6 +90,7 @@
 				access_price_lists: newAccess.price_lists  ? 1 : 0,
 				access_orders:      newAccess.orders       ? 1 : 0,
 				access_stats:       newAccess.stats        ? 1 : 0,
+				access_stats_all:   newAccess.stats_all    ? 1 : 0,
 				access_mail:        newAccess.mail         ? 1 : 0,
 				access_product:     newAccess.product      ? 1 : 0,
 				access_forecast:    newAccess.forecast     ? 1 : 0,
@@ -100,7 +103,7 @@
 				access_knowledge:   newAccess.knowledge   ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { stats: true, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false };
+			newAccess = { stats: true, stats_all: false, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false };
 			showCreate = false;
 		} catch (e) {
 			createError = e.message;
@@ -119,6 +122,7 @@
 			access_price_lists: !!set.access_price_lists,
 			access_orders:      !!set.access_orders,
 			access_stats:       !!set.access_stats,
+			access_stats_all:   !!set.access_stats_all,
 			access_mail:        !!set.access_mail,
 			access_product:     !!set.access_product,
 			access_forecast:    !!set.access_forecast,
@@ -154,6 +158,7 @@
 					access_price_lists: e.access_price_lists,
 					access_orders:      e.access_orders,
 					access_stats:       e.access_stats,
+					access_stats_all:   e.access_stats_all,
 					access_mail:        e.access_mail,
 					access_product:     e.access_product,
 					access_forecast:    e.access_forecast,
@@ -177,6 +182,7 @@
 				access_price_lists: e.access_price_lists ? 1 : 0,
 				access_orders:      e.access_orders      ? 1 : 0,
 				access_stats:       e.access_stats       ? 1 : 0,
+				access_stats_all:   e.access_stats_all   ? 1 : 0,
 				access_mail:        e.access_mail        ? 1 : 0,
 				access_product:     e.access_product      ? 1 : 0,
 				access_forecast:    e.access_forecast    ? 1 : 0,
