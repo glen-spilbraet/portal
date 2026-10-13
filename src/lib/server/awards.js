@@ -36,26 +36,28 @@ async function replaceContacts(db, mediaId, contacts) {
 }
 
 const PLACEMENTS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+const padNum = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0; };
 function badgeBinds(d) {
 	return [
 		PLACEMENTS.includes(d.badge_placement) ? d.badge_placement : 'bottom-right',
-		d.badge_pad_x ? 1 : 0,
-		d.badge_pad_y ? 1 : 0,
+		PLACEMENTS.includes(d.badge_placement_2) ? d.badge_placement_2 : null,
+		padNum(d.badge_pad_top), padNum(d.badge_pad_right), padNum(d.badge_pad_bottom), padNum(d.badge_pad_left),
 		Number(d.badge_size_pct) || 15,
-		Number(d.badge_pad_pct) || 3,
 	];
 }
+const BADGE_COLS = 'badge_placement, badge_placement_2, badge_pad_top, badge_pad_right, badge_pad_bottom, badge_pad_left, badge_size_pct';
 
 export async function createMedia(db, d) {
 	const id = uid();
-	await db.prepare('INSERT INTO award_media (id, name, country, review_scale, notes, badge_placement, badge_pad_x, badge_pad_y, badge_size_pct, badge_pad_pct) VALUES (?,?,?,?,?,?,?,?,?,?)')
+	await db.prepare(`INSERT INTO award_media (id, name, country, review_scale, notes, ${BADGE_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
 		.bind(id, d.name, d.country || null, d.review_scale ? Number(d.review_scale) : null, d.notes || null, ...badgeBinds(d)).run();
 	await replaceContacts(db, id, d.contacts);
 	return id;
 }
 
 export async function updateMedia(db, id, d) {
-	await db.prepare('UPDATE award_media SET name = ?, country = ?, review_scale = ?, notes = ?, badge_placement = ?, badge_pad_x = ?, badge_pad_y = ?, badge_size_pct = ?, badge_pad_pct = ? WHERE id = ?')
+	const set = BADGE_COLS.split(', ').map((c) => `${c} = ?`).join(', ');
+	await db.prepare(`UPDATE award_media SET name = ?, country = ?, review_scale = ?, notes = ?, ${set} WHERE id = ?`)
 		.bind(d.name, d.country || null, d.review_scale ? Number(d.review_scale) : null, d.notes || null, ...badgeBinds(d), id).run();
 	if (d.contacts) await replaceContacts(db, id, d.contacts);
 }
@@ -145,7 +147,8 @@ export async function getBadgesForSkus(db, skus, today) {
 		const rows = (await db.prepare(
 			`SELECT s.sku AS sku, i.is_winner, i.disclosure_date, i.nominee_badge_key, i.winner_badge_key,
 			        i.instance_date, i.created_at,
-			        m.name AS media_name, m.badge_placement, m.badge_pad_x, m.badge_pad_y, m.badge_size_pct, m.badge_pad_pct
+			        m.name AS media_name, m.badge_placement, m.badge_placement_2,
+			        m.badge_pad_top, m.badge_pad_right, m.badge_pad_bottom, m.badge_pad_left, m.badge_size_pct
 			 FROM press_instance i
 			 JOIN award_media m ON m.id = i.media_id
 			 JOIN (
@@ -166,8 +169,9 @@ export async function getBadgesForSkus(db, skus, today) {
 				kind: isWinner ? 'winner' : 'nominee',
 				media: r.media_name ?? null,
 				placement: r.badge_placement || 'bottom-right',
-				pad_x: !!r.badge_pad_x, pad_y: !!r.badge_pad_y,
-				size_pct: r.badge_size_pct ?? 15, pad_pct: r.badge_pad_pct ?? 3
+				placement_2: r.badge_placement_2 || null,
+				pad: { top: r.badge_pad_top ?? 0, right: r.badge_pad_right ?? 0, bottom: r.badge_pad_bottom ?? 0, left: r.badge_pad_left ?? 0 },
+				size_pct: r.badge_size_pct ?? 15
 			});
 		}
 	}

@@ -18,22 +18,29 @@
 	function buildLines(md) {
 		const S = SCAFFOLD[data.lang] ?? SCAFFOLD.da;
 		const q = (t) => (md ? `*"${t}"*` : `"${t}"`);
-		const lines = [];
+		// Awards & nominations first, then press quotes — each section newest first.
+		const awards = [];
+		const quotes = [];
 		for (const i of data.press) {
 			const media = i.media ?? '';
+			const date = i.instance_date ?? '';
+			if (i.is_winner && i.award_category) awards.push({ date, text: `🏆 ${S.winner(i.award_category, media)}` });
+			else if (i.is_nominated && i.award_category) awards.push({ date, text: `👏 ${S.nominee(i.award_category, media)}` });
 			for (const s of i.statements ?? []) {
 				const text = (s.statement ?? '').trim();
 				const score = s.score;
 				if (score != null && score !== '') {
 					const stars = '⭐️'.repeat(Math.max(1, Math.round(Number(score))));
-					lines.push(`${stars} ${q(text)} – ${media}`);
+					quotes.push({ date, text: `${stars} ${q(text)} – ${media}` });
 				} else if (text) {
-					lines.push(`📰 ${q(text)} – ${media}`);
+					quotes.push({ date, text: `📰 ${q(text)} – ${media}` });
 				}
 			}
-			if (i.is_winner && i.award_category) lines.push(`🏆 ${S.winner(i.award_category, media)}`);
-			else if (i.is_nominated && i.award_category) lines.push(`👏 ${S.nominee(i.award_category, media)}`);
 		}
+		const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '');
+		awards.sort(byDateDesc);
+		quotes.sort(byDateDesc);
+		const lines = [...awards, ...quotes].map((x) => x.text);
 		const header = md ? `**${S.header}**` : S.header;
 		return lines.length ? `${header}\n\n${lines.join('\n\n')}` : '';
 	}
@@ -43,11 +50,29 @@
 
 	// ── Canvas compositor ──────────────────────────────────────────────────
 	const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
-	const BADGE_GAP = 2;
 
 	// Which badges are included in the exported photo (all on by default).
 	let selected = $state(data.badges.map(() => true));
 	const activeBadges = $derived(data.badges.filter((_, i) => selected[i]));
+
+	// Assign badges to corners: newest first (data.badges is already newest-first).
+	// A badge takes its primary corner if free, else its secondary corner if free;
+	// if both are taken it is dropped. One badge per corner.
+	function assignSlots(badges) {
+		const occupied = {};
+		const placed = [];
+		for (const b of badges) {
+			const primary = CORNERS.includes(b.placement) ? b.placement : 'bottom-right';
+			const secondary = CORNERS.includes(b.placement_2) ? b.placement_2 : null;
+			const corner = !occupied[primary] ? primary : (secondary && !occupied[secondary] ? secondary : null);
+			if (!corner) continue;
+			occupied[corner] = true;
+			placed.push({ b, corner });
+		}
+		return placed;
+	}
+	const placedBadges = $derived(assignSlots(activeBadges));
+	const shownBadges = $derived(new Set(placedBadges.map((p) => p.b)));
 
 	function loadImage(src) {
 		return new Promise((resolve, reject) => {
@@ -87,19 +112,16 @@
 			ctx.drawImage(box, (BASE - w) / 2, (BASE - h) / 2, w, h);
 		}
 
-		const seen = {};
-		for (const b of activeBadges) {
-			const corner = CORNERS.includes(b.placement) ? b.placement : 'bottom-right';
-			const n = seen[corner] ?? 0;
-			seen[corner] = n + 1;
+		for (const { b, corner } of assignSlots(activeBadges)) {
 			const size = Number(b.size_pct) || 15;
-			const p = Number(b.pad_pct) || 0;
+			const pad = b.pad ?? {};
 			const img = await loadImage(`/api/img/${b.image_key}?size=600`);
 			const bw = (size / 100) * BASE;
 			const bh = bw * (img.naturalHeight / img.naturalWidth);
-			const offX = ((b.pad_x ? p : 0) + n * (size + BADGE_GAP)) / 100 * BASE;
-			const offY = (b.pad_y ? p : 0) / 100 * BASE;
 			const [vy, vx] = corner.split('-');
+			// Only the two sides matching the corner apply.
+			const offX = ((vx === 'left' ? Number(pad.left) : Number(pad.right)) || 0) / 100 * BASE;
+			const offY = ((vy === 'top' ? Number(pad.top) : Number(pad.bottom)) || 0) / 100 * BASE;
 			const x = vx === 'left' ? offX : BASE - offX - bw;
 			const y = vy === 'top' ? offY : BASE - offY - bh;
 			ctx.drawImage(img, x, y, bw, bh);
@@ -223,6 +245,7 @@
 									<span class="badge-media">{b.media ?? 'Badge'}</span>
 									<span class="badge-kind badge-kind-{b.kind}">{b.kind === 'winner' ? 'Winner' : 'Nominee'}</span>
 								</span>
+								{#if selected[i] && !shownBadges.has(b)}<span class="badge-hidden" title="Both of this badge's corners are already taken by newer badges">Not shown — no free corner</span>{/if}
 							</label>
 						{/each}
 					</div>
@@ -319,6 +342,7 @@
 	.badge-row input { width: 17px; height: 17px; accent-color: #6D5BD0; cursor: pointer; flex-shrink: 0; }
 	.badge-thumb { width: 38px; height: 38px; object-fit: contain; flex-shrink: 0; }
 	.badge-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+	.badge-hidden { margin-left: auto; flex-shrink: 0; font-size: 10.5px; font-weight: 700; color: #b4690e; background: #FDF0E0; border-radius: 100px; padding: 2px 9px; white-space: nowrap; }
 	.badge-media { font-size: 13px; font-weight: 600; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.badge-kind { font-size: 11px; font-weight: 600; }
 	.badge-kind-winner { color: #c27803; }

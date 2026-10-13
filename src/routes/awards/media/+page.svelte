@@ -9,22 +9,21 @@
 	let editingId = $state(null);
 	let saving = $state(false);
 	let form = $state(blank());
-	function blank() { return { name: '', country: '', review_scale: '', notes: '', contacts: [], badge_placement: 'bottom-right', badge_pad_x: true, badge_pad_y: true, badge_size_pct: 15, badge_pad_pct: 3 }; }
+	function blank() { return { name: '', country: '', review_scale: '', notes: '', contacts: [], badge_placement: 'bottom-right', badge_placement_2: '', badge_pad_top: 3, badge_pad_right: 3, badge_pad_bottom: 3, badge_pad_left: 3, badge_size_pct: 15 }; }
 
 	const CORNERS = [
 		{ v: 'top-left', label: 'Top left' }, { v: 'top-right', label: 'Top right' },
 		{ v: 'bottom-left', label: 'Bottom left' }, { v: 'bottom-right', label: 'Bottom right' }
 	];
 
-	// Live preview: badge sized/positioned as % of the box, respecting padding toggles.
+	// Live preview: badge sized/positioned as % of the box. Only the two sides
+	// matching the (primary) corner apply.
 	const badgeStyle = $derived.by(() => {
 		const size = Number(form.badge_size_pct) || 15;
-		const p = Number(form.badge_pad_pct) || 0;
-		const px = form.badge_pad_x ? p : 0;
-		const py = form.badge_pad_y ? p : 0;
 		const [vy, vx] = form.badge_placement.split('-');
-		const parts = [`width:${size}%`, `${vy}:${py}%`, `${vx}:${px}%`];
-		return parts.join(';');
+		const py = Number(vy === 'top' ? form.badge_pad_top : form.badge_pad_bottom) || 0;
+		const px = Number(vx === 'left' ? form.badge_pad_left : form.badge_pad_right) || 0;
+		return [`width:${size}%`, `${vy}:${py}%`, `${vx}:${px}%`].join(';');
 	});
 
 	function openNew() { editingId = null; form = blank(); open = true; }
@@ -34,8 +33,9 @@
 		form = {
 			name: m.name ?? '', country: m.country ?? '', review_scale: m.review_scale ?? '', notes: m.notes ?? '',
 			contacts: m.contacts?.map((c) => ({ name: c.name ?? '', email: c.email ?? '', phone: c.phone ?? '', role: c.role ?? '' })) ?? [],
-			badge_placement: m.badge_placement ?? 'bottom-right', badge_pad_x: !!m.badge_pad_x, badge_pad_y: !!m.badge_pad_y,
-			badge_size_pct: m.badge_size_pct ?? 15, badge_pad_pct: m.badge_pad_pct ?? 3
+			badge_placement: m.badge_placement ?? 'bottom-right', badge_placement_2: m.badge_placement_2 ?? '',
+			badge_pad_top: m.badge_pad_top ?? 3, badge_pad_right: m.badge_pad_right ?? 3, badge_pad_bottom: m.badge_pad_bottom ?? 3, badge_pad_left: m.badge_pad_left ?? 3,
+			badge_size_pct: m.badge_size_pct ?? 15
 		};
 	}
 	function close() { open = false; }
@@ -144,13 +144,27 @@
 					</div>
 				</div>
 			</div>
-			<div class="row2">
-				<label class="chk"><input type="checkbox" bind:checked={form.badge_pad_y} /> Padding top / bottom</label>
-				<label class="chk"><input type="checkbox" bind:checked={form.badge_pad_x} /> Padding left / right</label>
+			<div class="sub-head"><span>Secondary position (fallback)</span></div>
+			<p class="hint">If a newer badge already occupies the primary corner, this badge moves to the secondary corner. If both are taken, it isn't shown. “None” = primary corner only.</p>
+			<div class="corner-grid sec">
+				<button type="button" class="corner none" class:sel={!form.badge_placement_2} onclick={() => (form.badge_placement_2 = '')}>None</button>
+				{#each CORNERS as c (c.v)}
+					<button type="button" class="corner" class:sel={form.badge_placement_2 === c.v} title={c.label}
+						onclick={() => (form.badge_placement_2 = c.v)}>
+						<span class="cbox" data-pos={c.v}><span class="cdot"></span></span>
+					</button>
+				{/each}
 			</div>
-			<div class="row2">
-				<label class="fld"><span>Badge size (% of box)</span><input type="number" min="1" max="100" step="0.5" bind:value={form.badge_size_pct} /></label>
-				<label class="fld"><span>Padding (% of box)</span><input type="number" min="0" max="30" step="0.5" bind:value={form.badge_pad_pct} /></label>
+
+			<label class="fld"><span>Badge size (% of box)</span><input type="number" min="1" max="100" step="0.5" bind:value={form.badge_size_pct} /></label>
+
+			<div class="sub-head"><span>Padding per side (% of box)</span></div>
+			<p class="hint">Only the two sides matching a badge's corner apply — e.g. a bottom-right badge uses <strong>bottom</strong> + <strong>right</strong>.</p>
+			<div class="pad-grid">
+				<label class="fld"><span>Top</span><input type="number" min="0" max="40" step="0.5" bind:value={form.badge_pad_top} /></label>
+				<label class="fld"><span>Right</span><input type="number" min="0" max="40" step="0.5" bind:value={form.badge_pad_right} /></label>
+				<label class="fld"><span>Bottom</span><input type="number" min="0" max="40" step="0.5" bind:value={form.badge_pad_bottom} /></label>
+				<label class="fld"><span>Left</span><input type="number" min="0" max="40" step="0.5" bind:value={form.badge_pad_left} /></label>
 			</div>
 
 			<label class="fld"><span>Notes</span><textarea bind:value={form.notes} rows="2"></textarea></label>
@@ -206,6 +220,9 @@
 	.chk input { width: 15px; height: 15px; accent-color: var(--accent); }
 	.badge-cfg { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; }
 	.corner-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+	.corner-grid.sec { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+	.corner.none { width: auto; min-width: 46px; height: 46px; display: inline-flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; color: #98876e; padding: 0 12px; }
+	.pad-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 	.corner { width: 46px; height: 46px; padding: 0; border: 1px solid var(--border); border-radius: 9px; background: #fff; cursor: pointer; }
 	.corner:hover { border-color: var(--accent); }
 	.corner.sel { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(245,120,50,0.25); }
