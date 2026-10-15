@@ -4,8 +4,10 @@
 	let {
 		title, rows = [], leadCols = [], yearCols = ['—', '—', '—'], colNoData = [false, false, false],
 		searchPlaceholder = 'Search…', emptyText = 'No data in this period.', caption = '', onRowClick = null,
-		childrenByKey = null, onChildClick = null,
+		childrenByKey = null, onChildClick = null, canOpenRow = null,
 	} = $props();
+
+	const rowOpenable = (r) => !!onRowClick && (!canOpenRow || canOpenRow(r));
 
 	let expanded = $state({});
 	const hasChildren = (k) => !!(childrenByKey && Array.isArray(childrenByKey[k]) && childrenByKey[k].length);
@@ -30,6 +32,7 @@
 
 	let loadingKey = $state(null);
 	function openRow(r) {
+		if (!rowOpenable(r)) return;
 		loadingKey = r.key; // spinner until navigation swaps the page
 		onRowClick?.(r);
 	}
@@ -104,7 +107,7 @@
 											<button class="chev" class:open={expanded[r.key]} onclick={() => toggle(r.key)} aria-label="Toggle series" title="Show series">▶</button>
 										{/if}
 										<span class="cname">{r[c.key] ?? '—'}</span>
-										{#if onRowClick}
+										{#if rowOpenable(r)}
 											<button class="detail-btn" onclick={() => openRow(r)} aria-label="Open details" title="Open details">
 												{#if loadingKey === r.key}
 													<svg class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>

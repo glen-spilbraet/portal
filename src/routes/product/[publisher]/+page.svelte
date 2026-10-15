@@ -47,6 +47,7 @@
 			emptyText="No series for this publisher."
 			caption="{data.publisher} by series · click a series for its full breakdown · Index = newest vs one year earlier"
 			onRowClick={openSeries}
+			canOpenRow={(r) => !!r.key}
 		/>
 	{/if}
 
