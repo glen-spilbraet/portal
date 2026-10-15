@@ -5,6 +5,7 @@
 		title, rows = [], leadCols = [], yearCols = ['—', '—', '—'], colNoData = [false, false, false],
 		searchPlaceholder = 'Search…', emptyText = 'No data in this period.', caption = '', onRowClick = null,
 		childrenByKey = null, onChildClick = null, canOpenRow = null,
+		invertIndex = false, defaultSortDir = 'desc',
 	} = $props();
 
 	const rowOpenable = (r) => !!onRowClick && (!canOpenRow || canOpenRow(r));
@@ -16,6 +17,11 @@
 	const numFmt = new Intl.NumberFormat('da-DK');
 	function indexClass(idx) {
 		if (idx === null || idx === undefined) return '';
+		if (invertIndex) { // credit notes: a LOWER index (less credit) is good
+			if (idx <= 100) return 'green';
+			if (idx <= 104) return 'orange';
+			return 'red';
+		}
 		if (idx >= 100) return 'green';
 		if (idx >= 96) return 'orange';
 		return 'red';
@@ -23,10 +29,10 @@
 
 	let search = $state('');
 	let sortKey = $state('rev2');
-	let sortDir = $state('desc');
+	let sortDir = $state(defaultSortDir);
 	function setSort(key) {
 		if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-		else { sortKey = key; sortDir = ['rev0', 'rev1', 'rev2', 'index'].includes(key) ? 'desc' : 'asc'; }
+		else { sortKey = key; sortDir = ['rev0', 'rev1', 'rev2', 'index'].includes(key) ? defaultSortDir : 'asc'; }
 	}
 	const caret = (k) => (sortKey === k ? (sortDir === 'asc' ? '▲' : '▼') : '');
 

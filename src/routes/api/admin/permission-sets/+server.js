@@ -46,6 +46,7 @@ export async function POST({ request, cookies, platform }) {
 		order_conf:  body.access_order_conf  === true,
 		reports:     body.access_reports     === true,
 		knowledge:   body.access_knowledge   === true,
+		credit_notes: body.access_credit_notes === true,
 	};
 	await createPermissionSet(db, id, name, access);
 	return json({ id, name, ...body }, { status: 201 });

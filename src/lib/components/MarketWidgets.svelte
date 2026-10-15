@@ -1,10 +1,11 @@
 <script>
 	// 5 KPI cards (Total + markets): revenue + colored YoY index chip.
-	let { widgets = [] } = $props();
+	let { widgets = [], invert = false } = $props();
 	const dkkFmt = new Intl.NumberFormat('da-DK', { maximumFractionDigits: 0 });
 	const formatDkk = (n) => dkkFmt.format(Math.round(n ?? 0)) + ' kr';
 	function indexClass(idx) {
 		if (idx === null || idx === undefined) return '';
+		if (invert) { if (idx <= 100) return 'green'; if (idx <= 104) return 'orange'; return 'red'; }
 		if (idx >= 100) return 'green';
 		if (idx >= 96) return 'orange';
 		return 'red';

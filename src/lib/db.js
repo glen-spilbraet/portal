@@ -807,8 +807,8 @@ export async function getPermissionSet(db, id) {
 
 export async function createPermissionSet(db, id, name, access) {
 	await db.prepare(`
-		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_stats_all, access_mail, access_product, access_forecast, access_awards, access_rest_check, access_price_sync, access_events, access_order_conf, access_reports, access_knowledge)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO permission_sets (id, name, access_sheets, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_stats_all, access_mail, access_product, access_forecast, access_awards, access_rest_check, access_price_sync, access_events, access_order_conf, access_reports, access_knowledge, access_credit_notes)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`).bind(id, name,
 		access.sheets       ? 1 : 0,
 		access.catalogues   ? 1 : 0,
@@ -827,7 +827,8 @@ export async function createPermissionSet(db, id, name, access) {
 		access.events       ? 1 : 0,
 		access.order_conf   ? 1 : 0,
 		access.reports      ? 1 : 0,
-		access.knowledge    ? 1 : 0
+		access.knowledge    ? 1 : 0,
+		access.credit_notes ? 1 : 0
 	).run();
 }
 
@@ -904,10 +905,10 @@ export async function deletePermissionSet(db, id) {
  */
 export async function getUserPermissions(db, user) {
 	if (user.role === 'admin' || !user.permission_set_id) {
-		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, statsAll: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true };
+		return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, statsAll: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true, credit_notes: true };
 	}
 	const ps = await getPermissionSet(db, user.permission_set_id);
-	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, statsAll: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true };
+	if (!ps) return { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, statsAll: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true, credit_notes: true };
 	const statsAll = !!ps.access_stats_all;
 	return {
 		sheets:       !!ps.access_sheets,
@@ -928,6 +929,7 @@ export async function getUserPermissions(db, user) {
 		order_conf:   !!ps.access_order_conf,
 		reports:      !!ps.access_reports,
 		knowledge:    !!ps.access_knowledge,
+		credit_notes: !!ps.access_credit_notes,
 	};
 }
 

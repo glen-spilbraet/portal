@@ -14,6 +14,7 @@ const MARKETS = ['Denmark', 'Sweden', 'Norway', 'International'];
 function buildWhere(startIncl, endExcl, filters = {}) {
 	const where = ['close_date >= ?', 'close_date < ?'];
 	const binds = [startIncl, endExcl];
+	if (filters.creditNotes) where.push("rackbeat_id LIKE 'CN-%'"); // scope to credit notes
 	if (filters.ownerEmail) {
 		where.push('owner_email = ?');
 		binds.push(filters.ownerEmail);
@@ -398,6 +399,7 @@ export async function getDimensionBreakdown(db, windows, col, filters = {}) {
 	const { y0, y1, y2 } = windows;
 	const where = [];
 	const binds = [];
+	if (filters.creditNotes) where.push("rackbeat_id LIKE 'CN-%'");
 	if (filters.ownerEmail) { where.push('owner_email = ?'); binds.push(filters.ownerEmail); }
 	for (const [c, key] of [['customer_level', 'levels'], ['customer_group', 'groups'], ['country', 'countries']]) {
 		const vals = filters[key];
@@ -422,7 +424,7 @@ export async function getDimensionBreakdown(db, windows, col, filters = {}) {
 			rev0: r.rev0 || 0,
 			rev1: r.rev1 || 0,
 			rev2: r.rev2 || 0,
-			index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null,
+			index: r.rev1 ? Math.round((r.rev2 / r.rev1) * 100) : null, // non-zero base (handles negative credit sums)
 		}))
 		.sort((a, b) => b.rev2 - a.rev2);
 }

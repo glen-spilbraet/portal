@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ stats: true, stats_all: false, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false });
+	let newAccess = $state({ stats: true, stats_all: false, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false, credit_notes: false });
 	let creating = $state(false);
 	let createError = $state('');
 	let showCreate = $state(false);
@@ -19,6 +19,7 @@
 	const SECTIONS = [
 		{ key: 'stats',       label: 'Stats' },
 		{ key: 'stats_all',   label: 'All data' },
+		{ key: 'credit_notes', label: 'Credit Notes' },
 		{ key: 'sheets',      label: 'Sheets' },
 		{ key: 'catalogues',  label: 'Catalogues' },
 		{ key: 'planograms',  label: 'Planograms' },
@@ -40,7 +41,7 @@
 	// Grouped by the app's nav structure, for an easier overview.
 	const LABEL = Object.fromEntries(SECTIONS.map((s) => [s.key, s.label]));
 	const GROUPS = [
-		{ label: 'Stats',  keys: ['stats', 'stats_all', 'product', 'forecast', 'reports'] },
+		{ label: 'Stats',  keys: ['stats', 'stats_all', 'product', 'forecast', 'reports', 'credit_notes'] },
 		{ label: 'Sales',  keys: ['sheets', 'catalogues', 'planograms', 'awards', 'price_lists', 'mail'] },
 		{ label: 'Orders', keys: ['orders', 'order_conf', 'rest_check', 'price_sync'] },
 		{ label: 'Events', keys: ['events'] },
@@ -76,6 +77,7 @@
 					access_order_conf:  newAccess.order_conf,
 					access_reports:     newAccess.reports,
 					access_knowledge:   newAccess.knowledge,
+					access_credit_notes: newAccess.credit_notes,
 				})
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
@@ -101,9 +103,10 @@
 				access_order_conf:  newAccess.order_conf    ? 1 : 0,
 				access_reports:     newAccess.reports     ? 1 : 0,
 				access_knowledge:   newAccess.knowledge   ? 1 : 0,
+				access_credit_notes: newAccess.credit_notes ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { stats: true, stats_all: false, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false };
+			newAccess = { stats: true, stats_all: false, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false, credit_notes: false };
 			showCreate = false;
 		} catch (e) {
 			createError = e.message;
@@ -133,6 +136,7 @@
 			access_order_conf:  !!set.access_order_conf,
 			access_reports:     !!set.access_reports,
 			access_knowledge:   !!set.access_knowledge,
+			access_credit_notes: !!set.access_credit_notes,
 		};
 	}
 
@@ -169,6 +173,7 @@
 					access_order_conf:  e.access_order_conf,
 					access_reports:     e.access_reports,
 					access_knowledge:   e.access_knowledge,
+					access_credit_notes: e.access_credit_notes,
 				})
 			});
 			if (!res.ok) throw new Error('Failed to save');
@@ -193,6 +198,7 @@
 				access_order_conf:  e.access_order_conf  ? 1 : 0,
 				access_reports:     e.access_reports  ? 1 : 0,
 				access_knowledge:   e.access_knowledge  ? 1 : 0,
+				access_credit_notes: e.access_credit_notes ? 1 : 0,
 			});
 			cancelEdit(id);
 		} catch (err) {
