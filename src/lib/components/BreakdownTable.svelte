@@ -5,7 +5,7 @@
 		title, rows = [], leadCols = [], yearCols = ['—', '—', '—'], colNoData = [false, false, false],
 		searchPlaceholder = 'Search…', emptyText = 'No data in this period.', caption = '', onRowClick = null,
 		childrenByKey = null, onChildClick = null, canOpenRow = null,
-		invertIndex = false, defaultSortDir = 'desc',
+		invertIndex = false, defaultSortDir = 'desc', head = null,
 	} = $props();
 
 	const rowOpenable = (r) => !!onRowClick && (!canOpenRow || canOpenRow(r));
@@ -64,7 +64,7 @@
 
 <section class="table-wrap">
 	<div class="table-head">
-		<h3>{title}</h3>
+		{#if head}{@render head()}{:else}<h3>{title}</h3>{/if}
 		<span class="count">{numFmt.format(shown.length)}</span>
 	</div>
 	<div class="dim-filter">

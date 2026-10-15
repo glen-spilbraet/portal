@@ -39,15 +39,17 @@
 
 	<CreditMonthlyChart monthly={data.monthly} />
 
-	<div class="dim-tabs" role="tablist">
-		{#each DIMS as d}
-			<button role="tab" class:on={dim === d.key} aria-selected={dim === d.key} onclick={() => (dim = d.key)}>{d.label}</button>
-		{/each}
-	</div>
+	{#snippet dimHead()}
+		<div class="dim-tabs" role="tablist">
+			{#each DIMS as d}
+				<button class="dim-tab" class:on={dim === d.key} role="tab" aria-selected={dim === d.key} onclick={() => (dim = d.key)}>{d.label}</button>
+			{/each}
+		</div>
+	{/snippet}
 
 	{#key dim}
 		<BreakdownTable
-			title={active.label}
+			head={dimHead}
 			rows={data.dims[active.key]}
 			leadCols={active.lead}
 			yearCols={data.yearCols}
@@ -67,7 +69,8 @@
 	.section-head h2 { font-size: 15px; font-weight: 800; letter-spacing: -0.2px; color: #18181B; margin: 0; white-space: nowrap; }
 	.section-head::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
-	.dim-tabs { display: inline-flex; flex-wrap: wrap; gap: 6px; margin: 20px 0 2px; border: 1px solid var(--border); border-radius: 100px; padding: 4px; background: #fff; }
-	.dim-tabs button { border: none; background: none; color: #71717A; font-size: 12.5px; font-weight: 700; font-family: inherit; padding: 6px 14px; border-radius: 100px; cursor: pointer; white-space: nowrap; }
-	.dim-tabs button.on { background: #C4381B; color: #fff; }
+	.dim-tabs { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+	.dim-tab { font-size: 13px; font-weight: 700; color: #6B7280; background: transparent; border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; font-family: inherit; transition: background 0.12s, color 0.12s; }
+	.dim-tab:hover { background: #F4F4F5; color: #18181B; }
+	.dim-tab.on { background: #18181B; color: #fff; }
 </style>
