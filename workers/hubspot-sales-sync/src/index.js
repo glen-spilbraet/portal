@@ -577,7 +577,10 @@ async function runVerification(env, range, opts = {}) {
 	const bulk = (opts.bulk && unresolved.length > BULK_THRESHOLD) ? await fetchAllInvoices(env, range.invFrom, range.invTo) : null;
 
 	const SENTINEL = { numbers: [], subtotal: null, dates: [], currency: null, currency_rate: null };
-	const budgetMs = opts.budgetMs ?? 65000;
+	// Interactive calls must return well under the portal Pages Function's wall-clock
+	// limit (a 65s run makes the portal time out and surface a 502 before the worker
+	// replies). Keep each call short and let the UI resume on {partial:true}.
+	const budgetMs = opts.budgetMs ?? 20000;
 	const newly = [];
 	const hsWrites = [];
 	let attempted = 0;
