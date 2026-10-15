@@ -241,6 +241,32 @@ export async function getSeriesChildrenByPublisher(db, windows) {
 	return out;
 }
 
+/**
+ * Flat leaderboard of EVERY series across all publishers (the "Mapped series"
+ * view): publisher + series name + 3 windows + YoY index. Only series with sales.
+ */
+export async function getAllSeriesBreakdown(db, windows) {
+	const { y0, y1, y2 } = windows;
+	const rows = await db
+		.prepare(
+			`SELECT li.series_id AS key, s.publisher AS publisher, s.name AS label,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev0,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev1,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev2
+			 FROM deal_line_items li JOIN series s ON s.id = li.series_id
+			 WHERE li.deal_kind = 'closed' AND li.series_id IS NOT NULL GROUP BY li.series_id`
+		)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end)
+		.all();
+	return (rows.results ?? [])
+		.map((r) => ({
+			key: r.key, seriesId: r.key, publisher: r.publisher, label: r.label,
+			rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0,
+			index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null,
+		}))
+		.sort((a, b) => b.rev2 - a.rev2);
+}
+
 /** Market totals (DKK) for ONE series over a window. */
 export async function getSeriesMarketTotals(db, startIncl, endExcl, seriesId) {
 	const rows = await db

@@ -106,7 +106,7 @@
 										{#if hasChildren(r.key)}
 											<button class="chev" class:open={expanded[r.key]} onclick={() => toggle(r.key)} aria-label="Toggle series" title="Show series">▶</button>
 										{/if}
-										<span class="cname">{r[c.key] ?? '—'}</span>
+										{#if c.link}<a class="cname linkcell" href={c.link(r)}>{r[c.key] ?? '—'}</a>{:else}<span class="cname">{r[c.key] ?? '—'}</span>{/if}
 										{#if rowOpenable(r)}
 											<button class="detail-btn" onclick={() => openRow(r)} aria-label="Open details" title="Open details">
 												{#if loadingKey === r.key}
@@ -117,6 +117,8 @@
 											</button>
 										{/if}
 									</div>
+								{:else if c.link}
+									<a class="linkcell" href={c.link(r)}>{r[c.key] ?? '—'}</a>
 								{:else}{r[c.key] ?? '—'}{/if}
 							</td>
 						{/each}
@@ -177,6 +179,8 @@
 	td.lead.bold, td.bold { font-weight: 700; color: #18181B; }
 	.name-cell { display: flex; align-items: center; gap: 8px; }
 	.cname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+	.linkcell { color: #B15A12; text-decoration: none; }
+	.linkcell:hover { text-decoration: underline; }
 	.chev { flex-shrink: 0; border: none; background: none; color: #B7A579; cursor: pointer; font-size: 10px; line-height: 1; padding: 2px; transition: transform 0.12s, color 0.12s; display: inline-flex; }
 	.chev.open { transform: rotate(90deg); color: #B15A12; }
 	tbody tr.child td { background: #FFFDF6; }

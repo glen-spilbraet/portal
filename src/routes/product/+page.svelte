@@ -18,8 +18,8 @@
 
 	function setPub(mode) {
 		const u = new URL($page.url);
-		if (mode === 'mapped') u.searchParams.set('pub', 'mapped');
-		else u.searchParams.delete('pub');
+		if (mode === 'sku') u.searchParams.delete('pub');
+		else u.searchParams.set('pub', mode);
 		goto(u, { keepFocus: true, noScroll: true });
 	}
 </script>
@@ -38,25 +38,42 @@
 
 <main class="wrap">
 	<div class="section-head">
-		<h2>Publishers</h2>
+		<h2>{data.pub === 'series' ? 'Series' : 'Publishers'}</h2>
 		<div class="pub-toggle">
-			<button class:active={data.pub !== 'mapped'} onclick={() => setPub('sku')}>SKU publisher</button>
+			<button class:active={data.pub === 'sku'} onclick={() => setPub('sku')}>SKU publisher</button>
 			<button class:active={data.pub === 'mapped'} onclick={() => setPub('mapped')}>Mapped publisher</button>
+			<button class:active={data.pub === 'series'} onclick={() => setPub('series')}>Mapped series</button>
 		</div>
 	</div>
 
-	<BreakdownTable
-		title="Revenue by publisher"
-		rows={data.publishers}
-		leadCols={[{ key: 'label', header: 'Publisher', bold: true }]}
-		yearCols={data.yearCols}
-		colNoData={data.colNoData}
-		searchPlaceholder="Search publishers…"
-		caption="Click a publisher for a full breakdown · unmapped publishers show their SKU prefix · Index = newest vs one year earlier"
-		onRowClick={openPublisher}
-		childrenByKey={data.seriesChildren}
-		onChildClick={openSeriesChild}
-	/>
+	{#if data.pub === 'series'}
+		<BreakdownTable
+			title="Revenue by series"
+			rows={data.seriesRows}
+			leadCols={[
+				{ key: 'publisher', header: 'Publisher', bold: true, link: (r) => `/product/${encodeURIComponent(r.publisher)}?pub=mapped` },
+				{ key: 'label', header: 'Series', bold: true, link: (r) => `/product/${encodeURIComponent(r.publisher)}/${encodeURIComponent(r.seriesId)}?pub=mapped` },
+			]}
+			yearCols={data.yearCols}
+			colNoData={data.colNoData}
+			searchPlaceholder="Search series or publisher…"
+			emptyText="No series with sales yet — create series under a publisher first."
+			caption="Every series across publishers · click a publisher (→ mapped view) or a series · Index = newest vs one year earlier"
+		/>
+	{:else}
+		<BreakdownTable
+			title="Revenue by publisher"
+			rows={data.publishers}
+			leadCols={[{ key: 'label', header: 'Publisher', bold: true }]}
+			yearCols={data.yearCols}
+			colNoData={data.colNoData}
+			searchPlaceholder="Search publishers…"
+			caption="Click a publisher for a full breakdown · unmapped publishers show their SKU prefix · Index = newest vs one year earlier"
+			onRowClick={openPublisher}
+			childrenByKey={data.seriesChildren}
+			onChildClick={openSeriesChild}
+		/>
+	{/if}
 </main>
 
 <style>
