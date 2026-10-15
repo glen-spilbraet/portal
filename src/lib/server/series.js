@@ -97,18 +97,22 @@ export async function unmapSkuSeries(db, sku) {
  */
 export async function searchPublisherProducts(db, publisher, q) {
 	const term = `%${(q ?? '').trim()}%`;
+	// Group first, then join the series name (can't reference MAX() inside a subquery).
 	const rows = await db.prepare(
-		`SELECT li.sku,
-		        COALESCE(${catalogName('li.sku')}, MAX(li.name)) AS name,
-		        MAX(li.series_id) AS series_id,
-		        (SELECT name FROM series WHERE id = MAX(li.series_id)) AS series_name,
-		        ROUND(SUM(li.amount_dkk)) AS dkk
-		 FROM deal_line_items li
-		 WHERE li.deal_kind = 'closed' AND li.publisher = ? AND li.sku IS NOT NULL AND li.sku != ''
-		   AND (li.sku LIKE ? OR li.name LIKE ? OR lower(li.sku) IN (
-		        SELECT lower(s3.sku) FROM sales_sheets s3 JOIN translations tr3 ON tr3.sheet_id = s3.id
-		        WHERE tr3.key = 'product_name' AND tr3.value LIKE ?))
-		 GROUP BY li.sku ORDER BY dkk DESC LIMIT 40`
+		`SELECT g.sku, g.name, g.series_id, s.name AS series_name, g.dkk
+		 FROM (
+		   SELECT li.sku AS sku,
+		          COALESCE(${catalogName('li.sku')}, MAX(li.name)) AS name,
+		          MAX(li.series_id) AS series_id,
+		          ROUND(SUM(li.amount_dkk)) AS dkk
+		   FROM deal_line_items li
+		   WHERE li.deal_kind = 'closed' AND li.publisher = ? AND li.sku IS NOT NULL AND li.sku != ''
+		     AND (li.sku LIKE ? OR li.name LIKE ? OR lower(li.sku) IN (
+		          SELECT lower(s3.sku) FROM sales_sheets s3 JOIN translations tr3 ON tr3.sheet_id = s3.id
+		          WHERE tr3.key = 'product_name' AND tr3.value LIKE ?))
+		   GROUP BY li.sku
+		 ) g LEFT JOIN series s ON s.id = g.series_id
+		 ORDER BY g.dkk DESC LIMIT 40`
 	).bind(publisher, term, term, term).all();
 	return rows.results ?? [];
 }
