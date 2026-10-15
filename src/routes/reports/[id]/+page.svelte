@@ -20,6 +20,7 @@
 	const KINDS = [
 		{ v: 'publisher_sku', label: 'Publisher (by SKU prefix)' },
 		{ v: 'publisher_mapped', label: 'Publisher (mapped)' },
+		{ v: 'series', label: 'Series' },
 		{ v: 'name_contains', label: 'Product name contains' },
 		{ v: 'sku', label: 'Specific SKU' },
 	];
@@ -29,7 +30,9 @@
 	function removeRule(i) { rules = rules.filter((_, x) => x !== i); }
 	function onKindChange(i) {
 		const r = rules[i];
-		r.value = isPublisherKind(r.kind) ? (data.publishers[0] ?? '') : '';
+		r.value = isPublisherKind(r.kind) ? (data.publishers[0] ?? '')
+			: r.kind === 'series' ? (data.series[0]?.id ?? '')
+			: '';
 		rules = [...rules];
 	}
 
@@ -139,6 +142,11 @@
 									<select bind:value={r.value}>
 										<option value="" disabled>Select publisher…</option>
 										{#each data.publishers as pub}<option value={pub}>{pub}</option>{/each}
+									</select>
+								{:else if r.kind === 'series'}
+									<select bind:value={r.value}>
+										<option value="" disabled>Select series…</option>
+										{#each data.series as s}<option value={s.id}>{s.publisher} — {s.name}</option>{/each}
 									</select>
 								{:else if r.kind === 'name_contains'}
 									<input placeholder="e.g. Unmatched" autocomplete="off" bind:value={r.value} />

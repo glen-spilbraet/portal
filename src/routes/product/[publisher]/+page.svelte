@@ -4,8 +4,15 @@
 	import MarketWidgets from '$lib/components/MarketWidgets.svelte';
 	import MonthlyChart from '$lib/components/MonthlyChart.svelte';
 	import BreakdownTable from '$lib/components/BreakdownTable.svelte';
+	import { goto } from '$app/navigation';
 
 	let { data } = $props();
+
+	function openSeries(row) {
+		if (!row.key) return; // "Everything else" is not a series
+		const pq = data.pub === 'mapped' ? '?pub=mapped' : '';
+		goto(`/product/${encodeURIComponent(data.publisher)}/${encodeURIComponent(row.key)}${pq}`);
+	}
 </script>
 
 <svelte:head><title>{data.publisher} · Product · Product Portal</title></svelte:head>
@@ -28,6 +35,20 @@
 	<MarketWidgets widgets={data.widgets} />
 
 	<MonthlyChart monthly={data.monthly} />
+
+	{#if data.series.length}
+		<BreakdownTable
+			title="Series"
+			rows={data.series}
+			leadCols={[{ key: 'label', header: 'Series', bold: true }]}
+			yearCols={data.yearCols}
+			colNoData={data.colNoData}
+			searchPlaceholder="Search series…"
+			emptyText="No series for this publisher."
+			caption="{data.publisher} by series · click a series for its full breakdown · Index = newest vs one year earlier"
+			onRowClick={openSeries}
+		/>
+	{/if}
 
 	<BreakdownTable
 		title="Customers"

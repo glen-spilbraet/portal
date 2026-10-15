@@ -37,6 +37,14 @@ export async function getSeries(db, id) {
 	return db.prepare('SELECT * FROM series WHERE id = ?').bind(id).first();
 }
 
+/** All series across every publisher (for the report-builder picker). */
+export async function listAllSeries(db) {
+	const rows = await db.prepare(
+		'SELECT id, publisher, name FROM series ORDER BY publisher COLLATE NOCASE, name COLLATE NOCASE'
+	).all();
+	return rows.results ?? [];
+}
+
 /** Create a series under a publisher (idempotent on publisher+name); returns its id. */
 export async function createSeries(db, publisher, name) {
 	const p = (publisher ?? '').trim();

@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { getReport } from '$lib/db.js';
 import { computeReport } from '$lib/server/reports.js';
 import { listPublishers } from '$lib/server/publishers.js';
+import { listAllSeries } from '$lib/server/series.js';
 
 export async function load({ params, parent, platform, url }) {
 	const { user } = await parent();
@@ -14,5 +15,6 @@ export async function load({ params, parent, platform, url }) {
 	const salesDb = platform?.env?.SALES_DB;
 	const preview = salesDb ? await computeReport(salesDb, report.rules, { metric: report.metric }) : null;
 	const publishers = salesDb ? ((await listPublishers(salesDb)) ?? []).map((r) => r.name) : [];
-	return { user, report, preview, publishers, origin: url.origin };
+	const series = salesDb ? await listAllSeries(salesDb) : [];
+	return { user, report, preview, publishers, series, origin: url.origin };
 }

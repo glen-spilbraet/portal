@@ -92,7 +92,10 @@
 
 <main class="page">
 	<a class="back" href="/admin/publishers">← Publishers</a>
-	<h1 class="page-title">Map SKUs → <span class="pub">{data.name}</span></h1>
+	<div class="title-row">
+		<h1 class="page-title">Map SKUs → <span class="pub">{data.name}</span></h1>
+		<a class="series-link" href="/admin/publishers/{encodeURIComponent(data.name)}/series">Manage series →</a>
+	</div>
 	<p class="page-sub">Search a SKU or product name. <kbd>↑</kbd>/<kbd>↓</kbd> to move, <kbd>Space</kbd> to tick several, <kbd>Enter</kbd> to map {pickCount > 0 ? `the ${pickCount} ticked` : 'the highlighted one'} to <strong>{data.name}</strong>. Unmapped SKUs show first.</p>
 
 	<div class="search-wrap">
@@ -172,6 +175,9 @@
 	.page { max-width: 760px; margin: 0 auto; padding: 32px 28px 80px; }
 	.back { font-size: 13px; font-weight: 600; color: #71717A; text-decoration: none; }
 	.back:hover { color: #18181B; }
+	.title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+	.series-link { font-size: 13px; font-weight: 700; color: #F57832; text-decoration: none; white-space: nowrap; }
+	.series-link:hover { text-decoration: underline; }
 	.page-title { font-size: 24px; font-weight: 800; color: #18181B; letter-spacing: -0.5px; margin: 10px 0 4px; }
 	.pub { color: #7B3803; }
 	.page-sub { font-size: 14px; color: #A89060; font-weight: 500; margin: 0 0 20px; }

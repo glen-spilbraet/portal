@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
-import { getPublisherMarketTotals, getPublisherMonthly, getPublisherCustomers, getPublisherProducts, MARKETS } from '$lib/salesStats.js';
+import { getPublisherMarketTotals, getPublisherMonthly, getPublisherCustomers, getPublisherProducts, getSeriesBreakdown, MARKETS } from '$lib/salesStats.js';
+import { listSeries } from '$lib/server/series.js';
 import { effectiveParams, resolveRange, getPeriodOptions, yearWindows, addDaysStr } from '$lib/server/statsRange.js';
 
 export async function load({ params, platform, url, cookies, parent }) {
@@ -12,7 +13,7 @@ export async function load({ params, platform, url, cookies, parent }) {
 	const { yearOptions, quarterOptions, monthOptions } = getPeriodOptions(now);
 	const { cur, prior, label, selected } = resolveRange(effectiveParams(url, cookies), now);
 	const range = { start: cur.start, endInclusive: addDaysStr(cur.end, -1) };
-	const empty = { publisher, widgets: [], monthly: { year: curYear, cur: Array(12).fill(0), prior: Array(12).fill(0) }, customers: [], products: [], yearCols: ['—', '—', '—'], colNoData: [false, false, false], selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
+	const empty = { publisher, widgets: [], monthly: { year: curYear, cur: Array(12).fill(0), prior: Array(12).fill(0) }, customers: [], products: [], series: [], yearCols: ['—', '—', '—'], colNoData: [false, false, false], selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
 
 	const pub = url.searchParams.get('pub') === 'mapped' ? 'mapped' : 'sku';
 
@@ -35,9 +36,15 @@ export async function load({ params, platform, url, cookies, parent }) {
 		...MARKETS.map((m) => widget(m.toLowerCase(), m, curM.byMarket[m].dkk, priorM.byMarket[m].dkk)),
 	];
 
+	// Series breakdown (mapped view only) — shown when this publisher has series.
+	let series = [];
+	if (pub === 'mapped' && (await listSeries(db, publisher)).length) {
+		series = await getSeriesBreakdown(db, windows, publisher);
+	}
+
 	return {
 		publisher, pub, widgets, monthly: { year: curYear, cur: monCur, prior: monPrior },
-		customers, products, yearCols, colNoData, selected, range, periodLabel: label,
+		customers, products, series, yearCols, colNoData, selected, range, periodLabel: label,
 		yearOptions, quarterOptions, monthOptions,
 	};
 }

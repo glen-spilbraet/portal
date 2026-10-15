@@ -23,6 +23,8 @@ function rulePredicate(rules) {
 	const frag = (r) => {
 		if (r.kind === 'publisher_sku') { binds.push(r.value); return `${PUB_SKU} = ?`; }
 		if (r.kind === 'publisher_mapped') { binds.push(r.value); return `li.publisher = ?`; }
+		if (r.kind === 'series') { binds.push(r.value); return `li.series_id = ?`; } // value = series id
+
 		if (r.kind === '_skuset') { // pre-resolved name_contains → concrete SKU list
 			if (!r.skus.length) return '0';
 			binds.push(...r.skus);
