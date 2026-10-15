@@ -74,7 +74,7 @@
 	<div class="table-scroll">
 		<table>
 			<colgroup>
-				{#each leadCols as _}<col />{/each}
+				{#each leadCols as c}<col style={c.width ? `width:${c.width}` : ''} />{/each}
 				<col style="width:112px" /><col style="width:112px" /><col style="width:112px" /><col style="width:84px" />
 			</colgroup>
 			<thead>

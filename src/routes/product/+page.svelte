@@ -51,7 +51,7 @@
 			title="Revenue by series"
 			rows={data.seriesRows}
 			leadCols={[
-				{ key: 'publisher', header: 'Publisher', bold: true, link: (r) => `/product/${encodeURIComponent(r.publisher)}?pub=mapped` },
+				{ key: 'publisher', header: 'Publisher', bold: true, width: '210px', link: (r) => `/product/${encodeURIComponent(r.publisher)}?pub=mapped` },
 				{ key: 'label', header: 'Series', bold: true, link: (r) => `/product/${encodeURIComponent(r.publisher)}/${encodeURIComponent(r.seriesId)}?pub=mapped` },
 			]}
 			yearCols={data.yearCols}
