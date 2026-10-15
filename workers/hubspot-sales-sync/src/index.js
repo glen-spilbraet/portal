@@ -125,12 +125,29 @@ export default {
 					// Window backfill: refresh line items for closed deals closing in [from,to).
 					// Use small windows (≤ ~a quarter) to stay under the subrequest cap.
 					const maps = await resolvePublisherMaps(env);
-					const deals = (await env.DB.prepare('SELECT deal_id, company_id, close_date, amount_raw, amount_dkk, currency FROM sales_deals WHERE close_date >= ? AND close_date < ?').bind(from, to).all()).results || [];
+					const deals = (await env.DB.prepare('SELECT deal_id, company_id, close_date, amount_raw, amount_dkk, currency, rackbeat_id FROM sales_deals WHERE close_date >= ? AND close_date < ?').bind(from, to).all()).results || [];
 					const res = await refreshLineItemsForDeals(env, deals, 'closed', maps);
 					return json({ ok: true, window: `${from} → ${to}`, ...res });
 				}
 				const since = url.searchParams.get('since') || (await getMeta(env.DB))?.last_run || null;
 				return json({ ok: true, ...(await syncLineItems(env, since)) });
+			}
+			if (url.searchParams.get('cnlines') === '1') {
+				// One-time backfill: pull real negative line items from Rackbeat for
+				// existing credit-note deals (rackbeat_id CN-…). Paged so each run stays
+				// well under the subrequest cap — loop with offset until next_offset=null.
+				const maps = await resolvePublisherMaps(env);
+				const limit = Math.min(parseInt(url.searchParams.get('limit') || '150', 10) || 150, 400);
+				const offset = parseInt(url.searchParams.get('offset') || '0', 10) || 0;
+				const from = url.searchParams.get('from');
+				const to = url.searchParams.get('to');
+				const where = from && to ? "rackbeat_id LIKE 'CN-%' AND close_date >= ? AND close_date < ?" : "rackbeat_id LIKE 'CN-%'";
+				const binds = from && to ? [from, to, limit, offset] : [limit, offset];
+				const deals = (await env.DB.prepare(
+					`SELECT deal_id, company_id, close_date, amount_raw, amount_dkk, currency, rackbeat_id FROM sales_deals WHERE ${where} ORDER BY close_date, deal_id LIMIT ? OFFSET ?`
+				).bind(...binds).all()).results || [];
+				const res = await refreshLineItemsForDeals(env, deals, 'closed', maps);
+				return json({ ok: true, scanned: deals.length, offset, next_offset: deals.length === limit ? offset + limit : null, ...res });
 			}
 			if (url.searchParams.get('props')) {
 				// Diagnostic: list properties whose name/label matches a term.
@@ -1050,24 +1067,88 @@ function buildLineRow(li, deal, kind, maps) {
 	};
 }
 
+/**
+ * Credit-note line source. In HubSpot a credit-note deal only has a placeholder
+ * line (sku='CN', qty 1, 0 kr) — the real returned SKUs live on the Rackbeat
+ * credit note (rackbeat_id = `CN-<number>`). Rackbeat already stores the lines
+ * with NEGATIVE quantity + total, so we use them as-is. Returns null when no
+ * matching credit note is found (leave the deal untouched); throws on API error
+ * (caller skips the deal so a transient failure never wipes good lines).
+ */
+async function fetchCreditNoteLines(env, rackbeatId) {
+	const invNo = String(rackbeatId).replace(/^CN-/, '');
+	if (!invNo) return null;
+	const body = await rbGet(env, `/customer-invoices?limit=100&search=${encodeURIComponent(invNo)}`);
+	const inv = (body?.customer_invoices || []).find((i) => String(i.number) === invNo && i.is_creditnote);
+	if (!inv) return null;
+	const lines = (inv.lines || []).filter((l) => l.child_type === 'product' && (l.child_id || l.item?.number));
+	return { currency: inv.currency || null, rate: inv.currency_rate ?? null, lines };
+}
+
+/** Build a deal_line_items row from a Rackbeat credit-note line (already negative). */
+function buildCreditNoteRow(line, cn, deal, maps) {
+	const sku = line.child_id || line.item?.number || null;
+	const pfx = skuPrefix(sku);
+	const net = num(line.line_total); // line total in invoice currency, already negative
+	const currency = cn.currency || deal.currency || null;
+	let dkk = null;
+	if (net != null) dkk = cn.rate != null ? net * cn.rate : (currency === 'DKK' ? net : null);
+	const publisher = maps.overrideMap[sku] ?? maps.prefixMap[pfx] ?? pfx ?? null;
+	return {
+		line_item_id: `rb-${line.id}`, deal_id: String(deal.deal_id), deal_kind: 'closed',
+		company_id: deal.company_id ?? null, close_date: deal.close_date ?? null,
+		sku, sku_prefix: pfx, name: line.name || line.item?.name || null,
+		unit_price: num(line.line_price), discount: num(line.discount_percentage), net_price: net,
+		amount_dkk: dkk, currency, quantity: num(line.quantity),
+		publisher, quantity_log_create: null, quantity_log_start: null,
+	};
+}
+
 /** Replace line items for the given deal rows: delete existing, insert current. */
 async function refreshLineItemsForDeals(env, dealRows, kind, maps) {
 	if (!dealRows.length) return { deals: 0, lines: 0 };
 	const dealById = {};
 	for (const d of dealRows) dealById[String(d.deal_id)] = d;
-	const dealIds = Object.keys(dealById);
-	const byDeal = await fetchDealLineItems(env, dealIds);
+	const allIds = Object.keys(dealById);
+
+	// Credit-note deals (closed only) take their real lines from Rackbeat, not the
+	// HubSpot placeholder. Everything else uses the normal HubSpot line items.
+	const cnIds = kind === 'closed'
+		? allIds.filter((id) => String(dealById[id].rackbeat_id || '').startsWith('CN-'))
+		: [];
+	const cnSet = new Set(cnIds);
+	const normalIds = allIds.filter((id) => !cnSet.has(id));
+
 	const rows = [];
-	for (const [dealId, items] of Object.entries(byDeal)) {
-		const deal = dealById[dealId];
-		if (!deal) continue;
-		for (const li of items) rows.push(buildLineRow(li, deal, kind, maps));
+	const replaceIds = []; // only deals we successfully (re)built get their lines replaced
+
+	if (normalIds.length) {
+		const byDeal = await fetchDealLineItems(env, normalIds);
+		for (const id of normalIds) {
+			replaceIds.push(id);
+			for (const li of byDeal[id] || []) rows.push(buildLineRow(li, dealById[id], kind, maps));
+		}
 	}
-	for (const chunk of chunks(dealIds, 50)) {
+
+	let cnResolved = 0, cnErrors = 0;
+	for (const id of cnIds) {
+		const deal = dealById[id];
+		try {
+			const cn = await fetchCreditNoteLines(env, deal.rackbeat_id);
+			if (!cn) continue; // not found → leave the deal's existing lines as-is
+			replaceIds.push(id);
+			cnResolved++;
+			for (const line of cn.lines) rows.push(buildCreditNoteRow(line, cn, deal, maps));
+		} catch {
+			cnErrors++; // transient Rackbeat error → skip; retried next run (don't wipe good lines)
+		}
+	}
+
+	for (const chunk of chunks(replaceIds, 50)) {
 		await env.DB.prepare(`DELETE FROM deal_line_items WHERE deal_id IN (${chunk.map(() => '?').join(',')})`).bind(...chunk).run();
 	}
 	await importLineItems(env, rows);
-	return { deals: dealIds.length, lines: rows.length };
+	return { deals: replaceIds.length, lines: rows.length, cn_resolved: cnResolved, cn_errors: cnErrors };
 }
 
 /** Deals whose line items changed since the watermark (line-only edits). */
@@ -1094,10 +1175,14 @@ async function fetchDealsWithChangedLineItems(env, sinceMs) {
 
 /** Load mirror deal rows (context for building line items) for a set of ids. */
 async function loadDealRows(env, table, ids) {
+	// sales_deals carries rackbeat_id (needed to detect CN- credit notes); forecast_deals doesn't.
+	const cols = table === 'sales_deals'
+		? 'deal_id, company_id, close_date, amount_raw, amount_dkk, currency, rackbeat_id'
+		: 'deal_id, company_id, close_date, amount_raw, amount_dkk, currency';
 	const out = [];
 	for (const chunk of chunks(ids, 100)) {
 		const r = await env.DB
-			.prepare(`SELECT deal_id, company_id, close_date, amount_raw, amount_dkk, currency FROM ${table} WHERE deal_id IN (${chunk.map(() => '?').join(',')})`)
+			.prepare(`SELECT ${cols} FROM ${table} WHERE deal_id IN (${chunk.map(() => '?').join(',')})`)
 			.bind(...chunk).all();
 		out.push(...(r.results || []));
 	}
