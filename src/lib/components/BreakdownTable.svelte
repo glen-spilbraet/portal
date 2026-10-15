@@ -4,7 +4,12 @@
 	let {
 		title, rows = [], leadCols = [], yearCols = ['—', '—', '—'], colNoData = [false, false, false],
 		searchPlaceholder = 'Search…', emptyText = 'No data in this period.', caption = '', onRowClick = null,
+		childrenByKey = null, onChildClick = null,
 	} = $props();
+
+	let expanded = $state({});
+	const hasChildren = (k) => !!(childrenByKey && Array.isArray(childrenByKey[k]) && childrenByKey[k].length);
+	function toggle(k) { expanded = { ...expanded, [k]: !expanded[k] }; }
 
 	const numFmt = new Intl.NumberFormat('da-DK');
 	function indexClass(idx) {
@@ -81,31 +86,60 @@
 				</tr>
 			</thead>
 			<tbody>
+				{#snippet revIdx(row)}
+					{#each ['rev0', 'rev1', 'rev2'] as key, i}
+						<td class="num" class:nodata={colNoData[i]}>{colNoData[i] ? '—' : numFmt.format(Math.round(row[key]))}</td>
+					{/each}
+					<td class="num">
+						{#if row.index !== null && row.index !== undefined}<span class="index-chip {indexClass(row.index)}">{row.index}</span>{:else}<span class="muted">–</span>{/if}
+					</td>
+				{/snippet}
 				{#each shown as r (r.key)}
 					<tr>
 						{#each leadCols as c, ci}
 							<td class:lead={ci === 0} class:bold={c.bold}>
-								{#if ci === 0 && onRowClick}
+								{#if ci === 0}
 									<div class="name-cell">
+										{#if hasChildren(r.key)}
+											<button class="chev" class:open={expanded[r.key]} onclick={() => toggle(r.key)} aria-label="Toggle series" title="Show series">▶</button>
+										{/if}
 										<span class="cname">{r[c.key] ?? '—'}</span>
-										<button class="detail-btn" onclick={() => openRow(r)} aria-label="Open details" title="Open details">
-											{#if loadingKey === r.key}
-												<svg class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
-											{:else}
-												<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
-											{/if}
-										</button>
+										{#if onRowClick}
+											<button class="detail-btn" onclick={() => openRow(r)} aria-label="Open details" title="Open details">
+												{#if loadingKey === r.key}
+													<svg class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+												{:else}
+													<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+												{/if}
+											</button>
+										{/if}
 									</div>
 								{:else}{r[c.key] ?? '—'}{/if}
 							</td>
 						{/each}
-						{#each ['rev0', 'rev1', 'rev2'] as key, i}
-							<td class="num" class:nodata={colNoData[i]}>{colNoData[i] ? '—' : numFmt.format(Math.round(r[key]))}</td>
-						{/each}
-						<td class="num">
-							{#if r.index !== null && r.index !== undefined}<span class="index-chip {indexClass(r.index)}">{r.index}</span>{:else}<span class="muted">–</span>{/if}
-						</td>
+						{@render revIdx(r)}
 					</tr>
+					{#if hasChildren(r.key) && expanded[r.key]}
+						{#each childrenByKey[r.key] as ch (ch.key)}
+							<tr class="child">
+								{#each leadCols as c, ci}
+									<td class:lead={ci === 0}>
+										{#if ci === 0}
+											<div class="name-cell child-name">
+												<span class="cname" class:rest={ch.isRest}>{ch.label}</span>
+												{#if onChildClick && !ch.isRest}
+													<button class="detail-btn" onclick={() => onChildClick(ch)} aria-label="Open series" title="Open series">
+														<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
+													</button>
+												{/if}
+											</div>
+										{/if}
+									</td>
+								{/each}
+								{@render revIdx(ch)}
+							</tr>
+						{/each}
+					{/if}
 				{/each}
 				{#if shown.length === 0}
 					<tr><td colspan={leadCols.length + 4} class="empty">{search.trim() ? 'No matches.' : emptyText}</td></tr>
@@ -140,6 +174,13 @@
 	td.lead.bold, td.bold { font-weight: 700; color: #18181B; }
 	.name-cell { display: flex; align-items: center; gap: 8px; }
 	.cname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+	.chev { flex-shrink: 0; border: none; background: none; color: #B7A579; cursor: pointer; font-size: 10px; line-height: 1; padding: 2px; transition: transform 0.12s, color 0.12s; display: inline-flex; }
+	.chev.open { transform: rotate(90deg); color: #B15A12; }
+	tbody tr.child td { background: #FFFDF6; }
+	tbody tr.child:hover td { background: #FFF5D2; }
+	.child-name { padding-left: 20px; }
+	.child-name .cname { color: #52525B; font-weight: 600; }
+	.child-name .cname.rest { color: #A1A1AA; font-style: italic; font-weight: 500; }
 	.detail-btn {
 		flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
 		width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--border);

@@ -11,6 +11,10 @@
 		const pq = data.pub === 'mapped' ? '?pub=mapped' : '';
 		goto(`/product/${encodeURIComponent(row.key)}${pq}`);
 	}
+	function openSeriesChild(ch) {
+		if (!ch.seriesId) return;
+		goto(`/product/${encodeURIComponent(ch.publisher)}/${encodeURIComponent(ch.seriesId)}?pub=mapped`);
+	}
 
 	function setPub(mode) {
 		const u = new URL($page.url);
@@ -50,6 +54,8 @@
 		searchPlaceholder="Search publishers…"
 		caption="Click a publisher for a full breakdown · unmapped publishers show their SKU prefix · Index = newest vs one year earlier"
 		onRowClick={openPublisher}
+		childrenByKey={data.seriesChildren}
+		onChildClick={openSeriesChild}
 	/>
 </main>
 

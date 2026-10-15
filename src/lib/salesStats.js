@@ -205,6 +205,42 @@ export async function getSeriesBreakdown(db, windows, publisher) {
 		.sort((a, b) => (a.isRest ? 1 : 0) - (b.isRest ? 1 : 0) || b.rev2 - a.rev2);
 }
 
+/**
+ * Series children for ALL publishers that have series, in one query — each
+ * publisher → [series rows + "Everything else"], for the expandable /product
+ * list (mapped view). Keyed by publisher name (matches the breakdown row key).
+ */
+export async function getSeriesChildrenByPublisher(db, windows) {
+	const { y0, y1, y2 } = windows;
+	const rows = await db
+		.prepare(
+			`SELECT li.publisher AS publisher, li.series_id AS sid,
+			        (SELECT name FROM series WHERE id = li.series_id) AS label,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev0,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev1,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev2
+			 FROM deal_line_items li
+			 WHERE li.deal_kind = 'closed' AND li.publisher IN (SELECT DISTINCT publisher FROM series)
+			 GROUP BY li.publisher, li.series_id`
+		)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end)
+		.all();
+	const out = {};
+	for (const r of rows.results ?? []) {
+		(out[r.publisher] ??= []).push({
+			key: r.sid ?? `${r.publisher}::rest`, // unique row key for {#each}
+			publisher: r.publisher,
+			seriesId: r.sid ?? null,
+			label: r.sid ? (r.label ?? '—') : 'Everything else',
+			isRest: !r.sid,
+			rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0,
+			index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null,
+		});
+	}
+	for (const p of Object.keys(out)) out[p].sort((a, b) => (a.isRest ? 1 : 0) - (b.isRest ? 1 : 0) || b.rev2 - a.rev2);
+	return out;
+}
+
 /** Market totals (DKK) for ONE series over a window. */
 export async function getSeriesMarketTotals(db, startIncl, endExcl, seriesId) {
 	const rows = await db
