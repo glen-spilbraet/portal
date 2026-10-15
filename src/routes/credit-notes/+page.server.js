@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { getMarketTotals, getMonthlyTotals, getDimensionBreakdown, MARKETS } from '$lib/salesStats.js';
+import { getMarketTotals, getMonthlyTotals, getDimensionBreakdown, getCreditLineDimension, MARKETS } from '$lib/salesStats.js';
 import { effectiveParams, resolveRange, getPeriodOptions, yearWindows, addDaysStr } from '$lib/server/statsRange.js';
 
 /** Credit-note report: same shape as Sales Stats, scoped to credit notes (negative amounts). */
@@ -12,14 +12,14 @@ export async function load({ platform, url, cookies, parent }) {
 	const { yearOptions, quarterOptions, monthOptions } = getPeriodOptions(now);
 	const { cur, prior, label, selected } = resolveRange(effectiveParams(url, cookies), now);
 	const range = { start: cur.start, endInclusive: addDaysStr(cur.end, -1) };
-	const empty = { widgets: [], monthly: { year: curYear, cur: Array(12).fill(0), prior: Array(12).fill(0) }, customers: [], owners: [], countries: [], yearCols: ['—', '—', '—'], colNoData: [false, false, false], selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
+	const empty = { widgets: [], monthly: { year: curYear, cur: Array(12).fill(0), prior: Array(12).fill(0) }, dims: { customers: [], owners: [], countries: [], publishers: [], products: [] }, yearCols: ['—', '—', '—'], colNoData: [false, false, false], selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
 
 	const db = platform?.env?.SALES_DB;
 	if (!db) return empty;
 
 	const F = { creditNotes: true };
 	const { windows, yearCols, colNoData } = yearWindows(cur, prior);
-	const [curTot, priorTot, monCur, monPrior, customers, owners, countries] = await Promise.all([
+	const [curTot, priorTot, monCur, monPrior, customers, owners, countries, publishers, products] = await Promise.all([
 		getMarketTotals(db, cur.start, cur.end, F),
 		getMarketTotals(db, prior.start, prior.end, F),
 		getMonthlyTotals(db, curYear, F),
@@ -27,6 +27,8 @@ export async function load({ platform, url, cookies, parent }) {
 		getDimensionBreakdown(db, windows, 'company_name', F),
 		getDimensionBreakdown(db, windows, 'owner_email', F),
 		getDimensionBreakdown(db, windows, 'country', F),
+		getCreditLineDimension(db, windows, 'publisher'),
+		getCreditLineDimension(db, windows, 'product'),
 	]);
 
 	// Index = this period / same period last year (both negative → positive ratio).
@@ -38,7 +40,8 @@ export async function load({ platform, url, cookies, parent }) {
 
 	return {
 		widgets, monthly: { year: curYear, cur: monCur, prior: monPrior },
-		customers, owners, countries, yearCols, colNoData, selected, range, periodLabel: label,
+		dims: { customers, owners, countries, publishers, products },
+		yearCols, colNoData, selected, range, periodLabel: label,
 		yearOptions, quarterOptions, monthOptions,
 	};
 }

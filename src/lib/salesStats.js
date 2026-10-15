@@ -430,6 +430,41 @@ export async function getDimensionBreakdown(db, windows, col, filters = {}) {
 }
 
 /**
+ * Credit-note breakdown at LINE-ITEM level (for the Publisher / Product
+ * dimensions), across three windows. dim = 'publisher' (SKU-prefix model) or
+ * 'product' (SKU). Scoped to credit-note deals (rackbeat_id LIKE 'CN-%').
+ */
+export async function getCreditLineDimension(db, windows, dim) {
+	const { y0, y1, y2 } = windows;
+	const isPub = dim === 'publisher';
+	const keyExpr = isPub ? pubExpr('sku', 'li.') : 'li.sku';
+	const nameExpr = isPub ? pubExpr('sku', 'li.') : 'li.name';
+	// Materialise the computed key per row in an inner query, THEN group — grouping
+	// directly on a correlated-subquery alias splits rows that share a publisher.
+	const rows = await db
+		.prepare(
+			`SELECT kv AS key, MAX(nm) AS label,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
+			 FROM (
+			   SELECT ${keyExpr} AS kv, ${nameExpr} AS nm, li.close_date AS close_date, li.amount_dkk AS amount_dkk
+			   FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
+			   WHERE li.deal_kind = 'closed' AND d.rackbeat_id LIKE 'CN-%' AND li.sku IS NOT NULL AND li.sku != ''
+			 ) GROUP BY kv`
+		)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end)
+		.all();
+	return (rows.results ?? [])
+		.map((r) => ({
+			key: r.key, ...(isPub ? {} : { sku: r.key, name: r.label }), label: r.label ?? r.key,
+			rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0,
+			index: r.rev1 ? Math.round((r.rev2 / r.rev1) * 100) : null,
+		}))
+		.sort((a, b) => a.rev2 - b.rev2); // most-negative (biggest credit) first
+}
+
+/**
  * Every known company (all-time), regardless of the selected date range, so
  * the Companies table can show customers with zero revenue in the window.
  * Honours the same filters (level/group/country/owner) but ignores dates.
