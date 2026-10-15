@@ -10,6 +10,8 @@
  * mapping a SKU re-resolves just that SKU so the "Mapped" report view is instant.
  */
 
+import { REAPPLY_SERIES_ONE } from './series.js';
+
 // Re-resolve the stored publisher for ONE sku after its mapping changes.
 const REAPPLY_ONE = `UPDATE deal_line_items SET publisher = COALESCE(
 	(SELECT publisher FROM product_publisher_override o WHERE o.sku = deal_line_items.sku),
@@ -101,6 +103,7 @@ export async function mapSku(db, sku, publisher) {
 	await db.batch([
 		db.prepare('INSERT OR REPLACE INTO product_publisher_override (sku, publisher) VALUES (?, ?)').bind(s, p),
 		db.prepare(REAPPLY_ONE).bind(s),
+		db.prepare(REAPPLY_SERIES_ONE).bind(s), // publisher changed → clear series if it no longer matches
 	]);
 }
 
@@ -111,5 +114,6 @@ export async function unmapSku(db, sku) {
 	await db.batch([
 		db.prepare('DELETE FROM product_publisher_override WHERE sku = ?').bind(s),
 		db.prepare(REAPPLY_ONE).bind(s),
+		db.prepare(REAPPLY_SERIES_ONE).bind(s),
 	]);
 }
