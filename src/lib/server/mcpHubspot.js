@@ -123,10 +123,11 @@ async function ensureImportIdProperty(token, propNames) {
 	} catch { return false; }
 }
 
-async function findCompanyByRackbeat(token, rackbeatId) {
+/** HubSpot companies whose `rackbeat_id` is this Rackbeat customer number. Also used by the shop order feed. */
+export async function findCompanyByRackbeat(token, rackbeatId, limit = 3) {
 	const data = await hs(token, 'POST', '/crm/v3/objects/companies/search', {
 		filterGroups: [{ filters: [{ propertyName: 'rackbeat_id', operator: 'EQ', value: String(rackbeatId) }] }],
-		properties: ['name', 'rackbeat_id'], limit: 3,
+		properties: ['name', 'rackbeat_id'], limit,
 	});
 	return data.results ?? [];
 }
