@@ -11,6 +11,8 @@ declare global {
 				APP_SECRET: string;
 				RACKBEAT_API_KEY?: string;
 				HUBSPOT_TOKEN?: string;
+				/** Bearer key the B2B shop uses for GET /api/shop/products. */
+				SHOP_FEED_KEY?: string;
 			};
 		}
 	}
