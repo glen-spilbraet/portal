@@ -111,7 +111,7 @@ export async function buildShopFeed(db, salesDb, origin) {
 	// once disclosed, else nominee; newest first, with each outlet's corners,
 	// padding (% of box) and size (% of box width).
 	const today = new Date().toISOString().slice(0, 10);
-	const badgesBySku = await getBadgesForSkus(db, products.map((p) => p.sku), today);
+	const badgesBySku = /** @type {Record<string, any[]>} */ (await getBadgesForSkus(db, products.map((p) => p.sku), today));
 	for (const p of products) {
 		/** @type {any} */ (p).badges = (badgesBySku[p.sku] ?? []).map((/** @type {any} */ b) => ({
 			image: imgUrl(b.image_key),
