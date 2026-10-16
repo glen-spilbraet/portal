@@ -9,7 +9,7 @@
  * Sheets and awards come from DB (env-specific); the publisher and series
  * mapping from SALES_DB (shared prod), same as everywhere else in the portal.
  */
-import { listAllInstances } from './awards.js';
+import { listAllInstances, getBadgesForSkus } from './awards.js';
 
 const MAX_USP = 8;
 
@@ -105,6 +105,23 @@ export async function buildShopFeed(db, salesDb, origin) {
 			youtube_url: s.youtube_url || null,
 			awards: awards[key] ?? []
 		});
+	}
+
+	// Box badges exactly as the sheets and catalogues resolve them: winner badge
+	// once disclosed, else nominee; newest first, with each outlet's corners,
+	// padding (% of box) and size (% of box width).
+	const today = new Date().toISOString().slice(0, 10);
+	const badgesBySku = await getBadgesForSkus(db, products.map((p) => p.sku), today);
+	for (const p of products) {
+		/** @type {any} */ (p).badges = (badgesBySku[p.sku] ?? []).map((/** @type {any} */ b) => ({
+			image: imgUrl(b.image_key),
+			kind: b.kind,
+			media: b.media,
+			placement: b.placement,
+			placement_2: b.placement_2,
+			pad: b.pad,
+			size_pct: b.size_pct
+		}));
 	}
 
 	const [prefixRes, overrideRes, seriesRes] = await salesDb.batch([
