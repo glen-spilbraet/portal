@@ -1,896 +1,381 @@
 <script>
-	import SheetCanvas from '$lib/components/SheetCanvas.svelte';
+	import { invalidateAll } from '$app/navigation';
+	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
 
 	let { data } = $props();
 
+	const sheetId = data.sheet.id;
 	let language = $state(data.language);
-	let translations = $state(data.translations);
-	let baseTranslations = $state(data.baseTranslations);
 	let saveStatus = $state('saved');
 	let saveTimer = null;
+	function flashSaved() { saveStatus = 'saving'; clearTimeout(saveTimer); saveTimer = setTimeout(() => (saveStatus = 'saved'), 900); }
+
+	// ── Per-language text (re-loaded on language switch) ───────────────────────
+	let t = $state({ ...data.translations });
+	let uspCount = $state(data.sheet.usp_count ?? 3);
 
 	async function switchLanguage(code) {
 		if (code === language) return;
+		const res = await fetch(`/api/sheets/${sheetId}?lang=${code}`);
+		t = res.ok ? await res.json() : {};
 		language = code;
-		const [curRes, baseRes] = await Promise.all([
-			fetch(`/api/sheets/${data.sheet.id}?lang=${code}`),
-			fetch(`/api/sheets/${data.sheet.id}?lang=${data.primaryLanguage}`)
-		]);
-		if (curRes.ok) translations = await curRes.json();
-		if (baseRes.ok) baseTranslations = await baseRes.json();
 	}
 
-	function handleChange(event) {
-		saveStatus = 'saving';
-		clearTimeout(saveTimer);
-		saveTimer = setTimeout(() => { saveStatus = 'saved'; }, 1500);
-		if (event?.type === 'translation') {
-			// Update translations immediately so SheetCanvas $effect sees the new value
-			// and doesn't flicker back to the old text when the effect re-runs
-			translations = { ...translations, [event.key]: event.value };
-			if (language === data.primaryLanguage) {
-				baseTranslations = { ...baseTranslations, [event.key]: event.value };
-			}
-		}
+	async function putTranslation(key, value) {
+		t = { ...t, [key]: value };
+		flashSaved();
+		await fetch(`/api/sheets/${sheetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'translation', language, key, value: value ?? '' }) });
+	}
+	async function putSheet(field, value) {
+		flashSaved();
+		await fetch(`/api/sheets/${sheetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'sheet', field, value }) });
 	}
 
-	const statusLabel = $derived(
-		saveStatus === 'saving' ? 'Saving…' : 'Saved'
-	);
-
-	let canvas = $state(null);
-
-	let hiddenElements = $state(JSON.parse(data.sheet.hidden_elements || '{}'));
-	let globalLabels = $state(data.globalLabels);
-	let selectedCtaVersionId = $state(data.sheet.cta_version_id ?? null);
-
-	async function toggleElement(key) {
-		hiddenElements[key] = !hiddenElements[key];
-		await fetch(`/api/sheets/${data.sheet.id}`, {
-			method: 'PUT',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ type: 'sheet', field: 'hidden_elements', value: JSON.stringify(hiddenElements) })
-		});
+	// ── Bullets (usp_1..usp_count) ─────────────────────────────────────────────
+	function usp(i) { return t[`usp_${i + 1}`] ?? ''; }
+	async function addBullet() { if (uspCount >= 6) return; uspCount += 1; await putSheet('usp_count', uspCount); }
+	async function removeBullet(idx) {
+		const vals = Array.from({ length: uspCount }, (_, i) => usp(i));
+		vals.splice(idx, 1);
+		for (let i = 0; i < vals.length; i++) await putTranslation(`usp_${i + 1}`, vals[i]);
+		await putTranslation(`usp_${vals.length + 1}`, '');
+		uspCount = vals.length;
+		await putSheet('usp_count', uspCount);
 	}
 
-	async function selectCtaVersion(id) {
-		selectedCtaVersionId = id;
-		// Update globalLabels.cta reactively
-		if (id) {
-			const version = data.ctaVersions.find(v => v.id === id);
-			globalLabels = { ...globalLabels, cta: version?.translations ?? {} };
-		} else {
-			const { cta: _, ...rest } = globalLabels;
-			globalLabels = rest;
-		}
-		await fetch(`/api/sheets/${data.sheet.id}`, {
-			method: 'PUT',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ type: 'sheet', field: 'cta_version_id', value: id })
-		});
-	}
-
-	const TOGGLES = [
-		{ key: 'cta',        label: 'CTA' },
-		{ key: 'stock_date', label: 'Stock Date' },
-		{ key: 'list_price', label: 'List Price' },
-		{ key: 'description', label: 'Description' },
-		{ key: 'bullets',    label: 'Bullets' },
-		{ key: 'badges',     label: 'ATA Icons' },
-		{ key: 'data',       label: 'Data table' },
-	];
-
-	let ctaOpen = $state(false);
-	let visibilityOpen = $state(false);
-	let addFieldOpen = $state(false);
-
-	// ── YouTube video ─────────────────────────────────────────────────────
-	let youtubeUrl = $state(data.sheet.youtube_url ?? '');
-	let videoModalOpen = $state(false);
-	let videoInputOpen = $state(false);
-	let videoInputValue = $state('');
-
-	function extractYouTubeId(url) {
-		if (!url) return null;
-		const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-		return m ? m[1] : null;
-	}
-	const youtubeId = $derived(extractYouTubeId(youtubeUrl));
-	const youtubeIsShorts = $derived(youtubeUrl?.includes('/shorts/') ?? false);
-
-	function openVideoInput() {
-		videoInputValue = youtubeUrl ?? '';
-		videoInputOpen = true;
-	}
-
-	async function saveVideoUrl() {
-		const trimmed = videoInputValue.trim();
-		// Accept any YouTube URL or empty string (to remove)
-		if (trimmed && !extractYouTubeId(trimmed)) {
-			// not a valid YouTube URL — show error by doing nothing (keep open)
-			return;
-		}
-		youtubeUrl = trimmed;
-		videoInputOpen = false;
-		await fetch(`/api/sheets/${data.sheet.id}`, {
-			method: 'PUT',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ type: 'sheet', field: 'youtube_url', value: trimmed || null })
-		});
-	}
+	// ── Basic product info (data_fields, shared across languages) ──────────────
+	let dataFields = $state(JSON.parse(data.sheet.data_fields || '[]'));
+	const STOCK_KEY = 'stock_date';
+	const infoFields = $derived(dataFields.filter((f) => f.key !== STOCK_KEY));
+	const stockIdx = $derived(dataFields.findIndex((f) => f.key === STOCK_KEY));
+	function fieldLabel(f) { return data.globalLabels?.[f.key]?.[language] ?? data.globalLabels?.[f.key]?.en ?? f.label ?? f.key; }
+	async function saveDataFields() { flashSaved(); await putSheet('data_fields', JSON.stringify(dataFields)); }
 
 	let refreshing = $state(false);
-	let refreshFeedback = $state('');
-	let refreshTimer = null;
-
+	let refreshMsg = $state('');
 	async function refreshFromRackbeat() {
 		if (refreshing) return;
-		refreshing = true;
-		refreshFeedback = '';
+		refreshing = true; refreshMsg = '';
 		try {
-			const res = await fetch(`/api/sheets/${data.sheet.id}/refresh`, { method: 'POST' });
-			if (res.ok) {
-				const body = await res.json();
-				// Push updated data_fields into the canvas
-				canvas?.applyRefreshedFields(body.data_fields);
-				refreshFeedback = 'Updated!';
-			} else {
-				refreshFeedback = 'Failed';
-			}
-		} catch {
-			refreshFeedback = 'Failed';
-		}
+			const res = await fetch(`/api/sheets/${sheetId}/refresh`, { method: 'POST' });
+			if (res.ok) { const b = await res.json(); if (Array.isArray(b.data_fields)) dataFields = b.data_fields; refreshMsg = 'Updated'; }
+			else refreshMsg = 'Failed';
+		} catch { refreshMsg = 'Failed'; }
 		refreshing = false;
-		clearTimeout(refreshTimer);
-		refreshTimer = setTimeout(() => refreshFeedback = '', 3000);
+		setTimeout(() => (refreshMsg = ''), 2500);
 	}
 
-	// ── Share link ────────────────────────────────────────────────────────
-	let shareCopied = $state(false);
-	let shareTimer = null;
-
-	async function copyShareLink() {
-		const token = data.sheet.share_token;
-		if (!token) return;
-		const url = `${window.location.origin}/share/sheet/${token}`;
-		try {
-			await navigator.clipboard.writeText(url);
-			shareCopied = true;
-			clearTimeout(shareTimer);
-			shareTimer = setTimeout(() => shareCopied = false, 2500);
-		} catch {
-			prompt('Copy this link:', url);
-		}
+	// ── Videos ─────────────────────────────────────────────────────────────────
+	const YT_RE = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+	let videoUrl = $state('');
+	let videoOrient = $state('auto'); // 'auto' | '16:9' | '9:16'
+	let videoErr = $state('');
+	async function addVideo() {
+		const url = videoUrl.trim();
+		if (!YT_RE.test(url)) { videoErr = 'Not a valid YouTube URL'; return; }
+		videoErr = '';
+		const orientation = videoOrient === 'auto' ? undefined : videoOrient;
+		await fetch(`/api/sheets/${sheetId}/videos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, orientation }) });
+		videoUrl = ''; videoOrient = 'auto';
+		flashSaved(); await invalidateAll();
 	}
-
-	let copyFeedback = $state('');
-	let pasteFeedback = $state('');
-	let copyTimer = null;
-	let pasteTimer = null;
-
-	async function copyTranslation() {
-		const text = canvas?.getTranslationCopyText();
-		if (!text) { copyFeedback = 'Nothing to copy'; copyTimer = setTimeout(() => copyFeedback = '', 2000); return; }
-		try {
-			await navigator.clipboard.writeText(text);
-			copyFeedback = 'Copied!';
-		} catch {
-			copyFeedback = 'Copy failed';
-		}
-		clearTimeout(copyTimer);
-		copyTimer = setTimeout(() => copyFeedback = '', 2000);
+	async function removeVideo(id) {
+		await fetch(`/api/sheets/${sheetId}/videos?videoId=${id}`, { method: 'DELETE' });
+		flashSaved(); await invalidateAll();
 	}
+	const ytId = (u) => (u.match(YT_RE)?.[1] ?? null);
 
-	async function pasteTranslation() {
-		try {
-			const text = await navigator.clipboard.readText();
-			if (!text?.trim()) { pasteFeedback = 'Clipboard empty'; pasteTimer = setTimeout(() => pasteFeedback = '', 2000); return; }
-			await canvas?.applyTranslationPaste(text);
-			pasteFeedback = 'Pasted!';
-		} catch {
-			pasteFeedback = 'Paste failed';
-		}
-		clearTimeout(pasteTimer);
-		pasteTimer = setTimeout(() => pasteFeedback = '', 2000);
+	// ── Images ───────────────────────────────────────────────────────────────
+	let uploading = $state('');
+	async function upload(file, type) {
+		if (!file) return;
+		uploading = type;
+		const fd = new FormData();
+		fd.append('file', file); fd.append('sheetId', sheetId); fd.append('type', type);
+		if (type === 'content' || type === 'grid') fd.append('order', String(Date.now()));
+		await fetch('/api/images', { method: 'POST', body: fd });
+		uploading = '';
+		flashSaved(); await invalidateAll();
 	}
+	async function deleteImg(id) {
+		await fetch(`/api/images/${id}`, { method: 'DELETE' });
+		flashSaved(); await invalidateAll();
+	}
+	async function clearBoxFlat() { await putSheet('box_flat_image_key', null); await invalidateAll(); }
+	// focal point crop for people-playing (click image → %)
+	async function setFocal(ev, img) {
+		const r = ev.currentTarget.getBoundingClientRect();
+		const cropX = Math.round(((ev.clientX - r.left) / r.width) * 100);
+		const cropY = Math.round(((ev.clientY - r.top) / r.height) * 100);
+		await fetch(`/api/images/${img.id}/crop`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cropX, cropY }) });
+		flashSaved(); await invalidateAll();
+	}
+	const imgUrl = (key) => `/api/img/${key}`;
+
+	// hidden file inputs
+	let boxInput, flatInput, contentInput, gridInput;
+
+	// ── Settings ───────────────────────────────────────────────────────────────
+	let hidden = $state(JSON.parse(data.sheet.hidden_elements || '{}'));
+	let ctaId = $state(data.sheet.cta_version_id ?? null);
+	const TOGGLES = [
+		{ key: 'cta', label: 'CTA' }, { key: 'stock_date', label: 'Stock date' }, { key: 'list_price', label: 'List price' },
+		{ key: 'description', label: 'Short description' }, { key: 'bullets', label: 'Bullets' }, { key: 'badges', label: 'ATA icons' }, { key: 'data', label: 'Data table' },
+	];
+	async function toggle(key) { hidden = { ...hidden, [key]: !hidden[key] }; await putSheet('hidden_elements', JSON.stringify(hidden)); }
+	async function setCta(id) { ctaId = id; await putSheet('cta_version_id', id); }
+
+	const langs = $derived([...data.languages].sort((a, b) => (b.code === data.primaryLanguage ? 1 : 0) - (a.code === data.primaryLanguage ? 1 : 0)));
 </script>
 
-<div class="editor-page">
-	<div class="toolbar">
-		<div class="toolbar-left">
-			<a href="/sheets" class="back-link">
-				<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<polyline points="15 18 9 12 15 6"/>
-				</svg>
-				All sheets
-			</a>
-			<span class="divider"></span>
-			<span class="sheet-sku">{data.sheet.sku}</span>
-		</div>
+<svelte:head><title>Edit {data.sheet.sku} — Sheet</title></svelte:head>
 
+<div class="editor">
+	<header class="bar">
+		<div class="left">
+			<a href="/sheets" class="back">← Sheets</a>
+			<span class="sku">{data.sheet.sku}</span>
+		</div>
 		<div class="lang-tabs">
-			{#each [...data.languages].sort((a, b) => (b.code === data.primaryLanguage ? 1 : 0) - (a.code === data.primaryLanguage ? 1 : 0)) as lang}
-				<button
-					class="lang-tab"
-					class:active={language === lang.code}
-					class:primary={lang.code === data.primaryLanguage}
-					onclick={() => switchLanguage(lang.code)}
-				>
-					{lang.label}
-					{#if lang.code === data.primaryLanguage}
-						<span class="primary-badge">Primary</span>
-					{/if}
+			{#each langs as l}
+				<button class="lang-tab" class:active={language === l.code} onclick={() => switchLanguage(l.code)}>
+					{l.label}{#if l.code === data.primaryLanguage}<span class="pri">Primary</span>{/if}
 				</button>
 			{/each}
 		</div>
+		<div class="right">
+			<span class="save" class:on={saveStatus === 'saving'}><span class="dot"></span>{saveStatus === 'saving' ? 'Saving…' : 'Saved'}</span>
+			<a class="btn ghost" href="/sheet/{sheetId}/award?lang={language}">Award View</a>
+			<a class="btn primary" href="/sheet/{sheetId}/preview?lang={language}" target="_blank">Preview</a>
+		</div>
+	</header>
 
-		<div class="toolbar-right">
-			<div class="save-indicator" class:saving={saveStatus === 'saving'}>
-				<span class="save-dot"></span>
-				{statusLabel}
+	<main class="form">
+		<!-- Basic product info -->
+		<section class="card">
+			<div class="card-head"><h2>Basic product info</h2>
+				<button class="mini" onclick={refreshFromRackbeat} disabled={refreshing}>{refreshMsg || (refreshing ? 'Refreshing…' : 'Refresh from Rackbeat')}</button>
 			</div>
-			{#if data.sheet.share_token}
-				<button class="btn-share" class:btn-share-copied={shareCopied} onclick={copyShareLink} title="Copy public share link">
-					{#if shareCopied}
-						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-							<polyline points="20 6 9 17 4 12"/>
-						</svg>
-						Copied!
-					{:else}
-						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-							<line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-						</svg>
-						Share
+			<div class="grid2">
+				{#each dataFields as f, i}
+					{#if f.key !== STOCK_KEY}
+						<label class="fld"><span>{fieldLabel(f)}</span>
+							<input bind:value={dataFields[i].value} readonly={f.key === 'sku'} onblur={saveDataFields} />
+						</label>
 					{/if}
-				</button>
+				{/each}
+			</div>
+		</section>
+
+		<!-- Universal (per language) -->
+		<section class="card">
+			<div class="card-head"><h2>Universal info</h2><span class="hint">Edited per language ({language.toUpperCase()}) · shared across sheet, catalogue &amp; webshop</span></div>
+			<label class="fld"><span>Product name</span>
+				<input value={t.product_name ?? ''} oninput={(e) => (t.product_name = e.currentTarget.value)} onblur={(e) => putTranslation('product_name', e.currentTarget.value)} />
+			</label>
+			<label class="fld"><span>Short description</span>
+				<textarea rows="3" value={t.product_description ?? ''} oninput={(e) => (t.product_description = e.currentTarget.value)} onblur={(e) => putTranslation('product_description', e.currentTarget.value)}></textarea>
+			</label>
+			<div class="fld"><span>Bullets</span>
+				<div class="bullets">
+					{#each Array(uspCount) as _, i}
+						<div class="bullet-row">
+							<input value={usp(i)} oninput={(e) => (t[`usp_${i + 1}`] = e.currentTarget.value)} onblur={(e) => putTranslation(`usp_${i + 1}`, e.currentTarget.value)} placeholder="Bullet {i + 1}" />
+							<button class="x" title="Remove" onclick={() => removeBullet(i)}>✕</button>
+						</div>
+					{/each}
+					{#if uspCount < 6}<button class="add" onclick={addBullet}>+ Add bullet</button>{/if}
+				</div>
+			</div>
+			<div class="fld"><span>Long description <em>(webshop)</em></span>
+				<MarkdownEditor value={t.long_description ?? ''} onchange={(v) => putTranslation('long_description', v)} />
+			</div>
+		</section>
+
+		<!-- Videos -->
+		<section class="card">
+			<div class="card-head"><h2>Videos</h2><span class="hint">YouTube — normal (16:9) or Shorts (9:16), auto-detected</span></div>
+			{#if data.videos.length}
+				<div class="vid-list">
+					{#each data.videos as v (v.id)}
+						<div class="vid">
+							{#if ytId(v.url)}<img class="vthumb" class:portrait={v.orientation === '9:16'} src="https://img.youtube.com/vi/{ytId(v.url)}/mqdefault.jpg" alt="" />{/if}
+							<div class="vmeta"><span class="vorient {v.orientation === '9:16' ? 'p' : 'l'}">{v.orientation}</span><a class="vurl" href={v.url} target="_blank" rel="noopener">{v.url}</a></div>
+							<button class="x" onclick={() => removeVideo(v.id)}>✕</button>
+						</div>
+					{/each}
+				</div>
+			{:else}<p class="empty">No videos yet.</p>{/if}
+			<div class="vid-add">
+				<input placeholder="Paste YouTube link…" bind:value={videoUrl} onkeydown={(e) => e.key === 'Enter' && addVideo()} />
+				<select bind:value={videoOrient}><option value="auto">Auto</option><option value="16:9">16:9</option><option value="9:16">9:16</option></select>
+				<button class="btn primary sm" onclick={addVideo}>Add</button>
+			</div>
+			{#if videoErr}<p class="err">{videoErr}</p>{/if}
+		</section>
+
+		<!-- Images -->
+		<section class="card">
+			<div class="card-head"><h2>Images</h2></div>
+
+			<div class="img-group">
+				<h3>Box photo</h3>
+				<div class="box-row">
+					<div class="box-slot">
+						<span class="slot-label">3D <em>(sheet main)</em></span>
+						{#if data.sheet.box_image_key}<img src={imgUrl(data.sheet.box_image_key)} alt="" />{:else}<div class="ph">No 3D photo</div>{/if}
+						<button class="mini" onclick={() => boxInput.click()} disabled={uploading === 'box'}>{uploading === 'box' ? 'Uploading…' : 'Replace'}</button>
+						<input type="file" accept="image/*" bind:this={boxInput} onchange={(e) => upload(e.currentTarget.files?.[0], 'box')} hidden />
+					</div>
+					<div class="box-slot">
+						<span class="slot-label">Flat <em>(webshop)</em></span>
+						{#if data.sheet.box_flat_image_key}<img src={imgUrl(data.sheet.box_flat_image_key)} alt="" />{:else}<div class="ph">No flat photo</div>{/if}
+						<div class="slot-actions">
+							<button class="mini" onclick={() => flatInput.click()} disabled={uploading === 'box_flat'}>{uploading === 'box_flat' ? 'Uploading…' : 'Replace'}</button>
+							{#if data.sheet.box_flat_image_key}<button class="mini danger" onclick={clearBoxFlat}>Remove</button>{/if}
+						</div>
+						<input type="file" accept="image/*" bind:this={flatInput} onchange={(e) => upload(e.currentTarget.files?.[0], 'box_flat')} hidden />
+					</div>
+				</div>
+			</div>
+
+			<div class="img-group">
+				<div class="group-head"><h3>Content <em>(webshop)</em></h3><button class="mini" onclick={() => contentInput.click()} disabled={uploading === 'content'}>{uploading === 'content' ? 'Uploading…' : '+ Add'}</button></div>
+				<input type="file" accept="image/*" bind:this={contentInput} onchange={(e) => upload(e.currentTarget.files?.[0], 'content')} hidden />
+				{#if data.contentImages.length}
+					<div class="thumbs">{#each data.contentImages as img (img.id)}<div class="thumb"><img src={imgUrl(img.r2_key)} alt="" /><button class="x" onclick={() => deleteImg(img.id)}>✕</button></div>{/each}</div>
+				{:else}<p class="empty">No content images.</p>{/if}
+			</div>
+
+			<div class="img-group">
+				<div class="group-head"><h3>People Playing <em>(sheet grid)</em></h3><button class="mini" onclick={() => gridInput.click()} disabled={uploading === 'grid'}>{uploading === 'grid' ? 'Uploading…' : '+ Add'}</button></div>
+				<input type="file" accept="image/*" bind:this={gridInput} onchange={(e) => upload(e.currentTarget.files?.[0], 'grid')} hidden />
+				{#if data.images.length}
+					<div class="thumbs">{#each data.images as img (img.id)}
+						<div class="thumb">
+							<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+							<img src={imgUrl(img.r2_key)} alt="" title="Click to set focal point" style="object-position:{img.crop_x ?? 50}% {img.crop_y ?? 50}%" onclick={(e) => setFocal(e, img)} />
+							<button class="x" onclick={() => deleteImg(img.id)}>✕</button>
+						</div>
+					{/each}</div>
+					<p class="hint">Click a photo to set its focal point (how it crops in the grid).</p>
+				{:else}<p class="empty">No people-playing photos.</p>{/if}
+			</div>
+		</section>
+
+		<!-- Settings -->
+		<section class="card">
+			<div class="card-head"><h2>Sheet settings</h2></div>
+			{#if stockIdx >= 0}
+				<label class="fld narrow"><span>Expected stock date <em>(free text, e.g. Q4, Nov '27)</em></span>
+					<input bind:value={dataFields[stockIdx].value} onblur={saveDataFields} placeholder="Q4 / Nov '27 / In stock" />
+				</label>
 			{/if}
-			<a href="/sheet/{data.sheet.id}/award?lang={language}" class="btn-preview btn-award">
-				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<circle cx="12" cy="8" r="6"/>
-					<path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/>
-				</svg>
-				Award View
-			</a>
-			<a href="/sheet/{data.sheet.id}/preview?lang={language}" target="_blank" class="btn-preview">
-				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
-					<polyline points="15 3 21 3 21 9"/>
-					<line x1="10" y1="14" x2="21" y2="3"/>
-				</svg>
-				Preview
-			</a>
-		</div>
-	</div>
-
-	<div class="canvas-wrap">
-		<SheetCanvas
-			bind:this={canvas}
-			sheetId={data.sheet.id}
-			sheet={data.sheet}
-			{translations}
-			{baseTranslations}
-			primaryLanguage={data.primaryLanguage}
-			images={data.images}
-			{language}
-			editable={true}
-			onchange={handleChange}
-			{globalLabels}
-			{hiddenElements}
-			salesPrices={data.salesPrices}
-			awardBadges={data.awardBadges}
-			{youtubeUrl}
-			onvideoclick={() => videoModalOpen = true}
-		/>
-	</div>
-
-	<!-- Floating action panel -->
-	<div class="action-panel">
-		<button
-			class="panel-btn"
-			class:panel-btn-refreshing={refreshing}
-			onclick={refreshFromRackbeat}
-			disabled={refreshing}
-			title="Overwrite data fields with latest values from Rackbeat"
-		>
-			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class:spin={refreshing}>
-				<polyline points="23 4 23 10 17 10"/>
-				<path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
-			</svg>
-			{refreshFeedback || (refreshing ? 'Refreshing…' : 'Refresh data')}
-		</button>
-		<div class="panel-divider"></div>
-		<button class="panel-btn visibility-toggle-btn" onclick={() => addFieldOpen = !addFieldOpen}>
-			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-				<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>
-			</svg>
-			Add field
-			<svg class="chevron" class:open={addFieldOpen} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-				<polyline points="6 9 12 15 18 9"/>
-			</svg>
-		</button>
-		{#if addFieldOpen}
-			<button class="panel-btn toggle-btn" onclick={() => { canvas?.addDataFieldFromPanel('left'); addFieldOpen = false; }}>
-				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1" opacity="0.3"/>
-				</svg>
-				Left column
-			</button>
-			<button class="panel-btn toggle-btn" onclick={() => { canvas?.addDataFieldFromPanel('right'); addFieldOpen = false; }}>
-				<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-					<rect x="3" y="3" width="8" height="18" rx="1" opacity="0.3"/><rect x="13" y="3" width="8" height="18" rx="1"/>
-				</svg>
-				Right column
-			</button>
-		{/if}
-		<div class="panel-divider"></div>
-		<button class="panel-btn" onclick={() => canvas?.addUspFromPanel()} title="Add bullet point">
-			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-				<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-			</svg>
-			Add bullet
-		</button>
-		<div class="panel-divider"></div>
-		<button class="panel-btn" onclick={copyTranslation} title="Copy description and bullets for translation">
-			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-			</svg>
-			{copyFeedback || 'Copy text'}
-		</button>
-		<button class="panel-btn" onclick={pasteTranslation} title="Paste translation text back">
-			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/>
-				<rect x="8" y="2" width="8" height="4" rx="1"/>
-			</svg>
-			{pasteFeedback || 'Paste text'}
-		</button>
-		<div class="panel-divider"></div>
-		<button class="panel-btn" onclick={() => canvas?.triggerPhotoUpload()} title="Add grid photo">
-			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<rect x="3" y="3" width="18" height="18" rx="2"/>
-				<circle cx="8.5" cy="8.5" r="1.5"/>
-				<polyline points="21 15 16 10 5 21"/>
-			</svg>
-			Add photo
-		</button>
-		<button class="panel-btn" class:panel-btn-active={!!youtubeUrl} onclick={openVideoInput} title="{youtubeUrl ? 'Edit video link' : 'Add YouTube video'}">
-			<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-				<path d="M8 5v14l11-7L8 5z"/>
-			</svg>
-			{youtubeUrl ? 'Edit video' : 'Add video'}
-		</button>
-		<div class="panel-divider"></div>
-		<button class="panel-btn visibility-toggle-btn" onclick={() => ctaOpen = !ctaOpen}>
-			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-			</svg>
-			CTA
-			<svg class="chevron" class:open={ctaOpen} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-				<polyline points="6 9 12 15 18 9"/>
-			</svg>
-		</button>
-		{#if ctaOpen}
-			{#each data.ctaVersions as v}
-				<button class="panel-btn cta-opt" class:cta-active={selectedCtaVersionId === v.id} onclick={() => selectCtaVersion(v.id)}>
-					{v.name}
-				</button>
-			{/each}
-		{/if}
-		<div class="panel-divider"></div>
-		<button class="panel-btn visibility-toggle-btn" onclick={() => visibilityOpen = !visibilityOpen}>
-			<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-				<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-				<circle cx="12" cy="12" r="3"/>
-			</svg>
-			Visibility
-			<svg class="chevron" class:open={visibilityOpen} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-				<polyline points="6 9 12 15 18 9"/>
-			</svg>
-		</button>
-		{#if visibilityOpen}
-			{#each TOGGLES as t}
-				<button
-					class="panel-btn toggle-btn"
-					class:hidden={hiddenElements[t.key]}
-					onclick={() => toggleElement(t.key)}
-					title="{hiddenElements[t.key] ? 'Show' : 'Hide'} {t.label}"
-				>
-					{#if hiddenElements[t.key]}
-						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
-							<path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
-							<line x1="1" y1="1" x2="23" y2="23"/>
-						</svg>
-					{:else}
-						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-							<circle cx="12" cy="12" r="3"/>
-						</svg>
-					{/if}
-					{t.label}
-				</button>
-			{/each}
-		{/if}
-	</div>
+			{#if data.ctaVersions?.length}
+				<label class="fld narrow"><span>CTA version</span>
+					<select value={ctaId ?? ''} onchange={(e) => setCta(e.currentTarget.value || null)}>
+						<option value="">None</option>
+						{#each data.ctaVersions as v}<option value={v.id}>{v.name}</option>{/each}
+					</select>
+				</label>
+			{/if}
+			<div class="fld"><span>Sheet element visibility</span>
+				<div class="toggles">
+					{#each TOGGLES as tg}
+						<button class="tg" class:off={hidden[tg.key]} onclick={() => toggle(tg.key)}>
+							<span class="tg-dot"></span>{tg.label}{#if hidden[tg.key]}<em>hidden</em>{/if}
+						</button>
+					{/each}
+				</div>
+			</div>
+		</section>
+	</main>
 </div>
 
-<!-- Video URL input modal -->
-{#if videoInputOpen}
-	<div class="modal-backdrop" onclick={() => videoInputOpen = false} role="presentation">
-		<div class="modal-box" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-			<div class="modal-header">
-				<h3 class="modal-title">{youtubeUrl ? 'Edit video' : 'Add YouTube video'}</h3>
-				<button class="modal-close" onclick={() => videoInputOpen = false}>✕</button>
-			</div>
-			<p class="modal-hint">Paste a YouTube link (regular video or Shorts)</p>
-			<input
-				class="modal-input"
-				type="url"
-				placeholder="https://www.youtube.com/watch?v=…"
-				bind:value={videoInputValue}
-				onkeydown={(e) => { if (e.key === 'Enter') saveVideoUrl(); if (e.key === 'Escape') videoInputOpen = false; }}
-			/>
-			{#if videoInputValue.trim() && !extractYouTubeId(videoInputValue.trim())}
-				<p class="modal-error">Not a valid YouTube URL</p>
-			{/if}
-			<div class="modal-actions">
-				{#if youtubeUrl}
-					<button class="modal-btn-danger" onclick={async () => { videoInputValue = ''; await saveVideoUrl(); }}>Remove video</button>
-				{/if}
-				<button class="modal-btn-cancel" onclick={() => videoInputOpen = false}>Cancel</button>
-				<button class="modal-btn-save" onclick={saveVideoUrl} disabled={!!(videoInputValue.trim() && !extractYouTubeId(videoInputValue.trim()))}>Save</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- Video play modal -->
-{#if videoModalOpen && youtubeId}
-	<div class="modal-backdrop" onclick={() => videoModalOpen = false} role="presentation">
-		<div class="video-modal-box" class:video-shorts={youtubeIsShorts} onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-			<button class="modal-close video-modal-close" onclick={() => videoModalOpen = false}>✕</button>
-			<iframe
-				src="https://www.youtube.com/embed/{youtubeId}?autoplay=1"
-				title="Product video"
-				frameborder="0"
-				allow="autoplay; encrypted-media; picture-in-picture"
-				allowfullscreen
-			></iframe>
-		</div>
-	</div>
-{/if}
-
 <style>
-	.editor-page { min-height: 100vh; display: flex; flex-direction: column; }
+	.editor { min-height: 100vh; }
+	.bar { position: sticky; top: 0; z-index: 50; background: #fff; border-bottom: 1px solid var(--border); height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 20px; }
+	.left, .right { display: flex; align-items: center; gap: 10px; }
+	.back { font-size: 13px; font-weight: 600; color: #71717A; text-decoration: none; }
+	.back:hover { color: #18181B; }
+	.sku { font-size: 12px; font-weight: 700; color: #52525B; background: #F4F4F5; padding: 3px 9px; border-radius: 100px; text-transform: uppercase; }
+	.lang-tabs { display: flex; gap: 2px; background: #F4F4F5; border-radius: 9px; padding: 3px; }
+	.lang-tab { display: flex; align-items: center; gap: 5px; padding: 4px 12px; border: none; background: none; border-radius: 7px; font-size: 12.5px; font-weight: 600; color: #71717A; font-family: inherit; cursor: pointer; }
+	.lang-tab.active { background: #fff; color: #18181B; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+	.pri { font-size: 9px; font-weight: 800; text-transform: uppercase; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; padding: 1px 4px; }
+	.save { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #A1A1AA; }
+	.save .dot { width: 6px; height: 6px; border-radius: 50%; background: #A3E635; }
+	.save.on .dot { background: #FCD34D; }
+	.btn { display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 100px; font-size: 12.5px; font-weight: 600; text-decoration: none; cursor: pointer; border: 1px solid transparent; font-family: inherit; }
+	.btn.primary { background: #F57832; color: #fff; }
+	.btn.ghost { background: #fff; color: #52525B; border-color: var(--border); }
+	.btn.sm { padding: 7px 14px; }
 
-	/* ── Toolbar ─────────────────────────────────────────────────────────── */
-	.toolbar {
-		background: white;
-		border-bottom: 1px solid var(--border);
-		padding: 0 20px;
-		height: 52px;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 16px;
-		position: sticky;
-		top: 0;
-		z-index: 100;
-	}
+	.form { max-width: 820px; margin: 0 auto; padding: 24px 20px 80px; display: flex; flex-direction: column; gap: 18px; }
+	.card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; }
+	.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+	.card-head h2 { font-size: 15px; font-weight: 800; color: #18181B; margin: 0; }
+	.hint { font-size: 11.5px; color: #A1A1AA; }
+	.err { font-size: 12px; color: #dc2626; margin: 6px 0 0; }
+	.empty { font-size: 13px; color: #A1A1AA; margin: 4px 0; }
 
-	.toolbar-left {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		min-width: 160px;
+	.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+	@media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
+	.fld { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 700; color: #6b5e4e; margin-bottom: 14px; }
+	.fld:last-child { margin-bottom: 0; }
+	.fld.narrow { max-width: 360px; }
+	.fld em { font-weight: 500; color: #A1A1AA; font-style: normal; }
+	.fld input, .fld textarea, .fld select, .vid-add input, .vid-add select {
+		font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: #fff; box-sizing: border-box; width: 100%;
 	}
+	.fld input:focus, .fld textarea:focus, .fld select:focus { outline: none; border-color: #F57832; box-shadow: 0 0 0 3px rgba(245,120,50,0.12); }
+	.fld input[readonly] { background: #FAFAFA; color: #71717A; }
+	.mini { font-size: 12px; font-weight: 700; color: #B15A12; background: #FDEEE4; border: 1px solid #F6CDAB; border-radius: 8px; padding: 5px 11px; cursor: pointer; font-family: inherit; }
+	.mini:hover { background: #FBDDC7; }
+	.mini.danger { color: #dc2626; background: #fff; border-color: #fecaca; }
+	.mini:disabled { opacity: 0.6; cursor: default; }
 
-	.back-link {
-		display: flex;
-		align-items: center;
-		gap: 3px;
-		font-size: 13px;
-		font-weight: 600;
-		color: #71717A;
-		text-decoration: none;
-		transition: color 0.15s;
-	}
-	.back-link:hover { color: #18181B; }
+	.bullets { display: flex; flex-direction: column; gap: 6px; }
+	.bullet-row { display: flex; gap: 6px; }
+	.bullet-row input { flex: 1; }
+	.add { align-self: flex-start; font-size: 12px; font-weight: 700; color: #B15A12; background: none; border: none; cursor: pointer; font-family: inherit; padding: 2px 0; }
+	.x { flex-shrink: 0; width: 28px; border: 1px solid var(--border); background: #fff; border-radius: 7px; color: #b6795a; cursor: pointer; font-size: 12px; }
+	.x:hover { background: #fce4de; color: #c4381b; }
 
-	.divider {
-		width: 1px;
-		height: 16px;
-		background: var(--border);
-	}
+	.vid-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+	.vid { display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+	.vthumb { width: 80px; height: 45px; object-fit: cover; border-radius: 6px; }
+	.vthumb.portrait { width: 34px; height: 60px; }
+	.vmeta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+	.vorient { align-self: flex-start; font-size: 10.5px; font-weight: 800; padding: 1px 7px; border-radius: 100px; }
+	.vorient.l { background: #EEF4FF; color: #1D4ED8; } .vorient.p { background: #F3EEFE; color: #6D28D9; }
+	.vurl { font-size: 11.5px; color: #71717A; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+	.vid-add { display: flex; gap: 8px; }
+	.vid-add input { flex: 1; } .vid-add select { width: auto; }
 
-	.sheet-sku {
-		font-size: 12px;
-		font-weight: 700;
-		color: #52525B;
-		background: #F4F4F5;
-		padding: 3px 9px;
-		border-radius: 100px;
-		letter-spacing: 0.3px;
-		text-transform: uppercase;
-	}
+	.img-group { padding: 12px 0; border-top: 1px solid #F1EADB; }
+	.img-group:first-of-type { border-top: none; padding-top: 0; }
+	.img-group h3 { font-size: 13px; font-weight: 800; color: #52525B; margin: 0 0 10px; }
+	.img-group h3 em { font-weight: 500; color: #A1A1AA; font-style: normal; }
+	.group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+	.group-head h3 { margin: 0; }
+	.box-row { display: flex; gap: 16px; flex-wrap: wrap; }
+	.box-slot { display: flex; flex-direction: column; gap: 8px; width: 160px; }
+	.slot-label { font-size: 11.5px; font-weight: 700; color: #6b5e4e; }
+	.slot-label em { font-weight: 500; color: #A1A1AA; font-style: normal; }
+	.box-slot img { width: 160px; height: 120px; object-fit: contain; background: #FAFAFA; border: 1px solid var(--border); border-radius: 8px; }
+	.ph { width: 160px; height: 120px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #A1A1AA; background: #FAFAFA; border: 1px dashed var(--border); border-radius: 8px; }
+	.slot-actions { display: flex; gap: 6px; }
+	.thumbs { display: flex; flex-wrap: wrap; gap: 10px; }
+	.thumb { position: relative; width: 110px; height: 110px; }
+	.thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); cursor: crosshair; }
+	.thumb .x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 6px; }
+	.thumb .x:hover { background: rgba(0,0,0,0.85); color: #fff; }
 
-	/* ── Language tabs ───────────────────────────────────────────────────── */
-	.lang-tabs {
-		display: flex;
-		gap: 2px;
-		background: #F4F4F5;
-		border-radius: 9px;
-		padding: 3px;
-	}
-
-	.lang-tab {
-		display: flex;
-		align-items: center;
-		gap: 5px;
-		padding: 4px 13px;
-		border: none;
-		background: none;
-		border-radius: 7px;
-		font-size: 12.5px;
-		font-weight: 600;
-		color: #71717A;
-		transition: background 0.15s, color 0.15s;
-		white-space: nowrap;
-	}
-	.lang-tab:hover:not(.active) { color: #3F3F46; }
-	.lang-tab.active {
-		background: white;
-		color: #18181B;
-		box-shadow: 0 1px 3px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.04);
-	}
-
-	.primary-badge {
-		font-size: 9.5px;
-		font-weight: 700;
-		letter-spacing: 0.3px;
-		text-transform: uppercase;
-		color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 12%, transparent);
-		border-radius: 4px;
-		padding: 1px 5px;
-		flex-shrink: 0;
-	}
-
-	.lang-tab.active .primary-badge {
-		color: var(--accent);
-	}
-
-	/* ── Toolbar right ───────────────────────────────────────────────────── */
-	.toolbar-right {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		min-width: 180px;
-		justify-content: flex-end;
-	}
-
-	.save-indicator {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		font-size: 12px;
-		font-weight: 500;
-		color: #A1A1AA;
-	}
-
-	.save-dot {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: #A3E635;
-		transition: background 0.3s;
-	}
-
-	.save-indicator.saving .save-dot {
-		background: #FCD34D;
-		animation: pulse 1s ease-in-out infinite;
-	}
-
-	@keyframes pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.4; }
-	}
-
-	.btn-preview {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 6px 14px;
-		background: #F57832;
-		color: white;
-		border-radius: 100px;
-		font-size: 12.5px;
-		font-weight: 600;
-		text-decoration: none;
-		transition: background 0.15s, transform 0.1s;
-		letter-spacing: -0.1px;
-		box-shadow: 0 2px 10px rgba(245, 120, 50, 0.35);
-	}
-	.btn-preview:hover { background: #E06820; }
-	.btn-preview:active { transform: scale(0.97); }
-	.btn-award {
-		background: #6D5BD0;
-		box-shadow: 0 2px 10px rgba(109, 91, 208, 0.35);
-	}
-	.btn-award:hover { background: #5B49BE; }
-
-	.btn-share {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 6px 14px;
-		background: white;
-		color: #52525B;
-		border: 1px solid var(--border);
-		border-radius: 100px;
-		font-size: 12.5px;
-		font-weight: 600;
-		font-family: inherit;
-		cursor: pointer;
-		transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
-		letter-spacing: -0.1px;
-	}
-	.btn-share:hover { background: #F4F4F5; color: #18181B; }
-	.btn-share:active { transform: scale(0.97); }
-	.btn-share-copied {
-		background: #F0FDF4;
-		color: #15803D;
-		border-color: #86EFAC;
-	}
-	.btn-share-copied:hover { background: #DCFCE7; color: #15803D; }
-
-	/* ── Canvas wrap ─────────────────────────────────────────────────────── */
-	.canvas-wrap {
-		flex: 1;
-		display: flex;
-		justify-content: center;
-		padding: 40px 24px 80px;
-		overflow-x: auto;
-	}
-
-	/* ── Floating action panel ───────────────────────────────────────────── */
-	.action-panel {
-		position: fixed;
-		right: 28px;
-		top: 50%;
-		transform: translateY(-50%);
-		background: white;
-		border: 1px solid var(--border);
-		border-radius: 14px;
-		padding: 6px;
-		box-shadow: 0 4px 20px rgba(50, 30, 0, 0.10);
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		z-index: 50;
-		width: 180px;
-	}
-
-	.panel-btn {
-		display: flex;
-		align-items: center;
-		gap: 7px;
-		padding: 8px 12px;
-		border-radius: 9px;
-		background: none;
-		border: none;
-		font-size: 12.5px;
-		font-weight: 600;
-		color: #52525B;
-		white-space: nowrap;
-		transition: background 0.15s, color 0.15s;
-		text-align: left;
-	}
-	.panel-btn:hover { background: #F4F4F5; color: #18181B; }
-	.panel-btn svg { flex-shrink: 0; color: #71717A; }
-	.panel-btn:hover svg { color: #18181B; }
-
-	.panel-divider {
-		height: 1px;
-		background: var(--border);
-		margin: 2px 4px;
-	}
-
-	.visibility-toggle-btn {
-		color: #52525B;
-		font-weight: 600;
-		justify-content: flex-start;
-	}
-	.visibility-toggle-btn:hover { background: #F4F4F5; color: #18181B; }
-	.visibility-toggle-btn .chevron {
-		margin-left: auto;
-		transition: transform 0.18s;
-	}
-	.visibility-toggle-btn .chevron.open { transform: rotate(180deg); }
-
-	.toggle-btn { color: #52525B; padding-left: 24px; }
-	.toggle-btn.hidden { color: #A1A1AA; }
-	.toggle-btn.hidden svg { opacity: 0.5; }
-	.toggle-btn:hover { background: #F4F4F5; color: #18181B; }
-	.toggle-btn.hidden:hover { color: #52525B; }
-
-	.panel-section-label { font-size: 10px; font-weight: 700; color: #A1A1AA; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 12px 2px; }
-	.cta-opt { color: #52525B; }
-	.cta-opt.cta-active { color: #148246; font-weight: 700; background: #F0FDF4; }
-	.cta-opt:hover { background: #F4F4F5; color: #18181B; }
-	.cta-opt.cta-active:hover { background: #DCFCE7; }
-
-	@keyframes spin { to { transform: rotate(360deg); } }
-	.spin { animation: spin 0.8s linear infinite; }
-	.panel-btn:disabled { opacity: 0.7; cursor: default; }
-	.panel-btn:disabled:hover { background: none; color: #52525B; }
-	.panel-btn:disabled:hover svg { color: #71717A; }
-
-	.panel-btn-active { color: #148246; }
-	.panel-btn-active svg { color: #148246; }
-	.panel-btn-active:hover { background: #F0FDF4; color: #148246; }
-
-	/* ── Modals ──────────────────────────────────────────────────────────── */
-	.modal-backdrop {
-		position: fixed;
-		inset: 0;
-		background: rgba(0, 0, 0, 0.5);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 1000;
-		padding: 24px;
-	}
-
-	.modal-box {
-		background: white;
-		border-radius: 16px;
-		padding: 24px;
-		width: 100%;
-		max-width: 420px;
-		box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
-	}
-
-	.modal-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 6px;
-	}
-
-	.modal-title {
-		font-size: 16px;
-		font-weight: 700;
-		color: #18181b;
-		margin: 0;
-	}
-
-	.modal-close {
-		background: none;
-		border: none;
-		font-size: 14px;
-		color: #a0998a;
-		cursor: pointer;
-		padding: 4px;
-		border-radius: 6px;
-		transition: color 0.15s, background 0.15s;
-	}
-	.modal-close:hover { color: #18181b; background: #f4f4f5; }
-
-	.modal-hint {
-		font-size: 13px;
-		color: #71717a;
-		margin: 0 0 12px;
-	}
-
-	.modal-input {
-		width: 100%;
-		box-sizing: border-box;
-		padding: 10px 14px;
-		border: 1px solid var(--border);
-		border-radius: 9px;
-		font-size: 14px;
-		font-family: inherit;
-		outline: none;
-		transition: border-color 0.15s, box-shadow 0.15s;
-	}
-	.modal-input:focus {
-		border-color: #f57832;
-		box-shadow: 0 0 0 3px rgba(245, 120, 50, 0.12);
-	}
-
-	.modal-error {
-		font-size: 12px;
-		color: #dc2626;
-		margin: 4px 0 0;
-	}
-
-	.modal-actions {
-		display: flex;
-		gap: 8px;
-		justify-content: flex-end;
-		margin-top: 16px;
-	}
-
-	.modal-btn-danger {
-		margin-right: auto;
-		background: none;
-		border: none;
-		font-size: 12.5px;
-		font-weight: 600;
-		color: #dc2626;
-		cursor: pointer;
-		padding: 7px 10px;
-		border-radius: 8px;
-		font-family: inherit;
-		transition: background 0.15s;
-	}
-	.modal-btn-danger:hover { background: #fef2f2; }
-
-	.modal-btn-cancel {
-		background: none;
-		border: 1px solid var(--border);
-		font-size: 13px;
-		font-weight: 600;
-		color: #52525b;
-		cursor: pointer;
-		padding: 7px 16px;
-		border-radius: 8px;
-		font-family: inherit;
-		transition: background 0.15s;
-	}
-	.modal-btn-cancel:hover { background: #f4f4f5; }
-
-	.modal-btn-save {
-		background: #f57832;
-		border: none;
-		font-size: 13px;
-		font-weight: 600;
-		color: white;
-		cursor: pointer;
-		padding: 7px 18px;
-		border-radius: 8px;
-		font-family: inherit;
-		transition: background 0.15s;
-		box-shadow: 0 2px 8px rgba(245, 120, 50, 0.3);
-	}
-	.modal-btn-save:hover:not(:disabled) { background: #e06820; }
-	.modal-btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
-
-	/* Video play modal */
-	.video-modal-box {
-		position: relative;
-		width: 100%;
-		max-width: 854px;
-		border-radius: 16px;
-		overflow: hidden;
-		box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
-		aspect-ratio: 16 / 9;
-	}
-	.video-modal-box.video-shorts {
-		max-width: 380px;
-		aspect-ratio: 9 / 16;
-	}
-	.video-modal-box iframe {
-		width: 100%;
-		height: 100%;
-		display: block;
-	}
-
-	.video-modal-close {
-		position: absolute;
-		top: 10px;
-		right: 10px;
-		z-index: 10;
-		background: rgba(0, 0, 0, 0.6);
-		color: white;
-		width: 32px;
-		height: 32px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 50%;
-		backdrop-filter: blur(4px);
-	}
-	.video-modal-close:hover { background: rgba(0, 0, 0, 0.8); color: white; }
+	.toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+	.tg { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: #15803D; background: #F0FDF4; border: 1px solid #bbf7d0; border-radius: 100px; padding: 5px 12px; cursor: pointer; font-family: inherit; }
+	.tg .tg-dot { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; }
+	.tg.off { color: #A1A1AA; background: #F4F4F5; border-color: var(--border); }
+	.tg.off .tg-dot { background: #D4D4D8; }
+	.tg em { font-style: normal; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.3px; }
 </style>

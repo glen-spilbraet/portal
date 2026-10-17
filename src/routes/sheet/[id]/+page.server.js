@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { getSheet, getTranslations, getImages, getGlobalLabels, listCtaVersions, getCtaVersionTranslations } from '$lib/db.js';
+import { getSheet, getTranslations, getImages, getVideos, getGlobalLabels, listCtaVersions, getCtaVersionTranslations } from '$lib/db.js';
 import { fetchSalesPrices } from '$lib/server/rackbeat.js';
 import { getBadgesForSku } from '$lib/server/awards.js';
 
@@ -18,9 +18,11 @@ export async function load({ params, url, platform }) {
 	if (!sheet) error(404, 'Sheet not found');
 
 	const apiKey = platform?.env?.RACKBEAT_API_KEY;
-	const [allTranslations, images, globalLabels, ctaVersions, salesPrices] = await Promise.all([
+	const [allTranslations, images, contentImages, videos, globalLabels, ctaVersions, salesPrices] = await Promise.all([
 		getTranslations(db, params.id),
-		getImages(db, params.id),
+		getImages(db, params.id),                 // people-playing grid
+		getImages(db, params.id, 'content'),      // webshop content images
+		getVideos(db, params.id),
 		getGlobalLabels(db),
 		listCtaVersions(db),
 		fetchSalesPrices(sheet.sku, apiKey),
@@ -44,6 +46,8 @@ export async function load({ params, url, platform }) {
 		translations: allTranslations[lang] ?? {},
 		baseTranslations: allTranslations[primaryLanguage] ?? {},
 		images,
+		contentImages,
+		videos,
 		language: lang,
 		primaryLanguage,
 		languages: LANGUAGES,

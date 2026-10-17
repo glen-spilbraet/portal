@@ -169,21 +169,49 @@ export async function setTranslation(db, sheetId, language, key, value) {
 		.run();
 }
 
-export async function getImages(db, sheetId) {
+// The people-playing grid (the historical sheet_images). Filtered by type so the
+// sheet/catalogue render is unchanged when webshop-only "content" images exist.
+export async function getImages(db, sheetId, type = 'people_playing') {
 	const rows = await db
-		.prepare('SELECT * FROM sheet_images WHERE sheet_id = ? ORDER BY display_order ASC')
-		.bind(sheetId)
+		.prepare('SELECT * FROM sheet_images WHERE sheet_id = ? AND type = ? ORDER BY display_order ASC')
+		.bind(sheetId, type)
 		.all();
 	return rows.results;
 }
 
-export async function addImage(db, id, sheetId, r2Key, order) {
+export async function addImage(db, id, sheetId, r2Key, order, type = 'people_playing') {
 	await db
 		.prepare(
-			'INSERT INTO sheet_images (id, sheet_id, r2_key, display_order) VALUES (?, ?, ?, ?)'
+			'INSERT INTO sheet_images (id, sheet_id, r2_key, display_order, type) VALUES (?, ?, ?, ?, ?)'
 		)
-		.bind(id, sheetId, r2Key, order)
+		.bind(id, sheetId, r2Key, order, type)
 		.run();
+}
+
+// ── Sheet videos (YouTube; 16:9 or 9:16) ────────────────────────────────────
+export async function getVideos(db, sheetId) {
+	const rows = await db
+		.prepare('SELECT * FROM sheet_video WHERE sheet_id = ? ORDER BY display_order ASC, created_at ASC')
+		.bind(sheetId)
+		.all();
+	return rows.results ?? [];
+}
+
+export async function addVideo(db, sheetId, url, orientation, order) {
+	const id = crypto.randomUUID();
+	await db
+		.prepare('INSERT INTO sheet_video (id, sheet_id, url, orientation, display_order) VALUES (?, ?, ?, ?, ?)')
+		.bind(id, sheetId, url, orientation === '9:16' ? '9:16' : '16:9', order ?? 0)
+		.run();
+	return id;
+}
+
+export async function deleteVideo(db, id) {
+	await db.prepare('DELETE FROM sheet_video WHERE id = ?').bind(id).run();
+}
+
+export async function setVideoOrder(db, id, order) {
+	await db.prepare('UPDATE sheet_video SET display_order = ? WHERE id = ?').bind(order, id).run();
 }
 
 export async function updateImageCrop(db, imageId, cropX, cropY) {

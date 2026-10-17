@@ -19,7 +19,8 @@ export async function POST({ request, cookies, platform }) {
 	const formData = await request.formData();
 	const file = formData.get('file');
 	const sheetId = formData.get('sheetId')?.toString();
-	const type = formData.get('type')?.toString() ?? 'grid'; // 'box' | 'grid'
+	// 'box' (3D) | 'box_flat' | 'grid'/'people_playing' | 'content'
+	const type = formData.get('type')?.toString() ?? 'grid';
 	const order = parseInt(formData.get('order')?.toString() ?? '0');
 
 	if (!file || typeof file === 'string') error(400, 'No file provided');
@@ -46,11 +47,13 @@ export async function POST({ request, cookies, platform }) {
 		httpMetadata: { contentType: file.type }
 	});
 
-	if (type === 'box') {
+	if (type === 'box' || type === 'box_flat') {
 		const { updateSheet } = await import('$lib/db.js');
-		await updateSheet(db, sheetId, { box_image_key: r2Key });
+		await updateSheet(db, sheetId, { [type === 'box_flat' ? 'box_flat_image_key' : 'box_image_key']: r2Key });
 	} else {
-		await addImage(db, imageId, sheetId, r2Key, order);
+		// 'content' → webshop content set; anything else → the people-playing grid.
+		const imgType = type === 'content' ? 'content' : 'people_playing';
+		await addImage(db, imageId, sheetId, r2Key, order, imgType);
 	}
 
 	return json({ id: imageId, key: r2Key });
