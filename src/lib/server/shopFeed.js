@@ -10,6 +10,7 @@
  * mapping from SALES_DB (shared prod), same as everywhere else in the portal.
  */
 import { listAllInstances, getBadgesForSkus } from './awards.js';
+import { listTaxonomy } from './categories.js';
 
 const MAX_USP = 8;
 
@@ -124,6 +125,10 @@ export async function buildShopFeed(db, salesDb, origin) {
 		}));
 	}
 
+	// Category groups/categories with labels, and every SKU's categories.
+	const taxonomy = await listTaxonomy(salesDb);
+	const productCats = await salesDb.prepare('SELECT sku, category_id FROM product_category ORDER BY sku').all();
+
 	const [prefixRes, overrideRes, seriesRes] = await salesDb.batch([
 		salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix ORDER BY prefix'),
 		salesDb.prepare('SELECT sku, publisher FROM product_publisher_override ORDER BY sku'),
@@ -141,6 +146,13 @@ export async function buildShopFeed(db, salesDb, origin) {
 			overrides: overrideRes.results ?? [],
 			prefixes: prefixRes.results ?? []
 		},
-		series: seriesRes.results ?? []
+		series: seriesRes.results ?? [],
+		categories: {
+			groups: taxonomy.map((g) => ({
+				id: g.id, position: g.position, labels: g.labels,
+				categories: g.categories.map((c) => ({ id: c.id, position: c.position, labels: c.labels }))
+			})),
+			products: productCats.results ?? []
+		}
 	};
 }
