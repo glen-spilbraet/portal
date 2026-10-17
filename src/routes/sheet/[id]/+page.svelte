@@ -43,6 +43,47 @@
 		await putSheet('usp_count', uspCount);
 	}
 
+	// ── Copy / paste all universal text (for translation) ──────────────────────
+	// Unique {#…} markers so they never collide with Markdown '#' headers.
+	let copyMsg = $state('');
+	let pasteMsg = $state('');
+	function buildExport() {
+		const out = ['{#Description}', (t.product_description ?? '').trim(), ''];
+		for (let i = 0; i < uspCount; i++) out.push(`{#Bullet ${i + 1}}`, (usp(i) ?? '').trim(), '');
+		out.push('{#Long description}', (t.long_description ?? '').trim());
+		return out.join('\n');
+	}
+	function parseExport(text) {
+		const sections = [];
+		let name = null; const buf = [];
+		const flush = () => { if (name !== null) sections.push([name, buf.join('\n').trim()]); buf.length = 0; };
+		for (const raw of text.replace(/\r\n/g, '\n').split('\n')) {
+			const m = raw.match(/^\{#\s*(.+?)\s*\}\s*$/);
+			if (m) { flush(); name = m[1]; } else if (name !== null) buf.push(raw);
+		}
+		flush();
+		return sections;
+	}
+	async function copyUniversal() {
+		try { await navigator.clipboard.writeText(buildExport()); copyMsg = 'Copied!'; }
+		catch { copyMsg = 'Failed'; }
+		setTimeout(() => (copyMsg = ''), 2000);
+	}
+	async function pasteUniversal() {
+		let text;
+		try { text = await navigator.clipboard.readText(); } catch { pasteMsg = 'Failed'; setTimeout(() => (pasteMsg = ''), 2000); return; }
+		if (!text?.trim()) { pasteMsg = 'Clipboard empty'; setTimeout(() => (pasteMsg = ''), 2000); return; }
+		let maxBullet = 0;
+		for (const [secName, content] of parseExport(text)) {
+			const low = secName.toLowerCase();
+			if (low === 'description') await putTranslation('product_description', content);
+			else if (low === 'long description') await putTranslation('long_description', content);
+			else { const m = low.match(/^bullet\s+(\d+)$/); if (m) { const n = +m[1]; if (n >= 1 && n <= 6) { maxBullet = Math.max(maxBullet, n); await putTranslation(`usp_${n}`, content); } } }
+		}
+		if (maxBullet > uspCount) { uspCount = Math.min(6, maxBullet); await putSheet('usp_count', uspCount); }
+		pasteMsg = 'Pasted!'; setTimeout(() => (pasteMsg = ''), 2000);
+	}
+
 	// ── Basic product info (data_fields, shared across languages) ──────────────
 	let dataFields = $state(JSON.parse(data.sheet.data_fields || '[]'));
 	const STOCK_KEY = 'stock_date';
@@ -150,26 +191,35 @@
 		</div>
 	</header>
 
-	<main class="form">
-		<!-- Basic product info -->
-		<section class="card">
-			<div class="card-head"><h2>Basic product info</h2>
-				<button class="mini" onclick={refreshFromRackbeat} disabled={refreshing}>{refreshMsg || (refreshing ? 'Refreshing…' : 'Refresh from Rackbeat')}</button>
+	<main class="layout">
+		<!-- Basic product info: floating left panel, table-ish -->
+		<aside class="side">
+			<div class="side-card">
+				<div class="side-head"><h2>Product info</h2>
+					<button class="mini" onclick={refreshFromRackbeat} disabled={refreshing} title="Refresh data fields from Rackbeat">{refreshMsg || (refreshing ? '…' : 'Refresh')}</button>
+				</div>
+				<div class="info-table">
+					{#each dataFields as f, i}
+						{#if f.key !== STOCK_KEY}
+							<div class="info-row"><span class="k">{fieldLabel(f)}</span>
+								<input class="v" bind:value={dataFields[i].value} readonly={f.key === 'sku'} onblur={saveDataFields} />
+							</div>
+						{/if}
+					{/each}
+				</div>
 			</div>
-			<div class="grid2">
-				{#each dataFields as f, i}
-					{#if f.key !== STOCK_KEY}
-						<label class="fld"><span>{fieldLabel(f)}</span>
-							<input bind:value={dataFields[i].value} readonly={f.key === 'sku'} onblur={saveDataFields} />
-						</label>
-					{/if}
-				{/each}
-			</div>
-		</section>
+		</aside>
 
+		<div class="main-col">
 		<!-- Universal (per language) -->
 		<section class="card">
-			<div class="card-head"><h2>Universal info</h2><span class="hint">Edited per language ({language.toUpperCase()}) · shared across sheet, catalogue &amp; webshop</span></div>
+			<div class="card-head">
+				<div><h2>Universal info</h2><span class="hint">Per language ({language.toUpperCase()}) · shared across sheet, catalogue &amp; webshop</span></div>
+				<div class="cp-btns">
+					<button class="mini" onclick={copyUniversal} title="Copy all text (for translation)">{copyMsg || 'Copy text'}</button>
+					<button class="mini" onclick={pasteUniversal} title="Paste translated text back">{pasteMsg || 'Paste text'}</button>
+				</div>
+			</div>
 			<label class="fld"><span>Product name</span>
 				<input value={t.product_name ?? ''} oninput={(e) => (t.product_name = e.currentTarget.value)} onblur={(e) => putTranslation('product_name', e.currentTarget.value)} />
 			</label>
@@ -188,7 +238,7 @@
 				</div>
 			</div>
 			<div class="fld"><span>Long description <em>(webshop)</em></span>
-				<MarkdownEditor value={t.long_description ?? ''} onchange={(v) => putTranslation('long_description', v)} />
+				<MarkdownEditor bind:value={t.long_description} onchange={(v) => putTranslation('long_description', v)} />
 			</div>
 		</section>
 
@@ -289,6 +339,7 @@
 				</div>
 			</div>
 		</section>
+		</div>
 	</main>
 </div>
 
@@ -378,4 +429,22 @@
 	.tg.off { color: #A1A1AA; background: #F4F4F5; border-color: var(--border); }
 	.tg.off .tg-dot { background: #D4D4D8; }
 	.tg em { font-style: normal; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+	/* Layout: floating left info panel + main form column */
+	.layout { max-width: 1120px; margin: 0 auto; padding: 24px 20px 80px; display: flex; align-items: flex-start; gap: 20px; }
+	.main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+	.side { width: 300px; flex-shrink: 0; position: sticky; top: 68px; }
+	@media (max-width: 860px) { .layout { flex-direction: column; } .side { width: 100%; position: static; } }
+	.side-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+	.side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
+	.side-head h2 { font-size: 14px; font-weight: 800; color: #18181B; margin: 0; }
+	.info-table { display: flex; flex-direction: column; }
+	.info-row { display: grid; grid-template-columns: 82px 1fr; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #F5EDD8; }
+	.info-row:last-child { border-bottom: none; }
+	.info-row .k { font-size: 11px; font-weight: 700; color: #8a7550; text-transform: capitalize; }
+	.info-row .v { font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid transparent; border-radius: 7px; padding: 5px 7px; background: #FAFAF7; font-family: inherit; width: 100%; box-sizing: border-box; }
+	.info-row .v:hover { border-color: var(--border); background: #fff; }
+	.info-row .v:focus { outline: none; border-color: #F57832; background: #fff; box-shadow: 0 0 0 3px rgba(245,120,50,0.1); }
+	.info-row .v[readonly] { color: #71717A; background: transparent; }
+	.cp-btns { display: flex; gap: 6px; flex-shrink: 0; }
 </style>
