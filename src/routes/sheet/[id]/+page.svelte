@@ -14,6 +14,16 @@
 	let t = $state({ ...data.translations });
 	let uspCount = $state(data.sheet.usp_count ?? 3);
 
+	// Product name is NOT translatable — one shared value, written to every language.
+	let name = $state(data.baseTranslations?.product_name ?? data.translations?.product_name ?? '');
+	async function saveName() {
+		flashSaved();
+		for (const l of data.languages) {
+			await fetch(`/api/sheets/${sheetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'translation', language: l.code, key: 'product_name', value: name }) });
+		}
+		t = { ...t, product_name: name };
+	}
+
 	async function switchLanguage(code) {
 		if (code === language) return;
 		const res = await fetch(`/api/sheets/${sheetId}?lang=${code}`);
@@ -198,6 +208,9 @@
 				<div class="side-head"><h2>Product info</h2>
 					<button class="mini" onclick={refreshFromRackbeat} disabled={refreshing} title="Refresh data fields from Rackbeat">{refreshMsg || (refreshing ? '…' : 'Refresh')}</button>
 				</div>
+				<label class="name-fld"><span>Product name <em>(all languages)</em></span>
+					<input bind:value={name} onblur={saveName} placeholder="Product name" />
+				</label>
 				<div class="info-table">
 					{#each dataFields as f, i}
 						{#if f.key !== STOCK_KEY}
@@ -220,9 +233,6 @@
 					<button class="mini" onclick={pasteUniversal} title="Paste translated text back">{pasteMsg || 'Paste text'}</button>
 				</div>
 			</div>
-			<label class="fld"><span>Product name</span>
-				<input value={t.product_name ?? ''} oninput={(e) => (t.product_name = e.currentTarget.value)} onblur={(e) => putTranslation('product_name', e.currentTarget.value)} />
-			</label>
 			<label class="fld"><span>Short description</span>
 				<textarea rows="3" value={t.product_description ?? ''} oninput={(e) => (t.product_description = e.currentTarget.value)} onblur={(e) => putTranslation('product_description', e.currentTarget.value)}></textarea>
 			</label>
@@ -438,6 +448,11 @@
 	.side-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
 	.side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
 	.side-head h2 { font-size: 14px; font-weight: 800; color: #18181B; margin: 0; }
+	.name-fld { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+	.name-fld span { font-size: 11px; font-weight: 700; color: #8a7550; }
+	.name-fld em { font-weight: 500; color: #A1A1AA; font-style: normal; }
+	.name-fld input { font-size: 14px; font-weight: 600; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; font-family: inherit; width: 100%; box-sizing: border-box; }
+	.name-fld input:focus { outline: none; border-color: #F57832; box-shadow: 0 0 0 3px rgba(245,120,50,0.12); }
 	.info-table { display: flex; flex-direction: column; }
 	.info-row { display: grid; grid-template-columns: 82px 1fr; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #F5EDD8; }
 	.info-row:last-child { border-bottom: none; }
