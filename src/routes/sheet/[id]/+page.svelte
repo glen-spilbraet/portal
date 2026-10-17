@@ -177,6 +177,23 @@
 	async function setCta(id) { ctaId = id; await putSheet('cta_version_id', id); }
 
 	const langs = $derived([...data.languages].sort((a, b) => (b.code === data.primaryLanguage ? 1 : 0) - (a.code === data.primaryLanguage ? 1 : 0)));
+
+	// SvelteKit reuses this component across /sheet/[id] navigations, so all the
+	// editable $state must be re-initialised when the loaded sheet changes —
+	// otherwise the URL updates but the form keeps the previous sheet's values.
+	let loadedId = $state(data.sheet.id);
+	$effect(() => {
+		if (data.sheet.id === loadedId) return;
+		loadedId = data.sheet.id;
+		t = { ...data.translations };
+		name = data.baseTranslations?.product_name ?? data.translations?.product_name ?? '';
+		uspCount = data.sheet.usp_count ?? 3;
+		dataFields = JSON.parse(data.sheet.data_fields || '[]');
+		hidden = JSON.parse(data.sheet.hidden_elements || '{}');
+		ctaId = data.sheet.cta_version_id ?? null;
+		language = data.language;
+		videoUrl = ''; videoOrient = 'auto'; videoErr = '';
+	});
 </script>
 
 <svelte:head><title>Edit {data.sheet.sku} — Sheet</title></svelte:head>
