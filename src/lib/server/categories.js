@@ -79,6 +79,8 @@ export async function createGroup(db, labels, position) {
 
 /** @param {D1} db @param {string} groupId @param {Record<string, string>} labels @param {number} position */
 export async function createCategory(db, groupId, labels, position) {
+	const group = await db.prepare('SELECT id FROM category_group WHERE id = ?').bind(groupId).first();
+	if (!group) throw new Error('Unknown category group');
 	const id = crypto.randomUUID();
 	await db.batch([db.prepare('INSERT INTO category (id, group_id, position) VALUES (?, ?, ?)').bind(id, groupId, position), ...labelStatements(db, 'category', id, labels)]);
 	return id;
