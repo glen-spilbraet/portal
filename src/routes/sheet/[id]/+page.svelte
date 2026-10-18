@@ -4,14 +4,23 @@
 
 	let { data } = $props();
 
-	const sheetId = data.sheet.id;
+	const sheetId = $derived(data.sheet.id);
+
+	// MarkdownEditor's `value` is `$bindable('')` (has a fallback), so binding
+	// `undefined` to it throws Svelte's `props_invalid_value`. Translation objects
+	// omit keys that have no value yet, so guarantee every bound key is a string.
+	const normT = (src) => {
+		const o = { ...src };
+		if (typeof o.long_description !== 'string') o.long_description = '';
+		return o;
+	};
 	let language = $state(data.language);
 	let saveStatus = $state('saved');
 	let saveTimer = null;
 	function flashSaved() { saveStatus = 'saving'; clearTimeout(saveTimer); saveTimer = setTimeout(() => (saveStatus = 'saved'), 900); }
 
 	// ── Per-language text (re-loaded on language switch) ───────────────────────
-	let t = $state({ ...data.translations });
+	let t = $state(normT(data.translations));
 	let uspCount = $state(data.sheet.usp_count ?? 3);
 
 	// Product name is NOT translatable — one shared value, written to every language.
@@ -27,7 +36,7 @@
 	async function switchLanguage(code) {
 		if (code === language) return;
 		const res = await fetch(`/api/sheets/${sheetId}?lang=${code}`);
-		t = res.ok ? await res.json() : {};
+		t = normT(res.ok ? await res.json() : {});
 		language = code;
 	}
 
@@ -185,7 +194,7 @@
 	$effect(() => {
 		if (data.sheet.id === loadedId) return;
 		loadedId = data.sheet.id;
-		t = { ...data.translations };
+		t = normT(data.translations);
 		name = data.baseTranslations?.product_name ?? data.translations?.product_name ?? '';
 		uspCount = data.sheet.usp_count ?? 3;
 		dataFields = JSON.parse(data.sheet.data_fields || '[]');
