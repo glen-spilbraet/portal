@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { getSheet, getTranslations, getImages, getVideos, getGlobalLabels, listCtaVersions, getCtaVersionTranslations } from '$lib/db.js';
 import { fetchSalesPrices } from '$lib/server/rackbeat.js';
 import { getBadgesForSku } from '$lib/server/awards.js';
+import { listTaxonomy, productCategoryIds, CATEGORY_LANGS } from '$lib/server/categories.js';
 
 const LANGUAGES = [
 	{ code: 'en', label: 'English' },
@@ -29,6 +30,12 @@ export async function load({ params, url, platform }) {
 	]);
 	const awardBadges = await getBadgesForSku(db, sheet.sku, new Date().toISOString().slice(0, 10));
 
+	// Category tagging (SALES_DB — shared prod taxonomy, read by the shop feed)
+	const salesDb = platform?.env?.SALES_DB;
+	const [categoryGroups, categorySelected] = salesDb
+		? await Promise.all([listTaxonomy(salesDb), productCategoryIds(salesDb, sheet.sku)])
+		: [[], []];
+
 	// Inject selected CTA version's translations into globalLabels
 	if (sheet.cta_version_id) {
 		const ctaT = await getCtaVersionTranslations(db, sheet.cta_version_id);
@@ -55,5 +62,8 @@ export async function load({ params, url, platform }) {
 		ctaVersions,
 		salesPrices,
 		awardBadges,
+		categoryGroups,
+		categorySelected,
+		categoryLangs: CATEGORY_LANGS,
 	};
 }

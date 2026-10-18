@@ -187,6 +187,30 @@
 		return data.globalLabels?.[key]?.[language] ?? data.globalLabels?.[key]?.en ?? fallback;
 	}
 
+	// ── Category tagging (SALES_DB taxonomy; multi-select per group) ────────────
+	let selectedCats = $state(new Set(data.categorySelected ?? []));
+	let catOpen = $state({});
+	let catMsg = $state('');
+	function catLabel(labels) {
+		return labels?.[language] ?? labels?.en ?? labels?.da ?? Object.values(labels ?? {})[0] ?? '(unnamed)';
+	}
+	function groupSelNames(g) { return g.categories.filter((c) => selectedCats.has(c.id)).map((c) => catLabel(c.labels)); }
+	async function saveCats() {
+		catMsg = 'Saving…';
+		try {
+			const res = await fetch(`/api/sheets/${sheetId}/categories`, {
+				method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryIds: [...selectedCats] })
+			});
+			catMsg = res.ok ? 'Saved' : 'Save failed';
+		} catch { catMsg = 'Save failed'; }
+		setTimeout(() => (catMsg = ''), 2000);
+	}
+	async function toggleCat(id) {
+		if (selectedCats.has(id)) selectedCats.delete(id); else selectedCats.add(id);
+		selectedCats = new Set(selectedCats);
+		await saveCats();
+	}
+
 	let refreshing = $state(false);
 	let refreshMsg = $state('');
 	async function refreshFromRackbeat() {
@@ -276,6 +300,7 @@
 		dataFields = JSON.parse(data.sheet.data_fields || '[]');
 		initGameAttrs();
 		rbMsg = ''; rbErr = '';
+		selectedCats = new Set(data.categorySelected ?? []); catOpen = {}; catMsg = '';
 		hidden = JSON.parse(data.sheet.hidden_elements || '{}');
 		ctaId = data.sheet.cta_version_id ?? null;
 		language = data.language;
@@ -499,6 +524,42 @@
 			</div>
 		</section>
 		</div>
+
+		<!-- Categories: right pane, collapsible multi-select per group -->
+		<aside class="cats-side">
+			<div class="side-card">
+				<div class="side-head"><h2>Categories</h2>
+					<span class="save" class:on={catMsg === 'Saving…'}>{catMsg}</span>
+				</div>
+				{#if (data.categoryGroups ?? []).length === 0}
+					<p class="cats-empty">No category groups yet. Create them under <a href="/admin/categories">Admin → Categories</a>.</p>
+				{:else}
+					{#each data.categoryGroups as g}
+						{@const names = groupSelNames(g)}
+						<div class="cat-group">
+							<button type="button" class="cat-head" onclick={() => (catOpen[g.id] = !catOpen[g.id])}>
+								<span class="chev" class:open={catOpen[g.id]}>▸</span>
+								<span class="cat-title">{catLabel(g.labels)}</span>
+								{#if names.length}<span class="cat-count">{names.length}</span>{/if}
+							</button>
+							{#if catOpen[g.id]}
+								<div class="cat-opts">
+									{#each g.categories as c}
+										<label class="cat-opt">
+											<input type="checkbox" checked={selectedCats.has(c.id)} onchange={() => toggleCat(c.id)} />
+											<span>{catLabel(c.labels)}</span>
+										</label>
+									{/each}
+									{#if g.categories.length === 0}<span class="cat-none">No categories in this group.</span>{/if}
+								</div>
+							{:else if names.length}
+								<div class="cat-chips">{#each names as n}<span class="chip">{n}</span>{/each}</div>
+							{/if}
+						</div>
+					{/each}
+				{/if}
+			</div>
+		</aside>
 	</main>
 </div>
 
@@ -590,10 +651,30 @@
 	.tg em { font-style: normal; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.3px; }
 
 	/* Layout: floating left info panel + main form column */
-	.layout { max-width: 1120px; margin: 0 auto; padding: 24px 20px 80px; display: flex; align-items: flex-start; gap: 20px; }
+	.layout { max-width: 1440px; margin: 0 auto; padding: 24px 20px 80px; display: flex; align-items: flex-start; gap: 20px; }
 	.main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
 	.side { width: 300px; flex-shrink: 0; position: sticky; top: 68px; }
+	.cats-side { width: 288px; flex-shrink: 0; position: sticky; top: 68px; }
+	@media (max-width: 1100px) { .cats-side { width: 100%; position: static; } .layout { flex-wrap: wrap; } }
 	@media (max-width: 860px) { .layout { flex-direction: column; } .side { width: 100%; position: static; } }
+
+	/* Category tagging pane */
+	.cats-empty { font-size: 12.5px; color: #71717A; padding: 12px 14px; margin: 0; line-height: 1.5; }
+	.cats-empty a { color: #F57832; font-weight: 600; }
+	.cat-group { border-bottom: 1px solid var(--border); }
+	.cat-group:last-child { border-bottom: none; }
+	.cat-head { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; cursor: pointer; padding: 10px 14px; font-family: inherit; text-align: left; }
+	.cat-head:hover { background: #FAFAF7; }
+	.cat-head .chev { color: #A1A1AA; font-size: 11px; transition: transform 0.12s; }
+	.cat-head .chev.open { transform: rotate(90deg); }
+	.cat-head .cat-title { flex: 1; font-size: 13px; font-weight: 700; color: #18181B; }
+	.cat-count { font-size: 11px; font-weight: 700; color: #fff; background: #F57832; border-radius: 999px; min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; padding: 0 5px; }
+	.cat-opts { display: flex; flex-direction: column; padding: 2px 14px 10px 30px; gap: 2px; }
+	.cat-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #27272A; padding: 4px 2px; cursor: pointer; }
+	.cat-opt input { accent-color: #F57832; width: 15px; height: 15px; cursor: pointer; }
+	.cat-none { font-size: 12px; color: #A1A1AA; padding: 2px; }
+	.cat-chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 14px 11px 30px; }
+	.cat-chips .chip { font-size: 11.5px; font-weight: 600; color: #8a7550; background: #FBF4E2; border: 1px solid #F0E3C0; border-radius: 6px; padding: 2px 7px; }
 	.side-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
 	.side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
 	.side-head h2 { font-size: 14px; font-weight: 800; color: #18181B; margin: 0; }
