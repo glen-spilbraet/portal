@@ -24,9 +24,10 @@ function sleep(ms) {
  * more, individually-capped retries keeps each attempt safely inside the
  * Worker's execution budget.
  */
-async function rackbeatFetch(url, headers) {
+async function rackbeatFetch(url, headers, init = {}) {
+	const finalHeaders = init.body ? { ...headers, 'Content-Type': 'application/json' } : headers;
 	for (let attempt = 0; ; attempt++) {
-		const res = await fetch(url, { headers });
+		const res = await fetch(url, { ...init, headers: finalHeaders });
 		const transient = res.status === 429 || res.status >= 500;
 		if (!transient || attempt === RB_MAX_RETRIES) return res;
 
@@ -137,6 +138,45 @@ export async function fetchRackbeatProductFull(sku, apiKey) {
 	} catch { /* best-effort */ }
 
 	return { ...standard, ...custom, ...prices };
+}
+
+/**
+ * Write custom field values back to a Rackbeat product.
+ * `slugValues` is a { slug: value } map. Field IDs are resolved from the
+ * product's own field list (Rackbeat's PUT requires numeric field ids, and the
+ * update is partial/additive — only the listed fields change).
+ * Returns { ok, status, error? }.
+ */
+export async function updateRackbeatCustomFieldsBySlug(sku, apiKey, slugValues) {
+	if (!apiKey) return { ok: false, status: 0, error: 'No API key' };
+	if (!sku) return { ok: false, status: 0, error: 'No SKU' };
+	const headers = RB_HEADERS(apiKey);
+
+	const fieldsRes = await rackbeatFetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}/fields`, headers);
+	if (!fieldsRes.ok) return { ok: false, status: fieldsRes.status, error: 'Field lookup failed' };
+	const fieldsData = await fieldsRes.json();
+
+	const idBySlug = {};
+	for (const fv of (fieldsData.field_values ?? [])) idBySlug[fv.field.slug] = fv.field.id;
+
+	const custom_fields = [];
+	for (const [slug, value] of Object.entries(slugValues ?? {})) {
+		const id = idBySlug[slug];
+		if (id != null) custom_fields.push({ id, value: String(value ?? '') });
+	}
+	if (!custom_fields.length) return { ok: false, status: 0, error: 'No matching fields' };
+
+	const res = await rackbeatFetch(
+		`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}`,
+		headers,
+		{ method: 'PUT', body: JSON.stringify({ custom_fields }) }
+	);
+	if (!res.ok) {
+		let detail = '';
+		try { detail = await res.text(); } catch { /* ignore */ }
+		return { ok: false, status: res.status, error: detail.slice(0, 300) };
+	}
+	return { ok: true, status: res.status };
 }
 
 /**

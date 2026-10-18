@@ -111,6 +111,82 @@
 	function fieldLabel(f) { return data.globalLabels?.[f.key]?.[language] ?? data.globalLabels?.[f.key]?.en ?? f.label ?? f.key; }
 	async function saveDataFields() { flashSaved(); await putSheet('data_fields', JSON.stringify(dataFields)); }
 
+	// ── Game attributes (editable → written back to Rackbeat) ──────────────────
+	// Identity/dimension fields are read-only here: correct them in Rackbeat and
+	// re-sync. Age / Time / Players stay editable and push back to Rackbeat.
+	const RO_KEYS = ['sku', 'ean', 'weight', 'height', 'width', 'depth'];
+	const GAME_KEYS = ['age', 'time', 'players'];
+	const digits = (s) => (String(s ?? '').match(/\d+/g) ?? []);
+
+	let ageVal   = $state('');
+	let timeFrom = $state(''); let timeTo = $state('');
+	let playFrom = $state(''); let playTo = $state('');
+	let rbMsg = $state(''); let rbErr = $state('');
+
+	function initGameAttrs() {
+		const get = (k) => dataFields.find((f) => f.key === k)?.value ?? '';
+		ageVal = digits(get('age'))[0] ?? '';
+		const tn = digits(get('time'));   timeFrom = tn[0] ?? ''; timeTo = tn[1] ?? '';
+		const pn = digits(get('players')); playFrom = pn[0] ?? ''; playTo = pn[1] ?? '';
+	}
+	initGameAttrs();
+
+	const onlyDigits = (v) => String(v ?? '').replace(/[^0-9]/g, '');
+	function rangeOk(from, to) {
+		const a = (from ?? '').trim(), b = (to ?? '').trim();
+		if (!a || !b) return true;
+		return Number(b) >= Number(a);
+	}
+	// "60-90" | "75" (single when only one / both equal) | "" (empty)
+	function combineRange(from, to) {
+		const a = (from ?? '').trim(), b = (to ?? '').trim();
+		if (!a) return b;
+		if (!b || a === b) return a;
+		return `${a}-${b}`;
+	}
+	function setDataField(key, value) {
+		const i = dataFields.findIndex((f) => f.key === key);
+		if (i >= 0) dataFields[i] = { ...dataFields[i], value };
+		else dataFields = [...dataFields, { key, label: key, value }];
+	}
+	async function pushRackbeat(values) {
+		rbMsg = 'Syncing…';
+		try {
+			const res = await fetch(`/api/sheets/${sheetId}/rackbeat-fields`, {
+				method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values })
+			});
+			rbMsg = res.ok ? 'Synced to Rackbeat' : 'Rackbeat sync failed';
+		} catch { rbMsg = 'Rackbeat sync failed'; }
+		setTimeout(() => (rbMsg = ''), 2800);
+	}
+	async function saveAge() {
+		rbErr = '';
+		const v = onlyDigits(ageVal); ageVal = v;
+		setDataField('age', v);
+		await saveDataFields();
+		await pushRackbeat({ 'age-minimum': v });
+	}
+	async function saveTime() {
+		if (!rangeOk(timeFrom, timeTo)) { rbErr = 'Time: "to" can’t be lower than "from".'; return; }
+		rbErr = '';
+		const rb = combineRange(timeFrom, timeTo);
+		setDataField('time', rb ? `${rb}'` : '');
+		await saveDataFields();
+		await pushRackbeat({ 'duration': rb });
+	}
+	async function savePlayers() {
+		if (!rangeOk(playFrom, playTo)) { rbErr = 'Players: "to" can’t be lower than "from".'; return; }
+		rbErr = '';
+		setDataField('players', combineRange(playFrom, playTo));
+		await saveDataFields();
+		await pushRackbeat({ 'player-count-minimum': (playFrom ?? '').trim(), 'player-count-maximum': (playTo ?? '').trim() });
+	}
+	function gLabel(key, fallback) {
+		const f = dataFields.find((x) => x.key === key);
+		if (f) return fieldLabel(f);
+		return data.globalLabels?.[key]?.[language] ?? data.globalLabels?.[key]?.en ?? fallback;
+	}
+
 	let refreshing = $state(false);
 	let refreshMsg = $state('');
 	async function refreshFromRackbeat() {
@@ -118,7 +194,7 @@
 		refreshing = true; refreshMsg = '';
 		try {
 			const res = await fetch(`/api/sheets/${sheetId}/refresh`, { method: 'POST' });
-			if (res.ok) { const b = await res.json(); if (Array.isArray(b.data_fields)) dataFields = b.data_fields; refreshMsg = 'Updated'; }
+			if (res.ok) { const b = await res.json(); if (Array.isArray(b.data_fields)) { dataFields = b.data_fields; initGameAttrs(); } refreshMsg = 'Updated'; }
 			else refreshMsg = 'Failed';
 		} catch { refreshMsg = 'Failed'; }
 		refreshing = false;
@@ -198,6 +274,8 @@
 		name = data.baseTranslations?.product_name ?? data.translations?.product_name ?? '';
 		uspCount = data.sheet.usp_count ?? 3;
 		dataFields = JSON.parse(data.sheet.data_fields || '[]');
+		initGameAttrs();
+		rbMsg = ''; rbErr = '';
 		hidden = JSON.parse(data.sheet.hidden_elements || '{}');
 		ctaId = data.sheet.cta_version_id ?? null;
 		language = data.language;
@@ -239,12 +317,57 @@
 				</label>
 				<div class="info-table">
 					{#each dataFields as f, i}
-						{#if f.key !== STOCK_KEY}
+						{#if f.key !== STOCK_KEY && !GAME_KEYS.includes(f.key)}
 							<div class="info-row"><span class="k">{fieldLabel(f)}</span>
-								<input class="v" bind:value={dataFields[i].value} readonly={f.key === 'sku'} onblur={saveDataFields} />
+								{#if RO_KEYS.includes(f.key)}
+									<span class="v ro" title="Correct in Rackbeat, then Refresh">{f.value || '—'}</span>
+								{:else}
+									<input class="v" bind:value={dataFields[i].value} onblur={saveDataFields} />
+								{/if}
 							</div>
 						{/if}
 					{/each}
+				</div>
+
+				<!-- Game attributes: editable, written back to Rackbeat -->
+				<div class="game-attrs">
+					<div class="ga-row">
+						<span class="k">{gLabel('age', 'Age')}</span>
+						<input class="num solo" inputmode="numeric" placeholder="—"
+							bind:value={ageVal}
+							oninput={(e) => (ageVal = onlyDigits(e.currentTarget.value))}
+							onblur={saveAge} />
+					</div>
+					<div class="ga-row">
+						<span class="k">{gLabel('time', 'Time')}</span>
+						<div class="fromto">
+							<input class="num" inputmode="numeric" placeholder="from"
+								bind:value={timeFrom}
+								oninput={(e) => (timeFrom = onlyDigits(e.currentTarget.value))}
+								onblur={saveTime} />
+							<span class="dash">–</span>
+							<input class="num" inputmode="numeric" placeholder="to"
+								bind:value={timeTo}
+								oninput={(e) => (timeTo = onlyDigits(e.currentTarget.value))}
+								onblur={saveTime} />
+						</div>
+					</div>
+					<div class="ga-row">
+						<span class="k">{gLabel('players', 'Players')}</span>
+						<div class="fromto">
+							<input class="num" inputmode="numeric" placeholder="from"
+								bind:value={playFrom}
+								oninput={(e) => (playFrom = onlyDigits(e.currentTarget.value))}
+								onblur={savePlayers} />
+							<span class="dash">–</span>
+							<input class="num" inputmode="numeric" placeholder="to"
+								bind:value={playTo}
+								oninput={(e) => (playTo = onlyDigits(e.currentTarget.value))}
+								onblur={savePlayers} />
+						</div>
+					</div>
+					{#if rbErr}<div class="ga-note err">{rbErr}</div>{/if}
+					{#if rbMsg}<div class="ga-note">{rbMsg}</div>{/if}
 				</div>
 			</div>
 		</aside>
@@ -487,5 +610,19 @@
 	.info-row .v:hover { border-color: var(--border); background: #fff; }
 	.info-row .v:focus { outline: none; border-color: #F57832; background: #fff; box-shadow: 0 0 0 3px rgba(245,120,50,0.1); }
 	.info-row .v[readonly] { color: #71717A; background: transparent; }
+	.info-row .v.ro { color: #52525B; background: transparent; border-color: transparent; cursor: default; }
+	.info-row .v.ro:hover { background: transparent; border-color: transparent; }
+
+	/* Editable game attributes (→ Rackbeat) */
+	.game-attrs { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+	.ga-row { display: grid; grid-template-columns: 82px 1fr; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid #F5EDD8; }
+	.ga-row .k { font-size: 11px; font-weight: 700; color: #8a7550; text-transform: capitalize; }
+	.ga-row .num { font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 7px; padding: 5px 7px; background: #FAFAF7; font-family: inherit; width: 100%; box-sizing: border-box; min-width: 0; text-align: center; }
+	.ga-row .num:focus { outline: none; border-color: #F57832; background: #fff; box-shadow: 0 0 0 3px rgba(245,120,50,0.1); }
+	.ga-row .num.solo { text-align: left; }
+	.fromto { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 5px; }
+	.fromto .dash { color: #A1A1AA; font-weight: 600; }
+	.ga-note { font-size: 11px; font-weight: 600; color: #15803D; padding: 6px 12px; }
+	.ga-note.err { color: #B91C1C; }
 	.cp-btns { display: flex; gap: 6px; flex-shrink: 0; }
 </style>
