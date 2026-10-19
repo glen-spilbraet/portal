@@ -129,24 +129,30 @@ export async function buildShopFeed(db, salesDb, origin) {
 	const taxonomy = await listTaxonomy(salesDb);
 	const productCats = await salesDb.prepare('SELECT sku, category_id FROM product_category ORDER BY sku').all();
 
-	const [prefixRes, overrideRes, seriesRes, marketRes, webshopRes] = await salesDb.batch([
+	const [prefixRes, overrideRes, seriesRes] = await salesDb.batch([
 		salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix ORDER BY prefix'),
 		salesDb.prepare('SELECT sku, publisher FROM product_publisher_override ORDER BY sku'),
 		salesDb.prepare(`SELECT ps.sku, s.name AS series, s.publisher
-			FROM product_series ps JOIN series s ON s.id = ps.series_id ORDER BY ps.sku`),
-		salesDb.prepare('SELECT publisher, market FROM publisher_market ORDER BY publisher, market'),
-		salesDb.prepare('SELECT sku, published_markets, override_license FROM product_webshop ORDER BY sku')
+			FROM product_series ps JOIN series s ON s.id = ps.series_id ORDER BY ps.sku`)
 	]);
 
 	// Webshop market licensing: markets allowed per publisher, and each product's
 	// publish state. published_markets NULL = default (all the publisher allows).
+	// Guarded — the tables arrive with migration 0080.
 	const publisherMarkets = {};
-	for (const r of /** @type {any[]} */ (marketRes.results ?? [])) (publisherMarkets[r.publisher] ??= []).push(r.market);
-	const productWebshop = (/** @type {any[]} */ (webshopRes.results ?? [])).map((r) => ({
-		sku: r.sku,
-		published_markets: r.published_markets == null ? null : (() => { try { return JSON.parse(r.published_markets); } catch { return []; } })(),
-		override_license: !!r.override_license
-	}));
+	let productWebshop = [];
+	try {
+		const [marketRes, webshopRes] = await salesDb.batch([
+			salesDb.prepare('SELECT publisher, market FROM publisher_market ORDER BY publisher, market'),
+			salesDb.prepare('SELECT sku, published_markets, override_license FROM product_webshop ORDER BY sku')
+		]);
+		for (const r of /** @type {any[]} */ (marketRes.results ?? [])) (publisherMarkets[r.publisher] ??= []).push(r.market);
+		productWebshop = (/** @type {any[]} */ (webshopRes.results ?? [])).map((r) => ({
+			sku: r.sku,
+			published_markets: r.published_markets == null ? null : (() => { try { return JSON.parse(r.published_markets); } catch { return []; } })(),
+			override_license: !!r.override_license
+		}));
+	} catch { /* migration 0080 not applied yet */ }
 
 	return {
 		generated_at: new Date().toISOString(),

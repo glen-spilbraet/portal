@@ -32,17 +32,21 @@ export async function resolvePublisherForSku(db, sku) {
 /** Markets a publisher is licensed for. @param {D1} db @returns {Promise<string[]>} */
 export async function getPublisherMarkets(db, publisher) {
 	if (!publisher) return [];
-	const rows = await db.prepare('SELECT market FROM publisher_market WHERE publisher = ?').bind(publisher).all();
-	return sanitizeMarkets((/** @type {any[]} */ (rows.results ?? [])).map((r) => r.market));
+	try {
+		const rows = await db.prepare('SELECT market FROM publisher_market WHERE publisher = ?').bind(publisher).all();
+		return sanitizeMarkets((/** @type {any[]} */ (rows.results ?? [])).map((r) => r.market));
+	} catch { return []; } // table may not exist yet (migration 0080)
 }
 
 /** All publishers' licensed markets as { publisher: string[] }. @param {D1} db */
 export async function listPublisherMarkets(db) {
-	const rows = await db.prepare('SELECT publisher, market FROM publisher_market').all();
 	/** @type {Record<string, string[]>} */
 	const out = {};
-	for (const r of /** @type {any[]} */ (rows.results ?? [])) (out[r.publisher] ??= []).push(r.market);
-	for (const k of Object.keys(out)) out[k] = sanitizeMarkets(out[k]);
+	try {
+		const rows = await db.prepare('SELECT publisher, market FROM publisher_market').all();
+		for (const r of /** @type {any[]} */ (rows.results ?? [])) (out[r.publisher] ??= []).push(r.market);
+		for (const k of Object.keys(out)) out[k] = sanitizeMarkets(out[k]);
+	} catch { /* table may not exist yet (migration 0080) */ }
 	return out;
 }
 
@@ -62,7 +66,10 @@ export async function setPublisherMarkets(db, publisher, markets) {
 export async function getProductWebshop(db, sku) {
 	const s = (sku ?? '').trim();
 	if (!s) return { publishedMarkets: null, overrideLicense: false };
-	const row = /** @type {any} */ (await db.prepare('SELECT published_markets, override_license FROM product_webshop WHERE lower(sku) = lower(?)').bind(s).first());
+	let row;
+	try {
+		row = /** @type {any} */ (await db.prepare('SELECT published_markets, override_license FROM product_webshop WHERE lower(sku) = lower(?)').bind(s).first());
+	} catch { return { publishedMarkets: null, overrideLicense: false }; } // table may not exist yet
 	if (!row) return { publishedMarkets: null, overrideLicense: false };
 	/** @type {string[] | null} */
 	let published = null;
