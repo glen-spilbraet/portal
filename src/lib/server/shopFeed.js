@@ -32,12 +32,17 @@ function fieldMap(dataFields) {
 export async function buildShopFeed(db, salesDb, origin) {
 	const imgUrl = (/** @type {string | null} */ key) => (key ? `${origin}/api/img/${key}` : null);
 
-	const [sheetsRes, trRes, imgRes] = await db.batch([
+	const [sheetsRes, trRes, imgRes, videoRes] = await db.batch([
 		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, updated_at, awards_updated_at
 			FROM sales_sheets WHERE trim(sku) != '' ORDER BY updated_at DESC`),
 		db.prepare(`SELECT sheet_id, language, key, value FROM translations WHERE trim(value) != ''`),
-		db.prepare(`SELECT sheet_id, r2_key, type FROM sheet_images ORDER BY display_order ASC`)
+		db.prepare(`SELECT sheet_id, r2_key, type FROM sheet_images ORDER BY display_order ASC`),
+		db.prepare(`SELECT sheet_id, url, orientation FROM sheet_video ORDER BY display_order ASC, created_at ASC`)
 	]);
+
+	/** @type {Record<string, { url: string, orientation: string }[]>} */
+	const videos = {};
+	for (const r of /** @type {any[]} */ (videoRes.results ?? [])) (videos[r.sheet_id] ??= []).push({ url: r.url, orientation: r.orientation === '9:16' ? '9:16' : '16:9' });
 
 	/** @type {Record<string, Record<string, Record<string, string>>>} */
 	const tr = {};
@@ -80,13 +85,14 @@ export async function buildShopFeed(db, salesDb, origin) {
 		if (seen.has(key)) continue;
 		seen.add(key);
 
-		/** @type {Record<string, { name: string | null, description: string | null, usps: string[] }>} */
+		/** @type {Record<string, { name: string | null, description: string | null, long_description: string | null, usps: string[] }>} */
 		const texts = {};
 		for (const [lang, t] of Object.entries(tr[s.id] ?? {})) {
 			const usps = [];
 			for (let n = 1; n <= MAX_USP; n++) if (t[`usp_${n}`]) usps.push(t[`usp_${n}`]);
-			if (t.product_name || t.product_description || usps.length) {
-				texts[lang] = { name: t.product_name ?? null, description: t.product_description ?? null, usps };
+			if (t.product_name || t.product_description || t.long_description || usps.length) {
+				// long_description is Markdown (render with $lib/markdown.js rules).
+				texts[lang] = { name: t.product_name ?? null, description: t.product_description ?? null, long_description: t.long_description ?? null, usps };
 			}
 		}
 		const f = fieldMap(s.data_fields);
@@ -114,6 +120,7 @@ export async function buildShopFeed(db, salesDb, origin) {
 				gallery: (gallery[s.id] ?? []).map(imgUrl).filter(Boolean)
 			},
 			youtube_url: s.youtube_url || null,
+			videos: videos[s.id] ?? [],
 			awards: awards[key] ?? []
 		});
 	}
