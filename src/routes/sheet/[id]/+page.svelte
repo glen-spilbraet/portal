@@ -2,6 +2,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
 	import BoxCropper from '$lib/components/BoxCropper.svelte';
+	import FlatCropper from '$lib/components/FlatCropper.svelte';
 
 	let { data } = $props();
 
@@ -318,7 +319,7 @@
 	// Used for the 3D box and for content images (components/board on white).
 	let cropOpen = $state(false);
 	let cropFile = $state(null);
-	let cropType = $state('box'); // 'box' | 'content'
+	let cropType = $state('box'); // 'box' | 'content' | 'box_flat'
 	function pickCrop(file, type) { if (!file) return; cropFile = file; cropType = type; cropOpen = true; }
 	function cancelCrop() { cropOpen = false; cropFile = null; }
 	async function onCropped(blob) {
@@ -522,7 +523,7 @@
 							<button class="mini" onclick={() => flatInput.click()} disabled={uploading === 'box_flat'}>{uploading === 'box_flat' ? 'Uploading…' : 'Replace'}</button>
 							{#if data.sheet.box_flat_image_key}<button class="mini danger" onclick={clearBoxFlat}>Remove</button>{/if}
 						</div>
-						<input type="file" accept="image/*" bind:this={flatInput} onchange={(e) => upload(e.currentTarget.files?.[0], 'box_flat')} hidden />
+						<input type="file" accept="image/*" bind:this={flatInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'box_flat'); e.currentTarget.value = ''; }} hidden />
 					</div>
 				</div>
 			</div>
@@ -642,12 +643,16 @@
 </div>
 
 {#if cropOpen && cropFile}
-	<BoxCropper
-		file={cropFile}
-		onconfirm={onCropped}
-		oncancel={cancelCrop}
-		title={cropType === 'content' ? 'Frame the content photo' : 'Frame the 3D box'}
-		subject={cropType === 'content' ? 'content' : 'box'} />
+	{#if cropType === 'box_flat'}
+		<FlatCropper file={cropFile} onconfirm={onCropped} oncancel={cancelCrop} />
+	{:else}
+		<BoxCropper
+			file={cropFile}
+			onconfirm={onCropped}
+			oncancel={cancelCrop}
+			title={cropType === 'content' ? 'Frame the content photo' : 'Frame the 3D box'}
+			subject={cropType === 'content' ? 'content' : 'box'} />
+	{/if}
 {/if}
 
 <style>
