@@ -149,6 +149,15 @@ export async function load({ cookies, url, platform }) {
 		error(403, "You don't have access to this section.");
 	}
 
+	// Sheets has two levels: view (overview, search, preview) and edit (the
+	// editor). View-only users may browse but not open the editor / create.
+	if (section === 'sheets' && !effectivePermissions.sheetsEdit) {
+		const p = url.pathname;
+		if (p === '/sheet/new' || /^\/sheet\/[^/]+$/.test(p)) {
+			error(403, "You don't have edit access to Sheets.");
+		}
+	}
+
 	return {
 		isDev,
 		user: {

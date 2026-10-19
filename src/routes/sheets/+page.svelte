@@ -4,6 +4,8 @@
 
 	let { data } = $props();
 
+	const canEdit = $derived(data.user?.permissions?.sheetsEdit ?? false);
+
 	const PAGE_SIZE = 30;
 
 	function formatDate(ts) {
@@ -124,12 +126,14 @@
 					</svg>
 					Award view
 				</a>
-				<a href="/sheet/new" class="btn-new">
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-						<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-					</svg>
-					New Sheet
-				</a>
+				{#if canEdit}
+					<a href="/sheet/new" class="btn-new">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+							<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+						</svg>
+						New Sheet
+					</a>
+				{/if}
 			</div>
 		</div>
 
@@ -143,12 +147,14 @@
 				</div>
 				<p class="empty-title">No sales sheets yet</p>
 				<p class="empty-sub">Create your first sheet to get started.</p>
-				<a href="/sheet/new" class="btn-new">
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-						<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-					</svg>
-					New Sheet
-				</a>
+				{#if canEdit}
+					<a href="/sheet/new" class="btn-new">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+							<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+						</svg>
+						New Sheet
+					</a>
+				{/if}
 			</div>
 		{:else if query.trim() && searchResults !== null && searchResults.length === 0}
 			<div class="no-results">No sheets match "<strong>{query}</strong>"</div>
@@ -158,7 +164,7 @@
 			<div class="grid">
 				{#each displayed as sheet}
 					<div class="card">
-						<a href="/sheet/{sheet.id}" class="card-thumb">
+						<a href={canEdit ? `/sheet/${sheet.id}` : `/sheet/${sheet.id}/preview`} class="card-thumb">
 							{#if sheet.box_image_key}
 								<img src="/api/img/{sheet.box_image_key}?size=300" alt={sheet._display ?? sheet.sku} />
 							{:else}
@@ -194,21 +200,24 @@
 						</div>
 
 						<div class="card-footer">
-							<a href="/sheet/{sheet.id}" class="action-btn" title="Edit">
-								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-									<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-									<path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-								</svg>
-								Edit
-							</a>
-							<a href="/sheet/{sheet.id}/preview" target="_blank" class="action-btn" title="Preview">
+							{#if canEdit}
+								<a href="/sheet/{sheet.id}" class="action-btn" title="Edit">
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+										<path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+									</svg>
+									Edit
+								</a>
+							{/if}
+							<a href="/sheet/{sheet.id}/preview" target="_blank" class="action-btn" title="View">
 								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
 									<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
 									<polyline points="15 3 21 3 21 9"/>
 									<line x1="10" y1="14" x2="21" y2="3"/>
 								</svg>
-								Preview
+								View
 							</a>
+							{#if canEdit}
 							<form method="POST" action="?/delete" use:enhance style="margin-left: auto">
 								<input type="hidden" name="id" value={sheet.id} />
 								<button
@@ -225,6 +234,7 @@
 									</svg>
 								</button>
 							</form>
+							{/if}
 						</div>
 					</div>
 				{/each}

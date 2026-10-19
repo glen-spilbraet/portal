@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ stats: true, stats_all: false, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false, credit_notes: false });
+	let newAccess = $state({ stats: true, stats_all: false, sheets: true, sheets_edit: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false, credit_notes: false });
 	let creating = $state(false);
 	let createError = $state('');
 	let showCreate = $state(false);
@@ -20,7 +20,8 @@
 		{ key: 'stats',       label: 'Stats' },
 		{ key: 'stats_all',   label: 'All data' },
 		{ key: 'credit_notes', label: 'Credit Notes' },
-		{ key: 'sheets',      label: 'Sheets' },
+		{ key: 'sheets',      label: 'Sheets (view)' },
+		{ key: 'sheets_edit', label: 'Sheets — edit' },
 		{ key: 'catalogues',  label: 'Catalogues' },
 		{ key: 'planograms',  label: 'Planograms' },
 		{ key: 'data',        label: 'Data' },
@@ -42,7 +43,7 @@
 	const LABEL = Object.fromEntries(SECTIONS.map((s) => [s.key, s.label]));
 	const GROUPS = [
 		{ label: 'Stats',  keys: ['stats', 'stats_all', 'product', 'forecast', 'reports', 'credit_notes'] },
-		{ label: 'Sales',  keys: ['sheets', 'catalogues', 'planograms', 'awards', 'price_lists', 'mail'] },
+		{ label: 'Sales',  keys: ['sheets', 'sheets_edit', 'catalogues', 'planograms', 'awards', 'price_lists', 'mail'] },
 		{ label: 'Orders', keys: ['orders', 'order_conf', 'rest_check', 'price_sync'] },
 		{ label: 'Events', keys: ['events'] },
 		{ label: 'Data',   keys: ['data'] },
@@ -60,6 +61,7 @@
 				body: JSON.stringify({
 					name,
 					access_sheets:      newAccess.sheets,
+					access_sheets_edit: newAccess.sheets_edit,
 					access_catalogues:  newAccess.catalogues,
 					access_planograms:  newAccess.planograms,
 					access_data:        newAccess.data,
@@ -86,6 +88,7 @@
 				id:                 created.id,
 				name:               name,
 				access_sheets:      newAccess.sheets       ? 1 : 0,
+				access_sheets_edit: newAccess.sheets_edit  ? 1 : 0,
 				access_catalogues:  newAccess.catalogues   ? 1 : 0,
 				access_planograms:  newAccess.planograms   ? 1 : 0,
 				access_data:        newAccess.data         ? 1 : 0,
@@ -106,7 +109,7 @@
 				access_credit_notes: newAccess.credit_notes ? 1 : 0,
 			}];
 			newName = '';
-			newAccess = { stats: true, stats_all: false, sheets: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false, credit_notes: false };
+			newAccess = { stats: true, stats_all: false, sheets: true, sheets_edit: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false, credit_notes: false };
 			showCreate = false;
 		} catch (e) {
 			createError = e.message;
@@ -119,6 +122,7 @@
 		editing[set.id] = {
 			name:               set.name,
 			access_sheets:      !!set.access_sheets,
+			access_sheets_edit: !!set.access_sheets_edit,
 			access_catalogues:  !!set.access_catalogues,
 			access_planograms:  !!set.access_planograms,
 			access_data:        !!set.access_data,
@@ -156,6 +160,7 @@
 				body: JSON.stringify({
 					name:               e.name,
 					access_sheets:      e.access_sheets,
+					access_sheets_edit: e.access_sheets_edit,
 					access_catalogues:  e.access_catalogues,
 					access_planograms:  e.access_planograms,
 					access_data:        e.access_data,
@@ -181,6 +186,7 @@
 				...s,
 				name:               e.name,
 				access_sheets:      e.access_sheets      ? 1 : 0,
+				access_sheets_edit: e.access_sheets_edit ? 1 : 0,
 				access_catalogues:  e.access_catalogues  ? 1 : 0,
 				access_planograms:  e.access_planograms  ? 1 : 0,
 				access_data:        e.access_data        ? 1 : 0,
