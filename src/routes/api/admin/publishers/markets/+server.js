@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
 import { getAllowedUser } from '$lib/db.js';
 import { setPublisherMarkets } from '$lib/server/webshopMarkets.js';
+import { notifyShops } from '$lib/server/shopNotify.js';
 
 async function requireAdmin(cookies, platform) {
 	const email = await verifySession(cookies.get('session') ?? '', platform?.env?.APP_SECRET ?? 'dev-secret');
@@ -20,5 +21,6 @@ export async function POST({ request, cookies, platform }) {
 	const publisher = (body?.publisher ?? '').trim();
 	if (!publisher) return json({ message: 'publisher is required' }, { status: 400 });
 	const markets = await setPublisherMarkets(db, publisher, Array.isArray(body.markets) ? body.markets : []);
+	await notifyShops(platform, { type: 'publisher_markets', publisher, markets });
 	return json({ ok: true, markets });
 }
