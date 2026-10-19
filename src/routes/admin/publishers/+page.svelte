@@ -232,7 +232,7 @@
 {/if}
 
 <style>
-	.page { max-width: 940px; margin: 0 auto; padding: 40px 28px 80px; }
+	.page { max-width: 1180px; margin: 0 auto; padding: 40px 28px 80px; }
 	.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 	.page-title { font-size: 26px; font-weight: 800; color: #18181B; letter-spacing: -0.5px; margin: 0 0 4px; }
 	.page-sub { font-size: 14px; color: #A89060; font-weight: 500; margin: 0; }
@@ -258,7 +258,8 @@
 	td.pub a:hover { text-decoration: underline; }
 	.prefixes { display: flex; flex-wrap: wrap; gap: 4px; }
 	.pfx-chip { font-size: 11px; font-weight: 800; color: #18181B; background: #F4F4F5; border-radius: 6px; padding: 2px 7px; font-variant-numeric: tabular-nums; }
-	.mkt-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+	.mkt-chips { display: flex; flex-wrap: nowrap; gap: 4px; }
+	td.markets { white-space: nowrap; }
 	.mkt-chip { font-size: 11px; font-weight: 800; letter-spacing: 0.3px; color: #A1A1AA; background: #fff; border: 1px solid var(--border, #E4E4E7); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-family: inherit; transition: all 0.12s; }
 	.mkt-chip:hover { border-color: #F57832; color: #F57832; }
 	.mkt-chip.on { color: #fff; background: #F57832; border-color: #F57832; }
