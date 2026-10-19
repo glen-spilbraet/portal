@@ -1,6 +1,7 @@
 <script>
 	import { invalidateAll } from '$app/navigation';
 	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
+	import BoxCropper from '$lib/components/BoxCropper.svelte';
 
 	let { data } = $props();
 
@@ -313,6 +314,16 @@
 	// hidden file inputs
 	let boxInput, flatInput, contentInput, gridInput;
 
+	// 3D box cropper: frame the box, square it with padding, keep shadows.
+	let cropOpen = $state(false);
+	let cropFile = $state(null);
+	function pickBox(file) { if (!file) return; cropFile = file; cropOpen = true; }
+	function cancelCrop() { cropOpen = false; cropFile = null; }
+	async function onBoxCropped(blob) {
+		cropOpen = false; cropFile = null;
+		await upload(new File([blob], 'box.png', { type: 'image/png' }), 'box');
+	}
+
 	// ── Settings ───────────────────────────────────────────────────────────────
 	let hidden = $state(JSON.parse(data.sheet.hidden_elements || '{}'));
 	let ctaId = $state(data.sheet.cta_version_id ?? null);
@@ -499,7 +510,7 @@
 						<span class="slot-label">3D <em>(sheet main)</em></span>
 						{#if data.sheet.box_image_key}<img src={imgUrl(data.sheet.box_image_key)} alt="" />{:else}<div class="ph">No 3D photo</div>{/if}
 						<button class="mini" onclick={() => boxInput.click()} disabled={uploading === 'box'}>{uploading === 'box' ? 'Uploading…' : 'Replace'}</button>
-						<input type="file" accept="image/*" bind:this={boxInput} onchange={(e) => upload(e.currentTarget.files?.[0], 'box')} hidden />
+						<input type="file" accept="image/*" bind:this={boxInput} onchange={(e) => { pickBox(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} hidden />
 					</div>
 					<div class="box-slot">
 						<span class="slot-label">Flat <em>(webshop)</em></span>
@@ -626,6 +637,10 @@
 		</aside>
 	</main>
 </div>
+
+{#if cropOpen && cropFile}
+	<BoxCropper file={cropFile} onconfirm={onBoxCropped} oncancel={cancelCrop} />
+{/if}
 
 <style>
 	.editor { min-height: 100vh; }
