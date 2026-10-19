@@ -129,12 +129,24 @@ export async function buildShopFeed(db, salesDb, origin) {
 	const taxonomy = await listTaxonomy(salesDb);
 	const productCats = await salesDb.prepare('SELECT sku, category_id FROM product_category ORDER BY sku').all();
 
-	const [prefixRes, overrideRes, seriesRes] = await salesDb.batch([
+	const [prefixRes, overrideRes, seriesRes, marketRes, webshopRes] = await salesDb.batch([
 		salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix ORDER BY prefix'),
 		salesDb.prepare('SELECT sku, publisher FROM product_publisher_override ORDER BY sku'),
 		salesDb.prepare(`SELECT ps.sku, s.name AS series, s.publisher
-			FROM product_series ps JOIN series s ON s.id = ps.series_id ORDER BY ps.sku`)
+			FROM product_series ps JOIN series s ON s.id = ps.series_id ORDER BY ps.sku`),
+		salesDb.prepare('SELECT publisher, market FROM publisher_market ORDER BY publisher, market'),
+		salesDb.prepare('SELECT sku, published_markets, override_license FROM product_webshop ORDER BY sku')
 	]);
+
+	// Webshop market licensing: markets allowed per publisher, and each product's
+	// publish state. published_markets NULL = default (all the publisher allows).
+	const publisherMarkets = {};
+	for (const r of /** @type {any[]} */ (marketRes.results ?? [])) (publisherMarkets[r.publisher] ??= []).push(r.market);
+	const productWebshop = (/** @type {any[]} */ (webshopRes.results ?? [])).map((r) => ({
+		sku: r.sku,
+		published_markets: r.published_markets == null ? null : (() => { try { return JSON.parse(r.published_markets); } catch { return []; } })(),
+		override_license: !!r.override_license
+	}));
 
 	return {
 		generated_at: new Date().toISOString(),
@@ -146,6 +158,13 @@ export async function buildShopFeed(db, salesDb, origin) {
 			overrides: overrideRes.results ?? [],
 			prefixes: prefixRes.results ?? []
 		},
+		// Webshop market licensing. markets = valid codes. publisher_markets[name]
+		// = licensed markets (absent/empty = none). products[].published_markets:
+		// null = default (publish to all the publisher allows); array = explicit;
+		// override_license = publish regardless of the publisher licence.
+		markets: ['DK', 'SE', 'NO', 'INT', 'PL'],
+		publisher_markets: publisherMarkets,
+		product_webshop: productWebshop,
 		series: seriesRes.results ?? [],
 		categories: {
 			groups: taxonomy.map((g) => ({

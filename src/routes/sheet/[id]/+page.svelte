@@ -211,6 +211,44 @@
 		await saveCats();
 	}
 
+	// ── Webshop published markets (per-market, gated by publisher licence) ──────
+	const WS_MARKETS = data.webshopMarkets ?? ['DK', 'SE', 'NO', 'INT', 'PL'];
+	let wsOverride = $state(!!data.webshopOverride);
+	// Default (no explicit selection) = every market the publisher licence allows.
+	const initPublished = () => new Set(data.webshopPublished ?? (wsOverride ? [] : (data.webshopAllowed ?? [])));
+	let wsPublished = $state(initPublished());
+	let wsMsg = $state('');
+	const wsAllowed = $derived(new Set(data.webshopAllowed ?? []));
+	const wsEnabled = (m) => wsOverride || wsAllowed.has(m);
+	const wsChecked = (m) => wsPublished.has(m) && (wsOverride || wsAllowed.has(m));
+	async function saveWebshop() {
+		wsMsg = 'Saving…';
+		try {
+			const res = await fetch(`/api/sheets/${sheetId}/webshop`, {
+				method: 'PUT', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ publishedMarkets: [...wsPublished], overrideLicense: wsOverride })
+			});
+			wsMsg = res.ok ? 'Saved' : 'Save failed';
+		} catch { wsMsg = 'Save failed'; }
+		setTimeout(() => (wsMsg = ''), 2000);
+	}
+	function toggleMarket(m) {
+		if (!wsEnabled(m)) return;
+		if (wsPublished.has(m)) wsPublished.delete(m); else wsPublished.add(m);
+		wsPublished = new Set(wsPublished);
+		saveWebshop();
+	}
+	async function toggleOverride() {
+		if (!wsOverride) {
+			if (!confirm('Override the publisher licence?\n\nThis lets you publish this product in markets the publisher is not licensed for.')) return;
+			wsOverride = true;
+		} else {
+			wsOverride = false;
+			wsPublished = new Set([...wsPublished].filter((m) => wsAllowed.has(m))); // back to licence rules
+		}
+		await saveWebshop();
+	}
+
 	let refreshing = $state(false);
 	let refreshMsg = $state('');
 	async function refreshFromRackbeat() {
@@ -301,6 +339,8 @@
 		initGameAttrs();
 		rbMsg = ''; rbErr = '';
 		selectedCats = new Set(data.categorySelected ?? []); catOpen = {}; catMsg = '';
+		wsOverride = !!data.webshopOverride;
+		wsPublished = new Set(data.webshopPublished ?? (wsOverride ? [] : (data.webshopAllowed ?? []))); wsMsg = '';
 		hidden = JSON.parse(data.sheet.hidden_elements || '{}');
 		ctaId = data.sheet.cta_version_id ?? null;
 		language = data.language;
@@ -525,8 +565,32 @@
 		</section>
 		</div>
 
-		<!-- Categories: right pane, collapsible multi-select per group -->
+		<!-- Right pane: webshop publishing + categories -->
 		<aside class="cats-side">
+			<!-- Webshop published markets (gated by publisher licence) -->
+			<div class="side-card">
+				<div class="side-head"><h2>Webshop Published</h2>
+					<span class="save" class:on={wsMsg === 'Saving…'}>{wsMsg}</span>
+				</div>
+				<div class="ws-pub">
+					<p class="ws-note">Publisher: <strong>{data.webshopPublisher ?? '—'}</strong>{#if (data.webshopAllowed ?? []).length === 0 && !wsOverride}<span class="ws-warn"> · no market licence set</span>{/if}</p>
+					<div class="ws-markets">
+						{#each WS_MARKETS as m}
+							<label class="ws-row" class:disabled={!wsEnabled(m)}>
+								<input type="checkbox" checked={wsChecked(m)} disabled={!wsEnabled(m)} onchange={() => toggleMarket(m)} />
+								<span class="ws-m">{m}</span>
+								{#if !wsAllowed.has(m) && !wsOverride}<span class="ws-lock" title="Not licensed by the publisher">licence</span>{/if}
+							</label>
+						{/each}
+					</div>
+					<label class="ws-override">
+						<input type="checkbox" checked={wsOverride} onchange={toggleOverride} />
+						<span>Override publisher licence</span>
+					</label>
+				</div>
+			</div>
+
+			<!-- Categories: collapsible multi-select per group -->
 			<div class="side-card">
 				<div class="side-head"><h2>Categories</h2>
 					<span class="save" class:on={catMsg === 'Saving…'}>{catMsg}</span>
@@ -654,7 +718,22 @@
 	.layout { max-width: 1440px; margin: 0 auto; padding: 24px 20px 80px; display: flex; align-items: flex-start; gap: 20px; }
 	.main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
 	.side { width: 300px; flex-shrink: 0; position: sticky; top: 68px; }
-	.cats-side { width: 288px; flex-shrink: 0; position: sticky; top: 68px; }
+	.cats-side { width: 288px; flex-shrink: 0; position: sticky; top: 68px; display: flex; flex-direction: column; gap: 16px; }
+
+	/* Webshop published markets */
+	.ws-pub { padding: 10px 14px 12px; }
+	.ws-note { font-size: 12px; color: #71717A; margin: 0 0 9px; }
+	.ws-note strong { color: #27272A; font-weight: 700; }
+	.ws-warn { color: #B45309; font-weight: 600; }
+	.ws-markets { display: flex; flex-direction: column; gap: 2px; }
+	.ws-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #27272A; padding: 4px 2px; cursor: pointer; }
+	.ws-row input { accent-color: #F57832; width: 15px; height: 15px; cursor: pointer; }
+	.ws-row .ws-m { font-weight: 600; }
+	.ws-row.disabled { color: #A1A1AA; cursor: not-allowed; }
+	.ws-row.disabled input { cursor: not-allowed; }
+	.ws-lock { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: #A1A1AA; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; margin-left: auto; }
+	.ws-override { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #8a7550; font-weight: 600; margin-top: 10px; padding-top: 10px; border-top: 1px solid #F5EDD8; cursor: pointer; }
+	.ws-override input { accent-color: #B45309; width: 15px; height: 15px; cursor: pointer; }
 	@media (max-width: 1100px) { .cats-side { width: 100%; position: static; } .layout { flex-wrap: wrap; } }
 	@media (max-width: 860px) { .layout { flex-direction: column; } .side { width: 100%; position: static; } }
 

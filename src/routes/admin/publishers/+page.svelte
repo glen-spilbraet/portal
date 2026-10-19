@@ -19,6 +19,20 @@
 			: data.publishers
 	);
 
+	// ── Webshop market licences (per publisher) ──────────────────────────────────
+	let pubMarkets = $state({ ...(data.marketsByPublisher ?? {}) });
+	async function toggleMarket(pub, m) {
+		const cur = new Set(pubMarkets[pub] ?? []);
+		if (cur.has(m)) cur.delete(m); else cur.add(m);
+		const arr = data.markets.filter((x) => cur.has(x)); // canonical order
+		pubMarkets = { ...pubMarkets, [pub]: arr };
+		const res = await fetch('/api/admin/publishers/markets', {
+			method: 'POST', headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ publisher: pub, markets: arr })
+		});
+		if (!res.ok) { alert('Could not save markets'); await invalidateAll(); }
+	}
+
 	// ── Add publisher ───────────────────────────────────────────────────────────
 	let addOpen = $state(false);
 	let newPublisher = $state('');
@@ -111,7 +125,7 @@
 	<div class="card">
 		<table>
 			<thead>
-				<tr><th>Publisher</th><th>Prefixes</th><th class="num">Mapped SKUs</th><th class="num">Revenue</th><th></th></tr>
+				<tr><th>Publisher</th><th>Prefixes</th><th>Webshop markets</th><th class="num">Mapped SKUs</th><th class="num">Revenue</th><th></th></tr>
 			</thead>
 			<tbody>
 				{#each filtered as p (p.name)}
@@ -126,6 +140,13 @@
 								{/if}
 							</div>
 						</td>
+						<td class="markets">
+							<div class="mkt-chips">
+								{#each data.markets as m}
+									<button type="button" class="mkt-chip" class:on={(pubMarkets[p.name] ?? []).includes(m)} onclick={() => toggleMarket(p.name, m)} title="Toggle {m} licence">{m}</button>
+								{/each}
+							</div>
+						</td>
 						<td class="num">{p.mapped_count || '—'}</td>
 						<td class="num">{p.dkk ? dkkFmt(p.dkk) : '—'}</td>
 						<td class="actions">
@@ -137,7 +158,7 @@
 						</td>
 					</tr>
 				{/each}
-				{#if filtered.length === 0}<tr><td colspan="5" class="empty">No publishers.</td></tr>{/if}
+				{#if filtered.length === 0}<tr><td colspan="6" class="empty">No publishers.</td></tr>{/if}
 			</tbody>
 		</table>
 	</div>
@@ -236,6 +257,10 @@
 	td.pub a:hover { text-decoration: underline; }
 	.prefixes { display: flex; flex-wrap: wrap; gap: 4px; }
 	.pfx-chip { font-size: 11px; font-weight: 800; color: #18181B; background: #F4F4F5; border-radius: 6px; padding: 2px 7px; font-variant-numeric: tabular-nums; }
+	.mkt-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+	.mkt-chip { font-size: 11px; font-weight: 800; letter-spacing: 0.3px; color: #A1A1AA; background: #fff; border: 1px solid var(--border, #E4E4E7); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-family: inherit; transition: all 0.12s; }
+	.mkt-chip:hover { border-color: #F57832; color: #F57832; }
+	.mkt-chip.on { color: #fff; background: #F57832; border-color: #F57832; }
 	.none { color: #C4B998; font-size: 12px; font-style: italic; }
 	.actions { text-align: right; }
 	.row-actions { display: flex; gap: 6px; justify-content: flex-end; }

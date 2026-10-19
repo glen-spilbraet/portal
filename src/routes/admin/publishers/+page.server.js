@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { MARKETS, listPublisherMarkets } from '$lib/server/webshopMarkets.js';
 
 export async function load({ parent, platform }) {
 	const { user } = await parent();
@@ -16,6 +17,7 @@ export async function load({ parent, platform }) {
 			 FROM deal_line_items WHERE sku_prefix IS NOT NULL AND sku_prefix != '' GROUP BY sku_prefix`
 		).all(),
 	]);
+	const marketsByPublisher = await listPublisherMarkets(db);
 
 	const regRows = /** @type {any[]} */ (registry.results ?? []);
 	const pfxRows = /** @type {any[]} */ (prefixRows.results ?? []);
@@ -55,5 +57,5 @@ export async function load({ parent, platform }) {
 
 	const allNames = [...names].sort((a, b) => a.localeCompare(b));
 
-	return { publishers, unmapped, allNames };
+	return { publishers, unmapped, allNames, markets: MARKETS, marketsByPublisher };
 }

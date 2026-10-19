@@ -3,6 +3,7 @@ import { getSheet, getTranslations, getImages, getVideos, getGlobalLabels, listC
 import { fetchSalesPrices } from '$lib/server/rackbeat.js';
 import { getBadgesForSku } from '$lib/server/awards.js';
 import { listTaxonomy, productCategoryIds, CATEGORY_LANGS } from '$lib/server/categories.js';
+import { MARKETS, resolvePublisherForSku, getPublisherMarkets, getProductWebshop } from '$lib/server/webshopMarkets.js';
 
 const LANGUAGES = [
 	{ code: 'en', label: 'English' },
@@ -36,6 +37,13 @@ export async function load({ params, url, platform }) {
 		? await Promise.all([listTaxonomy(salesDb), productCategoryIds(salesDb, sheet.sku)])
 		: [[], []];
 
+	// Webshop market licensing (SALES_DB): resolve publisher → its licensed
+	// markets, plus this product's publish state.
+	const publisherName = salesDb ? await resolvePublisherForSku(salesDb, sheet.sku) : null;
+	const [allowedMarkets, productWebshop] = salesDb
+		? await Promise.all([getPublisherMarkets(salesDb, publisherName), getProductWebshop(salesDb, sheet.sku)])
+		: [[], { publishedMarkets: null, overrideLicense: false }];
+
 	// Inject selected CTA version's translations into globalLabels
 	if (sheet.cta_version_id) {
 		const ctaT = await getCtaVersionTranslations(db, sheet.cta_version_id);
@@ -65,5 +73,10 @@ export async function load({ params, url, platform }) {
 		categoryGroups,
 		categorySelected,
 		categoryLangs: CATEGORY_LANGS,
+		webshopMarkets: MARKETS,
+		webshopPublisher: publisherName,
+		webshopAllowed: allowedMarkets,
+		webshopPublished: productWebshop.publishedMarkets,
+		webshopOverride: productWebshop.overrideLicense,
 	};
 }
