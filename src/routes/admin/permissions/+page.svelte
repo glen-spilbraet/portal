@@ -17,11 +17,11 @@
 	let saving = $state({});
 
 	const SECTIONS = [
-		{ key: 'stats',       label: 'Stats' },
-		{ key: 'stats_all',   label: 'All data' },
+		{ key: 'stats',       label: 'Stats (Own)' },
+		{ key: 'stats_all',   label: 'Stats (All)' },
 		{ key: 'credit_notes', label: 'Credit Notes' },
-		{ key: 'sheets',      label: 'Sheets (view)' },
-		{ key: 'sheets_edit', label: 'Sheets — edit' },
+		{ key: 'sheets',      label: 'Sheets (View)' },
+		{ key: 'sheets_edit', label: 'Sheets (Edit)' },
 		{ key: 'catalogues',  label: 'Catalogues' },
 		{ key: 'planograms',  label: 'Planograms' },
 		{ key: 'data',        label: 'Data' },
