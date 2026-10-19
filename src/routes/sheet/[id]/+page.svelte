@@ -314,14 +314,17 @@
 	// hidden file inputs
 	let boxInput, flatInput, contentInput, gridInput;
 
-	// 3D box cropper: frame the box, square it with padding, keep shadows.
+	// Cropper: frame the subject, square it with padding, keep shadows.
+	// Used for the 3D box and for content images (components/board on white).
 	let cropOpen = $state(false);
 	let cropFile = $state(null);
-	function pickBox(file) { if (!file) return; cropFile = file; cropOpen = true; }
+	let cropType = $state('box'); // 'box' | 'content'
+	function pickCrop(file, type) { if (!file) return; cropFile = file; cropType = type; cropOpen = true; }
 	function cancelCrop() { cropOpen = false; cropFile = null; }
-	async function onBoxCropped(blob) {
+	async function onCropped(blob) {
+		const type = cropType;
 		cropOpen = false; cropFile = null;
-		await upload(new File([blob], 'box.png', { type: 'image/png' }), 'box');
+		await upload(new File([blob], `${type}.png`, { type: 'image/png' }), type);
 	}
 
 	// ── Settings ───────────────────────────────────────────────────────────────
@@ -510,7 +513,7 @@
 						<span class="slot-label">3D <em>(sheet main)</em></span>
 						{#if data.sheet.box_image_key}<img src={imgUrl(data.sheet.box_image_key)} alt="" />{:else}<div class="ph">No 3D photo</div>{/if}
 						<button class="mini" onclick={() => boxInput.click()} disabled={uploading === 'box'}>{uploading === 'box' ? 'Uploading…' : 'Replace'}</button>
-						<input type="file" accept="image/*" bind:this={boxInput} onchange={(e) => { pickBox(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} hidden />
+						<input type="file" accept="image/*" bind:this={boxInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'box'); e.currentTarget.value = ''; }} hidden />
 					</div>
 					<div class="box-slot">
 						<span class="slot-label">Flat <em>(webshop)</em></span>
@@ -526,7 +529,7 @@
 
 			<div class="img-group">
 				<div class="group-head"><h3>Content <em>(webshop)</em></h3><button class="mini" onclick={() => contentInput.click()} disabled={uploading === 'content'}>{uploading === 'content' ? 'Uploading…' : '+ Add'}</button></div>
-				<input type="file" accept="image/*" bind:this={contentInput} onchange={(e) => upload(e.currentTarget.files?.[0], 'content')} hidden />
+				<input type="file" accept="image/*" bind:this={contentInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'content'); e.currentTarget.value = ''; }} hidden />
 				{#if data.contentImages.length}
 					<div class="thumbs">{#each data.contentImages as img (img.id)}<div class="thumb"><img src={imgUrl(img.r2_key)} alt="" /><button class="x" onclick={() => deleteImg(img.id)}>✕</button></div>{/each}</div>
 				{:else}<p class="empty">No content images.</p>{/if}
@@ -639,7 +642,12 @@
 </div>
 
 {#if cropOpen && cropFile}
-	<BoxCropper file={cropFile} onconfirm={onBoxCropped} oncancel={cancelCrop} />
+	<BoxCropper
+		file={cropFile}
+		onconfirm={onCropped}
+		oncancel={cancelCrop}
+		title={cropType === 'content' ? 'Frame the content photo' : 'Frame the 3D box'}
+		subject={cropType === 'content' ? 'content' : 'box'} />
 {/if}
 
 <style>

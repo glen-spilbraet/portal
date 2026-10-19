@@ -8,7 +8,7 @@
 	 * Padding is transparent when the source has a transparent background, else
 	 * it's filled with the photo's own background colour.
 	 */
-	let { file, onconfirm, oncancel } = $props();
+	let { file, onconfirm, oncancel, title = 'Frame the 3D box', subject = 'box' } = $props();
 
 	const url = URL.createObjectURL(file);
 	let imgEl = $state(null);
@@ -157,8 +157,8 @@
 <div class="overlay" role="presentation" onpointerdown={(e) => e.target === e.currentTarget && oncancel()}>
 	<div class="modal" role="dialog" aria-modal="true" aria-label="Crop 3D box">
 		<div class="head">
-			<h3>Frame the 3D box</h3>
-			<p>Drag the handles so the box edges sit inside the frame. The result is a square with padding — shadows &amp; reflections outside the frame are kept, not cut.</p>
+			<h3>{title}</h3>
+			<p>Drag the handles so the {subject} edges sit inside the frame. The result is a square with padding — shadows &amp; reflections outside the frame are kept, not cut.</p>
 		</div>
 		<div class="body">
 			<div class="stage-wrap">
@@ -173,7 +173,7 @@
 						</div>
 					{/if}
 				</div>
-				<div class="hint">{detected ? 'Box auto-detected — adjust if needed.' : 'Adjust the frame to the box.'}</div>
+				<div class="hint">{detected ? 'Auto-detected — adjust if needed.' : `Adjust the frame to the ${subject}.`}</div>
 			</div>
 			<div class="side">
 				<div class="prev-box" class:checker={bgTransparent}><canvas bind:this={previewCanvas} class="prev"></canvas></div>
