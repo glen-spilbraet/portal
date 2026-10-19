@@ -125,7 +125,7 @@
 	<div class="card">
 		<table>
 			<thead>
-				<tr><th>Publisher</th><th>Prefixes</th><th>Webshop markets</th><th class="num">Mapped SKUs</th><th class="num">Revenue</th><th></th></tr>
+				<tr><th>Publisher</th><th>Prefixes</th><th>Webshop markets</th><th class="num">Mapped SKUs</th><th></th></tr>
 			</thead>
 			<tbody>
 				{#each filtered as p (p.name)}
@@ -148,17 +148,18 @@
 							</div>
 						</td>
 						<td class="num">{p.mapped_count || '—'}</td>
-						<td class="num">{p.dkk ? dkkFmt(p.dkk) : '—'}</td>
 						<td class="actions">
 							<div class="row-actions">
 								<button class="btn-sm" onclick={() => openEdit(p.name)}>Prefixes</button>
 								<a class="btn-sm" href="/admin/publishers/{encodeURIComponent(p.name)}">Map SKUs</a>
-								<button class="btn-del" onclick={() => deletePublisher(p.name)}>Remove</button>
+								<button class="btn-del icon" onclick={() => deletePublisher(p.name)} title="Remove publisher" aria-label="Remove {p.name}">
+									<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+								</button>
 							</div>
 						</td>
 					</tr>
 				{/each}
-				{#if filtered.length === 0}<tr><td colspan="6" class="empty">No publishers.</td></tr>{/if}
+				{#if filtered.length === 0}<tr><td colspan="5" class="empty">No publishers.</td></tr>{/if}
 			</tbody>
 		</table>
 	</div>
@@ -273,6 +274,7 @@
 	.btn-sm:hover { background: #FAFAFA; }
 	.btn-del { padding: 5px 11px; border: 1px solid #fecaca; color: #dc2626; background: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
 	.btn-del:hover { background: #FEF2F2; }
+	.btn-del.icon { display: inline-flex; align-items: center; justify-content: center; padding: 6px; }
 
 	.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
 	.modal { background: #fff; border-radius: 16px; padding: 24px; max-width: 460px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
