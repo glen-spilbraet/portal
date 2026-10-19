@@ -49,7 +49,13 @@ export async function POST({ request, cookies, platform }) {
 
 	if (type === 'box' || type === 'box_flat') {
 		const { updateSheet } = await import('$lib/db.js');
-		await updateSheet(db, sheetId, { [type === 'box_flat' ? 'box_flat_image_key' : 'box_image_key']: r2Key });
+		if (type === 'box_flat') {
+			await updateSheet(db, sheetId, { box_flat_image_key: r2Key });
+		} else {
+			// `processed=1` means it came from the new box cropper.
+			const processed = formData.get('processed')?.toString() === '1' ? 1 : 0;
+			await updateSheet(db, sheetId, { box_image_key: r2Key, box_processed: processed });
+		}
 	} else {
 		// 'content' → webshop content set; anything else → the people-playing grid.
 		const imgType = type === 'content' ? 'content' : 'people_playing';

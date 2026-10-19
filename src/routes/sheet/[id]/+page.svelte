@@ -293,6 +293,7 @@
 		const fd = new FormData();
 		fd.append('file', file); fd.append('sheetId', sheetId); fd.append('type', type);
 		if (type === 'content' || type === 'grid') fd.append('order', String(Date.now()));
+		if (type === 'box') fd.append('processed', '1'); // made via the new box cropper
 		await fetch('/api/images', { method: 'POST', body: fd });
 		uploading = '';
 		flashSaved(); await invalidateAll();
@@ -513,6 +514,13 @@
 					<div class="box-slot">
 						<span class="slot-label">3D <em>(sheet main)</em></span>
 						{#if data.sheet.box_image_key}<img src={imgUrl(data.sheet.box_image_key)} alt="" />{:else}<div class="ph">No 3D photo</div>{/if}
+						{#if data.sheet.box_image_key}
+							{#if data.sheet.box_processed}
+								<span class="box-tag ok" title="Made with the box cropper (square + padding)">✓ New crop</span>
+							{:else}
+								<span class="box-tag old" title="Uploaded before the box cropper — consider re-cropping">● Legacy photo</span>
+							{/if}
+						{/if}
 						<button class="mini" onclick={() => boxInput.click()} disabled={uploading === 'box'}>{uploading === 'box' ? 'Uploading…' : 'Replace'}</button>
 						<input type="file" accept="image/*" bind:this={boxInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'box'); e.currentTarget.value = ''; }} hidden />
 					</div>
@@ -727,6 +735,9 @@
 	.slot-label { font-size: 11.5px; font-weight: 700; color: #6b5e4e; }
 	.slot-label em { font-weight: 500; color: #A1A1AA; font-style: normal; }
 	.box-slot img { width: 160px; height: 120px; object-fit: contain; background: #FAFAFA; border: 1px solid var(--border); border-radius: 8px; }
+	.box-tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; align-self: flex-start; }
+	.box-tag.ok { color: #15803D; background: #EAF7EE; border: 1px solid #BBE7C6; }
+	.box-tag.old { color: #B45309; background: #FDF4E7; border: 1px solid #F0DBB5; }
 	.ph { width: 160px; height: 120px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #A1A1AA; background: #FAFAFA; border: 1px dashed var(--border); border-radius: 8px; }
 	.slot-actions { display: flex; gap: 6px; }
 	.thumbs { display: flex; flex-wrap: wrap; gap: 10px; }
