@@ -33,10 +33,10 @@ export async function buildShopFeed(db, salesDb, origin) {
 	const imgUrl = (/** @type {string | null} */ key) => (key ? `${origin}/api/img/${key}` : null);
 
 	const [sheetsRes, trRes, imgRes] = await db.batch([
-		db.prepare(`SELECT id, sku, primary_language, box_image_key, data_fields, youtube_url, updated_at, awards_updated_at
+		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, updated_at, awards_updated_at
 			FROM sales_sheets WHERE trim(sku) != '' ORDER BY updated_at DESC`),
 		db.prepare(`SELECT sheet_id, language, key, value FROM translations WHERE trim(value) != ''`),
-		db.prepare(`SELECT sheet_id, r2_key FROM sheet_images ORDER BY display_order ASC`)
+		db.prepare(`SELECT sheet_id, r2_key, type FROM sheet_images ORDER BY display_order ASC`)
 	]);
 
 	/** @type {Record<string, Record<string, Record<string, string>>>} */
@@ -45,7 +45,13 @@ export async function buildShopFeed(db, salesDb, origin) {
 
 	/** @type {Record<string, string[]>} */
 	const gallery = {};
-	for (const r of /** @type {any[]} */ (imgRes.results ?? [])) (gallery[r.sheet_id] ??= []).push(r.r2_key);
+	/** @type {Record<string, { content: string[], people_playing: string[] }>} */
+	const typed = {};
+	for (const r of /** @type {any[]} */ (imgRes.results ?? [])) {
+		(gallery[r.sheet_id] ??= []).push(r.r2_key);
+		const t = (typed[r.sheet_id] ??= { content: [], people_playing: [] });
+		(r.type === 'content' ? t.content : t.people_playing).push(r.r2_key);
+	}
 
 	// Awards keyed by every SKU an instance names (main + additional products).
 	/** @type {Record<string, any[]>} */
@@ -100,7 +106,11 @@ export async function buildShopFeed(db, salesDb, origin) {
 				weight: f.weight ?? null
 			},
 			images: {
-				box: imgUrl(s.box_image_key),
+				box: imgUrl(s.box_image_key),       // 3D box (sheet main)
+				flat: imgUrl(s.box_flat_image_key), // flat front
+				content: (typed[s.id]?.content ?? []).map(imgUrl).filter(Boolean),
+				people_playing: (typed[s.id]?.people_playing ?? []).map(imgUrl).filter(Boolean),
+				// All gallery images untyped, for shops that predate the typed lists.
 				gallery: (gallery[s.id] ?? []).map(imgUrl).filter(Boolean)
 			},
 			youtube_url: s.youtube_url || null,
