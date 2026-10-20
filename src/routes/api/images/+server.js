@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { addImage } from '$lib/db.js';
 import { verifySession } from '$lib/auth.js';
+import { warmImageWidths } from '$lib/server/imageCdn.js';
 
 async function checkAuth(cookies, platform) {
 	const token = cookies.get('session');
@@ -46,6 +47,8 @@ export async function POST({ request, cookies, platform }) {
 	await bucket.put(r2Key, buffer, {
 		httpMetadata: { contentType: file.type }
 	});
+	// Pre-make the shop's image widths (img.spilbraet.dk) in the background.
+	warmImageWidths(platform, r2Key);
 
 	if (type === 'box' || type === 'box_flat') {
 		const { updateSheet } = await import('$lib/db.js');
