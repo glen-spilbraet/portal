@@ -1,0 +1,21 @@
+# Image delivery for the shop (and anything else): https://img.spilbraet.dk
+# Serves Portal's R2 images in fixed widths as WebP. A width is made once
+# (Images binding), stored in R2 next to the original and served from there
+# ever after. Any failure falls back to the original, so images never break.
+name = "image-cdn"
+main = "src/index.js"
+compatibility_date = "2025-04-25"
+
+routes = [{ pattern = "img.spilbraet.dk", custom_domain = true }]
+
+[observability]
+enabled = true
+
+# Portal's image bucket (private; this Worker is the only public way in
+# besides Portal's own /api/img).
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "portal-images"
+
+[images]
+binding = "IMAGES"

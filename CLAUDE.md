@@ -42,5 +42,8 @@ to opening a PR or pushing to another branch.
 - **Do not run `wrangler d1 migrations apply` against `portal-db`** — its
   migration bookkeeping is stale; apply migration SQL directly with
   `wrangler d1 execute <db> --remote --file=migrations/NNNN.sql`.
+- The `image-cdn` worker (`workers/image-cdn/`) serves https://img.spilbraet.dk —
+  R2 images as WebP in fixed widths (300/600/1000/1600), made once and stored
+  next to the original. Deploy: `npx wrangler deploy -c workers/image-cdn/wrangler.toml`.
 - The `hubspot-sales-sync` worker (in `workers/`) must be deployed with
   `npx wrangler deploy --keep-vars` (otherwise secrets are wiped).
