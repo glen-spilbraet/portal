@@ -33,7 +33,7 @@ export async function buildShopFeed(db, salesDb, origin) {
 	const imgUrl = (/** @type {string | null} */ key) => (key ? `${origin}/api/img/${key}` : null);
 
 	const [sheetsRes, trRes, imgRes, videoRes] = await db.batch([
-		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, updated_at, awards_updated_at
+		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, preorder_date, restock_date, updated_at, awards_updated_at
 			FROM sales_sheets WHERE trim(sku) != '' ORDER BY updated_at DESC`),
 		db.prepare(`SELECT sheet_id, language, key, value FROM translations WHERE trim(value) != ''`),
 		db.prepare(`SELECT sheet_id, r2_key, type FROM sheet_images ORDER BY display_order ASC`),
@@ -121,6 +121,8 @@ export async function buildShopFeed(db, salesDb, origin) {
 			},
 			youtube_url: s.youtube_url || null,
 			videos: videos[s.id] ?? [],
+			preorder_date: s.preorder_date || null,
+			restock_date: s.restock_date || null,
 			awards: awards[key] ?? []
 		});
 	}

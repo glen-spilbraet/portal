@@ -251,6 +251,20 @@
 		await saveWebshop();
 	}
 
+	// ── Webshop dates (preorder / restock) ──────────────────────────────────────
+	let preorderDate = $state(data.sheet.preorder_date ?? '');
+	let restockDate = $state(data.sheet.restock_date ?? '');
+	const ymd = (d) => { const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+	// N calendar days from today, bumped to Monday if it lands on a weekend.
+	function fromNow(days) {
+		const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + days);
+		const w = d.getDay();
+		if (w === 6) d.setDate(d.getDate() + 2); else if (w === 0) d.setDate(d.getDate() + 1);
+		return ymd(d);
+	}
+	function setPreorder(v) { preorderDate = v; putSheet('preorder_date', v || null); }
+	function setRestock(v) { restockDate = v; putSheet('restock_date', v || null); }
+
 	let refreshing = $state(false);
 	let refreshMsg = $state('');
 	async function refreshFromRackbeat() {
@@ -357,6 +371,7 @@
 		selectedCats = new Set(data.categorySelected ?? []); catOpen = {}; catMsg = '';
 		wsOverride = !!data.webshopOverride;
 		wsPublished = new Set(data.webshopPublished ?? (wsOverride ? [] : (data.webshopAllowed ?? []))); wsMsg = '';
+		preorderDate = data.sheet.preorder_date ?? ''; restockDate = data.sheet.restock_date ?? '';
 		hidden = JSON.parse(data.sheet.hidden_elements || '{}');
 		ctaId = data.sheet.cta_version_id ?? null;
 		language = data.language;
@@ -613,6 +628,35 @@
 				</div>
 			</div>
 
+			<!-- Webshop dates -->
+			<div class="side-card">
+				<div class="side-head"><h2>Dates</h2></div>
+				<div class="dates">
+					<div class="date-fld">
+						<span class="dlabel">Preorder date</span>
+						<div class="date-row">
+							<input type="date" bind:value={preorderDate} onchange={(e) => setPreorder(e.currentTarget.value)} />
+							{#if preorderDate}<button class="dclear" title="Clear" aria-label="Clear preorder date" onclick={() => setPreorder('')}>✕</button>{/if}
+						</div>
+						<div class="quick">
+							<button title="7 days from now (moves to Monday on a weekend)" onclick={() => setPreorder(fromNow(7))}>7 days from now</button>
+							<button title="30 days from now (moves to Monday on a weekend)" onclick={() => setPreorder(fromNow(30))}>30 days from now</button>
+						</div>
+					</div>
+					<div class="date-fld">
+						<span class="dlabel">Restock date</span>
+						<div class="date-row">
+							<input type="date" bind:value={restockDate} onchange={(e) => setRestock(e.currentTarget.value)} />
+							{#if restockDate}<button class="dclear" title="Clear" aria-label="Clear restock date" onclick={() => setRestock('')}>✕</button>{/if}
+						</div>
+						<div class="quick">
+							<button title="7 days from now (moves to Monday on a weekend)" onclick={() => setRestock(fromNow(7))}>7 days from now</button>
+							<button title="30 days from now (moves to Monday on a weekend)" onclick={() => setRestock(fromNow(30))}>30 days from now</button>
+						</div>
+					</div>
+				</div>
+			</div>
+
 			<!-- Categories: collapsible multi-select per group -->
 			<div class="side-card">
 				<div class="side-head"><h2>Categories</h2>
@@ -773,6 +817,19 @@
 	.ws-lock { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: #A1A1AA; border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; margin-left: auto; }
 	.ws-override { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #8a7550; font-weight: 600; margin-top: 10px; padding-top: 10px; border-top: 1px solid #F5EDD8; cursor: pointer; }
 	.ws-override input { accent-color: #B45309; width: 15px; height: 15px; cursor: pointer; }
+
+	/* Webshop dates */
+	.dates { padding: 12px 14px; display: flex; flex-direction: column; gap: 14px; }
+	.date-fld { display: flex; flex-direction: column; gap: 6px; }
+	.dlabel { font-size: 11px; font-weight: 700; color: #8a7550; }
+	.date-row { display: flex; align-items: center; gap: 6px; }
+	.date-row input[type="date"] { flex: 1; min-width: 0; font-size: 13px; font-family: inherit; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; background: #fff; }
+	.date-row input[type="date"]:focus { outline: none; border-color: #F57832; box-shadow: 0 0 0 3px rgba(245,120,50,0.12); }
+	.dclear { flex-shrink: 0; width: 30px; height: 30px; border: 1px solid var(--border); background: #fff; border-radius: 7px; color: #A1A1AA; font-size: 11px; cursor: pointer; }
+	.dclear:hover { color: #B91C1C; border-color: #FECACA; }
+	.quick { display: flex; gap: 6px; }
+	.quick button { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; font-family: inherit; color: #52525B; background: #FAFAF7; border: 1px solid var(--border); border-radius: 7px; padding: 5px 4px; cursor: pointer; white-space: nowrap; }
+	.quick button:hover { border-color: #F57832; color: #F57832; background: #fff; }
 	@media (max-width: 1100px) { .cats-side { width: 100%; position: static; } .layout { flex-wrap: wrap; } }
 	@media (max-width: 860px) { .layout { flex-direction: column; } .side { width: 100%; position: static; } }
 
