@@ -992,7 +992,7 @@ async function syncForecastDeals(env) {
 const LINE_ITEM_COLS = [
 	'line_item_id', 'deal_id', 'deal_kind', 'company_id', 'close_date', 'sku', 'sku_prefix',
 	'name', 'unit_price', 'discount', 'net_price', 'amount_dkk', 'currency', 'quantity',
-	'publisher', 'quantity_log_create', 'quantity_log_start',
+	'publisher', 'series_id', 'quantity_log_create', 'quantity_log_start',
 ];
 
 /** Bulk-insert pre-computed line-item rows (used by the one-time CSV importer). */
@@ -1007,15 +1007,30 @@ async function importLineItems(env, rows) {
 
 // ── Incremental line-item sync ───────────────────────────────────────────────
 
-/** Publisher mapping tables → { prefixMap, overrideMap } for resolving new lines. */
+/**
+ * Mapping tables for resolving new lines → { prefixMap, overrideMap, seriesMap }.
+ * seriesMap[sku] = { series_id, publisher }; series_id is applied to a line only
+ * when that series' publisher matches the line's resolved publisher (same guard
+ * as the portal's REAPPLY_SERIES). Without this the sync's INSERT OR REPLACE
+ * would wipe series_id on every re-synced line (publisher is re-resolved here but
+ * series_id was not), so series reports undercounted re-synced rows.
+ */
 async function resolvePublisherMaps(env) {
-	const [pfx, ovr] = await Promise.all([
+	const [pfx, ovr, ser] = await Promise.all([
 		env.DB.prepare('SELECT prefix, publisher FROM publisher_prefix').all(),
 		env.DB.prepare('SELECT sku, publisher FROM product_publisher_override').all(),
+		env.DB.prepare('SELECT ps.sku AS sku, ps.series_id AS series_id, s.publisher AS publisher FROM product_series ps JOIN series s ON s.id = ps.series_id').all(),
 	]);
 	const prefixMap = {}; for (const r of pfx.results || []) prefixMap[r.prefix] = r.publisher;
 	const overrideMap = {}; for (const r of ovr.results || []) overrideMap[r.sku] = r.publisher;
-	return { prefixMap, overrideMap };
+	const seriesMap = {}; for (const r of ser.results || []) seriesMap[r.sku] = { series_id: r.series_id, publisher: r.publisher };
+	return { prefixMap, overrideMap, seriesMap };
+}
+
+/** series_id for a line, guarded by the publisher match (null otherwise). */
+function resolveSeriesId(maps, sku, publisher) {
+	const sm = maps.seriesMap?.[sku];
+	return sm && sm.publisher === publisher ? sm.series_id : null;
 }
 
 /** Fetch line items for a set of deals → { dealId: [{ id, p }] }. */
@@ -1067,7 +1082,8 @@ function buildLineRow(li, deal, kind, maps) {
 		sku, sku_prefix: pfx, name: p.name || null,
 		unit_price: num(p.price), discount: num(p.discount), net_price: net,
 		amount_dkk: dkk, currency, quantity: num(p.quantity),
-		publisher, quantity_log_create: num(p.quantity_log_create), quantity_log_start: num(p.quantity_log_start),
+		publisher, series_id: resolveSeriesId(maps, sku, publisher),
+		quantity_log_create: num(p.quantity_log_create), quantity_log_start: num(p.quantity_log_start),
 	};
 }
 
@@ -1104,7 +1120,8 @@ function buildCreditNoteRow(line, cn, deal, maps) {
 		sku, sku_prefix: pfx, name: line.name || line.item?.name || null,
 		unit_price: num(line.line_price), discount: num(line.discount_percentage), net_price: net,
 		amount_dkk: dkk, currency, quantity: num(line.quantity),
-		publisher, quantity_log_create: null, quantity_log_start: null,
+		publisher, series_id: resolveSeriesId(maps, sku, publisher),
+		quantity_log_create: null, quantity_log_start: null,
 	};
 }
 
