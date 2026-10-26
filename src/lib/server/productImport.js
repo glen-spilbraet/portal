@@ -42,10 +42,10 @@ export function parseCsv(text, delim = CSV_DELIM) {
 			if (c === '"') {
 				if (s[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
 			} else field += c;
-		} else if (c === '"') inQuotes = true;
+		} else if (c === '"' && field === '') inQuotes = true; // quote opens only at field start
 		else if (c === delim) { row.push(field); field = ''; }
 		else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
-		else field += c;
+		else field += c; // a '"' mid-unquoted-field (e.g. 3.5") is literal
 	}
 	if (field !== '' || row.length) { row.push(field); rows.push(row); }
 	if (!rows.length) return [];
