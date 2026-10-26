@@ -31,28 +31,56 @@ const CATEGORY_SYNONYMS = {
 	'rollespill (rpg)': 'rollespil (rpg)'
 };
 
-// ── CSV parsing (semicolon, quoted fields, embedded newlines, "" escapes) ───
-export function parseCsv(text, delim = CSV_DELIM) {
-	const rows = [];
-	let row = [], field = '', inQuotes = false;
-	const s = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-	for (let i = 0; i < s.length; i++) {
-		const c = s[i];
-		if (inQuotes) {
-			if (c === '"') {
-				if (s[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
-			} else field += c;
-		} else if (c === '"' && field === '') inQuotes = true; // quote opens only at field start
-		else if (c === delim) { row.push(field); field = ''; }
-		else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
-		else field += c; // a '"' mid-unquoted-field (e.g. 3.5") is literal
+// Only these columns are kept while parsing — the CSV also has 4 big description
+// fields + prices + images we never use; skipping them keeps the 17 MB file well
+// inside the Worker's memory limit. Quotes open only at a field start (product
+// names carry lone inch-mark quotes like `3.5"` in unquoted fields).
+export const NEEDED_COLS = [
+	'Varenummer', 'Produktnavn',
+	'Publiseret DA', 'Publiseret SE', 'Publiseret NO', 'Publiseret EN',
+	'Spiltype', 'Typen', 'Udgivelsesdato', 'Restock dato'
+];
+
+/** Streaming CSV parse that stores ONLY `keep` columns. Handles quoted/multiline
+ *  fields and "" escapes; line endings handled inline (no extra full-string copies). */
+export function parseCsv(text, keep = NEEDED_COLS, delim = CSV_DELIM) {
+	const n = text.length;
+	let i = 0;
+	// 1) header row (keep all, to find column positions)
+	const header = [];
+	{
+		let field = '', q = false, started = false;
+		for (; i < n; i++) {
+			const c = text[i];
+			if (q) { if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; } else field += c; }
+			else if (c === '"' && !started) { q = true; started = true; }
+			else if (c === delim) { header.push(field); field = ''; started = false; }
+			else if (c === '\n' || c === '\r') { if (!(c === '\r' && text[i + 1] === '\n')) { header.push(field); i++; break; } }
+			else { field += c; started = true; }
+		}
 	}
-	if (field !== '' || row.length) { row.push(field); rows.push(row); }
-	if (!rows.length) return [];
-	const header = rows[0].map((h) => h.trim());
-	return rows.slice(1)
-		.filter((r) => r.some((v) => (v ?? '').trim() !== ''))
-		.map((r) => { const o = {}; header.forEach((h, i) => (o[h] = r[i] ?? '')); return o; });
+	const H = header.map((h) => h.trim());
+	const keepSet = new Set(keep);
+	const wanted = H.map((h) => keepSet.has(h));
+
+	// 2) data rows — accumulate only wanted columns
+	const out = [];
+	let obj = {}, col = 0, field = '', q = false, started = false;
+	const endField = () => { if (wanted[col]) obj[H[col]] = field; field = ''; col++; started = false; };
+	const endRow = () => { endField(); if ((obj['Varenummer'] ?? '').trim()) out.push(obj); obj = {}; col = 0; };
+	for (; i < n; i++) {
+		const c = text[i];
+		if (q) {
+			if (c === '"') { if (text[i + 1] === '"') { if (wanted[col]) field += '"'; i++; } else q = false; }
+			else if (wanted[col]) field += c;
+		} else if (c === '"' && !started) { q = true; started = true; }
+		else if (c === delim) endField();
+		else if (c === '\n') endRow();
+		else if (c === '\r') { if (text[i + 1] !== '\n') endRow(); }
+		else { if (wanted[col]) field += c; started = true; }
+	}
+	if (col > 0 || field !== '') endRow();
+	return out;
 }
 
 const isBlank = (v) => { const t = (v ?? '').trim(); return t === '' || t.toLowerCase() === 'null'; };
