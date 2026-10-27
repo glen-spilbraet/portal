@@ -15,7 +15,14 @@ const safeHref = (u) => {
 function inline(text) {
 	let s = esc(text);
 	// Links [text](url) — url already escaped; validate scheme.
-	s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, url) => `<a href="${safeHref(url.replace(/&amp;/g, '&'))}" target="_blank" rel="noopener">${label}</a>`);
+	// A product shortcode `sku:LPFI403` (or `SKU=LPFI403`) renders as a product
+	// link the webshop resolves to that product's page.
+	s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, url) => {
+		const target = url.replace(/&amp;/g, '&').trim();
+		const sku = target.match(/^sku[:=]([A-Za-z0-9._-]+)$/i)?.[1];
+		if (sku) return `<a class="md-product" data-sku="${esc(sku)}" href="#" title="Product ${esc(sku)}">${label}</a>`;
+		return `<a href="${safeHref(target)}" target="_blank" rel="noopener">${label}</a>`;
+	});
 	s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 	s = s.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
 	return s;
