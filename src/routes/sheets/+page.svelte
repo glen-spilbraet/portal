@@ -1,5 +1,6 @@
 <script>
 	import { enhance } from '$app/forms';
+	import { onMount } from 'svelte';
 	import AppNav from '$lib/components/AppNav.svelte';
 
 	let { data } = $props();
@@ -87,19 +88,28 @@
 	});
 
 	// ── Todo filter: sheets missing required info (edit access only) ──────────
+	const TODO_KEY = 'sheets.todo.on';
 	let todo = $state(false);
 	let todoSheets = $state(/** @type {any[]|null} */ (null));
 	let todoLoading = $state(false);
-	async function toggleTodo() {
-		todo = !todo;
-		if (todo && todoSheets === null) {
-			todoLoading = true;
-			try {
-				const res = await fetch('/api/sheets?todo=1');
-				if (res.ok) { const { sheets } = await res.json(); todoSheets = sheets.map(decorate); }
-			} finally { todoLoading = false; }
-		}
+	async function loadTodo() {
+		if (todoSheets !== null) return;
+		todoLoading = true;
+		try {
+			const res = await fetch('/api/sheets?todo=1');
+			if (res.ok) { const { sheets } = await res.json(); todoSheets = sheets.map(decorate); }
+		} finally { todoLoading = false; }
 	}
+	async function setTodo(on) {
+		todo = on;
+		try { localStorage.setItem(TODO_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+		if (on) await loadTodo();
+	}
+	const toggleTodo = () => setTodo(!todo);
+	// Remember the filter across navigation (per browser) until turned off.
+	onMount(() => {
+		try { if (canEdit && localStorage.getItem(TODO_KEY) === '1') setTodo(true); } catch { /* ignore */ }
+	});
 
 	const displayed = $derived.by(() => {
 		if (todo) {
