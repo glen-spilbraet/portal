@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
-import { getAllowedUser, listSheets, searchSheets } from '$lib/db.js';
+import { getAllowedUser, listSheets, searchSheets, listIncompleteSheets, getUserPermissions } from '$lib/db.js';
 
 const PAGE_SIZE = 30;
 
@@ -24,6 +24,13 @@ export async function GET({ url, cookies, platform }) {
 			.bind(sku)
 			.first();
 		return json({ sheet: sheet ?? null });
+	}
+
+	// ── Todo: sheets missing required info (edit access only) ───────────────
+	if (url.searchParams.get('todo')) {
+		const perms = await getUserPermissions(db, user);
+		if (!perms.sheetsEdit) error(403, 'Edit access required');
+		return json({ sheets: await listIncompleteSheets(db) });
 	}
 
 	// ── Search ─────────────────────────────────────────────────────────────

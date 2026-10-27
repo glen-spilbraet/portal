@@ -32,6 +32,45 @@ export async function countSheets(db) {
 	return row?.n ?? 0;
 }
 
+/**
+ * Sheets still missing required info (the "Todo" filter): any of age / time /
+ * players (data_fields), 3D box image, primary-language short description, or
+ * primary-language bullets. Returns the same row shape as listSheets so the
+ * overview renders them identically.
+ */
+export async function listIncompleteSheets(db) {
+	const rows = await db.prepare(`
+		SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by,
+		       COALESCE(u.first_name, '') as creator_first_name,
+		       t_en.value as name_en, t_da.value as name_da, t_sv.value as name_sv, t_no.value as name_no,
+		       COALESCE(s.usp_count, 3) as usp_count,
+		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'en' AND key LIKE 'usp_%' AND value != '') as usp_filled_en,
+		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'da' AND key LIKE 'usp_%' AND value != '') as usp_filled_da,
+		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'sv' AND key LIKE 'usp_%' AND value != '') as usp_filled_sv,
+		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'no' AND key LIKE 'usp_%' AND value != '') as usp_filled_no,
+		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND key = 'product_description' AND language = s.primary_language AND trim(value) != '') as has_short_primary,
+		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND key LIKE 'usp_%' AND language = s.primary_language AND trim(value) != '') as usp_filled_primary
+		FROM sales_sheets s
+		LEFT JOIN allowed_users u ON u.email = s.created_by
+		LEFT JOIN translations t_en ON t_en.sheet_id = s.id AND t_en.language = 'en' AND t_en.key = 'product_name'
+		LEFT JOIN translations t_da ON t_da.sheet_id = s.id AND t_da.language = 'da' AND t_da.key = 'product_name'
+		LEFT JOIN translations t_sv ON t_sv.sheet_id = s.id AND t_sv.language = 'sv' AND t_sv.key = 'product_name'
+		LEFT JOIN translations t_no ON t_no.sheet_id = s.id AND t_no.language = 'no' AND t_no.key = 'product_name'
+		ORDER BY s.updated_at DESC`).all();
+	const dataField = (df, key) => {
+		try { return (JSON.parse(df || '[]').find((f) => f.key === key)?.value ?? '').trim(); } catch { return ''; }
+	};
+	return (rows.results ?? []).filter((s) => {
+		const uspCount = s.usp_count ?? 3;
+		return !s.box_image_key
+			|| !dataField(s.data_fields, 'age')
+			|| !dataField(s.data_fields, 'time')
+			|| !dataField(s.data_fields, 'players')
+			|| !s.has_short_primary
+			|| uspCount < 1 || (s.usp_filled_primary ?? 0) < uspCount;
+	});
+}
+
 /** Stamp a sheet as "webshop updated with current press/awards" (now). */
 export async function markSheetAwardsUpdated(db, id) {
 	await db.prepare('UPDATE sales_sheets SET awards_updated_at = unixepoch() WHERE id = ?').bind(id).run();

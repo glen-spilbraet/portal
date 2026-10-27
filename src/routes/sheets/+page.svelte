@@ -43,7 +43,7 @@
 	let loadedSheets = $state(data.sheets.map(decorate));
 	let totalCount   = $state(data.totalCount);
 	let loadingMore  = $state(false);
-	const hasMore    = $derived(!query.trim() && loadedSheets.length < totalCount);
+	const hasMore    = $derived(!todo && !query.trim() && loadedSheets.length < totalCount);
 
 	async function loadMore() {
 		if (loadingMore) return;
@@ -86,7 +86,29 @@
 		}, 220);
 	});
 
-	const displayed = $derived(query.trim() ? (searchResults ?? []) : loadedSheets);
+	// ── Todo filter: sheets missing required info (edit access only) ──────────
+	let todo = $state(false);
+	let todoSheets = $state(/** @type {any[]|null} */ (null));
+	let todoLoading = $state(false);
+	async function toggleTodo() {
+		todo = !todo;
+		if (todo && todoSheets === null) {
+			todoLoading = true;
+			try {
+				const res = await fetch('/api/sheets?todo=1');
+				if (res.ok) { const { sheets } = await res.json(); todoSheets = sheets.map(decorate); }
+			} finally { todoLoading = false; }
+		}
+	}
+
+	const displayed = $derived.by(() => {
+		if (todo) {
+			const base = todoSheets ?? [];
+			const q = query.trim().toLowerCase();
+			return q ? base.filter((s) => s.sku.toLowerCase().includes(q) || (s._display || '').toLowerCase().includes(q)) : base;
+		}
+		return query.trim() ? (searchResults ?? []) : loadedSheets;
+	});
 </script>
 
 <svelte:head>
@@ -120,6 +142,14 @@
 						</svg>
 					{/if}
 				</div>
+				{#if canEdit}
+					<button class="btn-todo" class:on={todo} onclick={toggleTodo} title="Only sheets missing age, time, players, 3D box image, short description or bullets">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+						</svg>
+						Todo{#if todo && todoSheets}<span class="todo-n">{displayed.length}</span>{/if}
+					</button>
+				{/if}
 				<a href="/sheets/awards" class="btn-award-view" title="Products with new press or awards to push to the webshop">
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/>
@@ -156,9 +186,13 @@
 					</a>
 				{/if}
 			</div>
-		{:else if query.trim() && searchResults !== null && searchResults.length === 0}
+		{:else if todo && todoLoading && todoSheets === null}
+			<div class="no-results">Finding sheets that need work…</div>
+		{:else if todo && displayed.length === 0}
+			<div class="no-results">{query.trim() ? `No to-do sheets match "${query}"` : '🎉 Nothing to do — every sheet has age, time, players, a 3D box image, short description and bullets.'}</div>
+		{:else if !todo && query.trim() && searchResults !== null && searchResults.length === 0}
 			<div class="no-results">No sheets match "<strong>{query}</strong>"</div>
-		{:else if query.trim() && searchResults === null}
+		{:else if !todo && query.trim() && searchResults === null}
 			<!-- searching spinner state — grid already shows while debouncing -->
 		{:else}
 			<div class="grid">
@@ -378,6 +412,15 @@
 	.btn-new:hover { background: #E06820; }
 	.btn-new:active { transform: scale(0.98); }
 
+	.btn-todo {
+		display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
+		background: #fff; color: #52525B; border: 1px solid var(--border, #E4E4E7);
+		border-radius: 100px; font-size: 13px; font-weight: 700; font-family: inherit;
+		cursor: pointer; letter-spacing: -0.1px; white-space: nowrap;
+	}
+	.btn-todo:hover { border-color: #F57832; color: #B15A12; }
+	.btn-todo.on { background: #F57832; border-color: #F57832; color: #fff; }
+	.btn-todo .todo-n { background: rgba(255,255,255,0.3); border-radius: 100px; font-size: 11px; font-weight: 800; padding: 0 7px; }
 	.btn-award-view {
 		display: inline-flex;
 		align-items: center;
