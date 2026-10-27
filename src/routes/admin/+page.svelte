@@ -21,7 +21,7 @@
 			tools: [
 				{ title: 'Targets', href: '/admin/targets', desc: 'Set quarterly sales targets (index goals).', icon: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>' },
 				{ title: 'Data Verification', href: '/verify', desc: 'Compare deals and invoices.', icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>' },
-				{ title: 'Categories', href: '/admin/categories', desc: 'Category groups and categories (shop filters), per product.', icon: '<path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/>' },
+				{ title: 'Categories', href: '/admin/categories', desc: 'Category groups and shop filters.', icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>' },
 				{ title: 'Publisher Mapping', href: '/admin/publishers', desc: 'Map SKU prefixes to publishers.', icon: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>' },
 				{ title: 'Phone Numbers', href: '/admin/phone-numbers', desc: 'Normalize numbers by company country.', icon: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>' }
 			]
@@ -35,7 +35,7 @@
 				{ title: 'Sheet Data', href: '/admin/sheet-data', desc: 'Manage data products used in sheets.', icon: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>' },
 				{ title: 'Migrate Images', href: '/admin/migrate-images', desc: 'Bulk image migration utility.', icon: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>' },
 				{ title: 'Analytics', href: '/admin/analytics', desc: 'Catalogue views and engagement.', icon: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>' },
-				{ title: 'Product Import', href: '/admin/product-import', desc: 'One-time CSV migration: sheets, published markets, categories, dates.', icon: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>' }
+				{ title: 'Product Import', href: '/admin/product-import', desc: 'One-time product CSV migration.', icon: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>' }
 			]
 		}
 	];
