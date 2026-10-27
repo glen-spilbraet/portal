@@ -1,6 +1,6 @@
 <script>
 	// Deliberately tiny Markdown editor: a textarea + a few toolbar buttons +
-	// live preview. Supports only H1–H3, bullets, paragraphs, links, bold/italic
+	// live preview. Supports only H1–H3, bullets and numbered lists, paragraphs, links, bold/italic
 	// (see $lib/markdown.js). No WYSIWYG, so nothing messy can be pasted in.
 	import { mdToHtml } from '$lib/markdown.js';
 
@@ -77,7 +77,7 @@
 	.preview :global(h3) { font-size: 16px; font-weight: 800; margin: 12px 0 6px; }
 	.preview :global(h4) { font-size: 14px; font-weight: 800; margin: 10px 0 6px; text-transform: uppercase; letter-spacing: 0.3px; color: #52525B; }
 	.preview :global(p) { margin: 0 0 10px; }
-	.preview :global(ul) { margin: 0 0 10px; padding-left: 20px; }
+	.preview :global(ul), .preview :global(ol) { margin: 0 0 10px; padding-left: 20px; }
 	.preview :global(li) { margin: 2px 0; }
 	.preview :global(a) { color: #B15A12; }
 	.preview .empty { color: #A1A1AA; }
