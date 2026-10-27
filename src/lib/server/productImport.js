@@ -35,11 +35,21 @@ const CATEGORY_SYNONYMS = {
 // fields + prices + images we never use; skipping them keeps the 17 MB file well
 // inside the Worker's memory limit. Quotes open only at a field start (product
 // names carry lone inch-mark quotes like `3.5"` in unquoted fields).
+// Portal text columns in the enriched CSV: short_<lang> / bullets_<lang> / long_<lang>
+// for da/sv/no/en. bullets = one per line.
+const TEXT_LANGS = ['da', 'sv', 'no', 'en'];
+const TEXT_COLS = TEXT_LANGS.flatMap((l) => [`short_${l}`, `bullets_${l}`, `long_${l}`]);
+// CSV "Publiseret <flag>" → portal language (DK=da, SE=sv, NO=no, INT/EN=en).
+const LANG_FROM_PUB = { DA: 'da', SE: 'sv', NO: 'no', EN: 'en' };
+
 export const NEEDED_COLS = [
 	'Varenummer', 'Produktnavn',
 	'Publiseret DA', 'Publiseret SE', 'Publiseret NO', 'Publiseret EN',
-	'Spiltype', 'Typen', 'Udgivelsesdato', 'Restock dato'
+	'Spiltype', 'Typen', 'Udgivelsesdato', 'Restock dato',
+	...TEXT_COLS
 ];
+
+const parseBullets = (v) => (isBlank(v) ? [] : v.split(/\r?\n/).map((b) => b.trim()).filter(Boolean).slice(0, 6));
 
 /** Streaming CSV parse that stores ONLY `keep` columns. Handles quoted/multiline
  *  fields and "" escapes; line endings handled inline (no extra full-string copies). */
@@ -144,13 +154,16 @@ function buildResolver(taxonomy) {
 
 // ── Load current Portal state (bulk) ────────────────────────────────────────
 async function loadState(db, salesDb) {
-	const [sheets, webshop, cats, prefixes, overrides, taxonomy] = await Promise.all([
+	const [sheets, webshop, cats, prefixes, overrides, taxonomy, trans] = await Promise.all([
 		db.prepare('SELECT id, sku, primary_language FROM sales_sheets').all(),
 		salesDb.prepare('SELECT sku, published_markets, override_license FROM product_webshop').all(),
 		salesDb.prepare('SELECT sku, category_id FROM product_category').all(),
 		salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix').all(),
 		salesDb.prepare('SELECT sku, publisher FROM product_publisher_override').all(),
-		listTaxonomy(salesDb)
+		listTaxonomy(salesDb),
+		db.prepare(`SELECT lower(s.sku) AS sku, t.language AS lang, t.key AS key
+			FROM translations t JOIN sales_sheets s ON s.id = t.sheet_id
+			WHERE trim(t.value) != '' AND t.key IN ('product_description','long_description','usp_1','usp_2','usp_3','usp_4','usp_5','usp_6')`).all()
 	]);
 	const sheetBySku = new Map();
 	for (const r of sheets.results ?? []) sheetBySku.set(String(r.sku).toLowerCase(), r);
@@ -168,8 +181,13 @@ async function loadState(db, salesDb) {
 	const prefixMap = {}; for (const r of prefixes.results ?? []) prefixMap[r.prefix] = r.publisher;
 	const overrideMap = {}; for (const r of overrides.results ?? []) overrideMap[String(r.sku).toLowerCase()] = r.publisher;
 	const resolver = buildResolver(taxonomy);
-	// publisher licences, cached per publisher as we go
-	return { sheetBySku, webshopBySku, catsBySku, prefixMap, overrideMap, resolver };
+	// Which text fields already exist per (sku, lang): { sku: { lang: {short,long,bullets} } }
+	const existingText = {};
+	for (const r of trans.results ?? []) {
+		const field = r.key === 'product_description' ? 'short' : r.key === 'long_description' ? 'long' : 'bullets';
+		((existingText[r.sku] ??= {})[r.lang] ??= {})[field] = true;
+	}
+	return { sheetBySku, webshopBySku, catsBySku, prefixMap, overrideMap, resolver, existingText };
 }
 
 function publisherForSku(state, sku) {
@@ -196,7 +214,7 @@ export async function buildPlan(db, salesDb, rows) {
 	const unmapped = { Spiltype: {}, Typen: {} };
 	const notMirrored = [];
 	const dateSamples = [];
-	let create = 0, publishedChanges = 0, dateChanges = 0, categoryChanges = 0;
+	let create = 0, publishedChanges = 0, dateChanges = 0, categoryChanges = 0, textChanges = 0;
 
 	for (const r of rows) {
 		const sku = (r['Varenummer'] ?? '').trim();
@@ -246,6 +264,23 @@ export async function buildPlan(db, salesDb, rows) {
 		const restock = parseDateCell(r['Restock dato']);
 		if (preorder || restock) { if (dateChanges < 1e9) dateChanges++; if (dateSamples.length < 15) dateSamples.push({ sku, preorder, restock }); }
 
+		// ── Texts (per published language; FILL ONLY WHERE PORTAL IS EMPTY) ──
+		const texts = {};
+		for (const [flag, L] of Object.entries(LANG_FROM_PUB)) {
+			if (!yes(r[`Publiseret ${flag}`])) continue;
+			const ex = state.existingText[key]?.[L] ?? {};
+			const t = {};
+			const short = (r[`short_${L}`] ?? '').trim();
+			const long = (r[`long_${L}`] ?? '').trim();
+			const bullets = parseBullets(r[`bullets_${L}`]);
+			if (short && !ex.short) t.short = short;
+			if (long && !ex.long) t.long = long;
+			if (bullets.length && !ex.bullets) t.bullets = bullets;
+			if (Object.keys(t).length) texts[L] = t;
+		}
+		const hasText = Object.keys(texts).length > 0;
+		if (hasText) textChanges++;
+
 		items.push({
 			sku,
 			name: (r['Produktnavn'] ?? '').trim(),
@@ -253,7 +288,8 @@ export async function buildPlan(db, salesDb, rows) {
 			primaryLanguage: existingSheet?.primary_language ?? PRIMARY_LANGUAGE,
 			published: publishedSet,
 			preorder, restock,
-			catIds
+			catIds,
+			texts: hasText ? texts : null
 		});
 	}
 
@@ -267,6 +303,7 @@ export async function buildPlan(db, salesDb, rows) {
 			publishedChanges,
 			dateChanges,
 			categoryChanges,
+			textChanges,
 			notMirroredCount: notMirrored.length
 		},
 		reports: {
@@ -293,23 +330,41 @@ export async function applyItems(db, salesDb, items, by) {
 	const managed = await managedCategoryIds(salesDb);
 	let created = 0, updated = 0;
 	const errors = [];
+	const affected = [];
 	for (const it of items) {
 		try {
 			// find sheet by sku (re-checked here so apply is idempotent/resumable)
-			const row = await db.prepare('SELECT id FROM sales_sheets WHERE lower(sku) = lower(?)').bind(it.sku).first();
+			const row = await db.prepare('SELECT id, usp_count, primary_language FROM sales_sheets WHERE lower(sku) = lower(?)').bind(it.sku).first();
 			let sheetId = row?.id;
+			let wasCreated = false;
 			if (!sheetId) {
 				sheetId = crypto.randomUUID();
 				await createSheet(db, sheetId, it.sku, it.primaryLanguage || PRIMARY_LANGUAGE, by);
 				if (it.name) await setTranslation(db, sheetId, it.primaryLanguage || PRIMARY_LANGUAGE, 'product_name', it.name);
-				created++;
+				created++; wasCreated = true;
 			} else updated++;
+			const primaryLanguage = row?.primary_language || it.primaryLanguage || PRIMARY_LANGUAGE;
 
 			// Dates (set when provided; don't clear)
 			const patch = {};
 			if (it.preorder) patch.preorder_date = it.preorder;
 			if (it.restock) patch.restock_date = it.restock;
 			if (Object.keys(patch).length) await updateSheet(db, sheetId, patch);
+
+			// Texts (per language; each field only where it was empty — decided at plan time)
+			if (it.texts) {
+				let maxBullets = 0;
+				for (const [L, t] of Object.entries(it.texts)) {
+					if (t.short) await setTranslation(db, sheetId, L, 'product_description', t.short);
+					if (t.long) await setTranslation(db, sheetId, L, 'long_description', t.long);
+					if (Array.isArray(t.bullets)) {
+						for (let i = 0; i < t.bullets.length; i++) await setTranslation(db, sheetId, L, `usp_${i + 1}`, t.bullets[i]);
+						maxBullets = Math.max(maxBullets, t.bullets.length);
+					}
+				}
+				const curCount = wasCreated ? 0 : (row?.usp_count ?? 0);
+				if (maxBullets > curCount) await updateSheet(db, sheetId, { usp_count: maxBullets });
+			}
 
 			// Published markets (SALES_DB) — full set incl. preserved PL; override untouched
 			const prev = await salesDb.prepare('SELECT override_license FROM product_webshop WHERE lower(sku)=lower(?)').bind(it.sku).first();
@@ -330,9 +385,10 @@ export async function applyItems(db, salesDb, items, by) {
 				];
 				await salesDb.batch(stmts);
 			}
+			affected.push({ sku: it.sku, id: sheetId, lang: primaryLanguage, created: wasCreated });
 		} catch (e) {
 			errors.push({ sku: it.sku, error: e instanceof Error ? e.message : String(e) });
 		}
 	}
-	return { created, updated, errors };
+	return { created, updated, errors, affected };
 }

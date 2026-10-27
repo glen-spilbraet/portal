@@ -7,13 +7,23 @@
 	let busy = $state(false);
 	let err = $state('');
 	let plan = $state(null);          // dry-run result
-	let applied = $state(null);       // { done, total, created, updated, errors }
+	let applied = $state(null);       // { done, total, created, updated, errors, links }
+	let selNew = $state(new Set());
+	let selUpd = $state(new Set());
+	let qNew = $state(''); let qUpd = $state('');
 
 	const fmt = (n) => (n ?? 0).toLocaleString('da-DK');
 
+	const news = $derived(plan ? plan.items.filter((i) => i.create) : []);
+	const upds = $derived(plan ? plan.items.filter((i) => !i.create) : []);
+	const matchQ = (q) => { const t = q.trim().toLowerCase(); return (i) => !t || i.sku.toLowerCase().includes(t) || (i.name || '').toLowerCase().includes(t); };
+	const fNews = $derived(news.filter(matchQ(qNew)));
+	const fUpds = $derived(upds.filter(matchQ(qUpd)));
+	const selCount = $derived(selNew.size + selUpd.size);
+
 	async function dryRun() {
 		if (!file || busy) return;
-		busy = true; err = ''; plan = null; applied = null;
+		busy = true; err = ''; plan = null; applied = null; selNew = new Set(); selUpd = new Set();
 		try {
 			const fd = new FormData(); fd.append('file', file);
 			const res = await fetch('/api/admin/product-import', { method: 'POST', body: fd });
@@ -23,26 +33,40 @@
 		busy = false;
 	}
 
-	async function apply() {
-		if (!plan || busy) return;
-		const s = plan.summary;
-		if (!confirm(`Apply to PRODUCTION?\n\n• ${fmt(s.create)} new sheets\n• ${fmt(s.update)} existing updated\n• ${fmt(s.publishedChanges)} published-market changes\n• ${fmt(s.categoryChanges)} category changes\n\nPL is never touched. Continue?`)) return;
+	function toggle(which, sku) {
+		const s = new Set(which === 'new' ? selNew : selUpd);
+		if (s.has(sku)) s.delete(sku); else s.add(sku);
+		if (which === 'new') selNew = s; else selUpd = s;
+	}
+	function selectAll(which) {
+		const list = which === 'new' ? fNews : fUpds;
+		const s = new Set(which === 'new' ? selNew : selUpd);
+		list.forEach((i) => s.add(i.sku));
+		if (which === 'new') selNew = s; else selUpd = s;
+	}
+	function clearSel(which) { if (which === 'new') selNew = new Set(); else selUpd = new Set(); }
+
+	async function applySelected() {
+		if (busy || !plan) return;
+		const items = plan.items.filter((i) => (i.create ? selNew : selUpd).has(i.sku));
+		if (!items.length) { err = 'Select at least one product.'; return; }
+		if (!confirm(`Apply ${fmt(items.length)} selected product(s) to PRODUCTION?\n\nText fills only empty fields; markets/categories/dates follow the import rules. PL is never touched.`)) return;
 		busy = true; err = '';
-		const items = plan.items;
-		const CHUNK = 200;
-		applied = { done: 0, total: items.length, created: 0, updated: 0, errors: [] };
+		const CHUNK = 100;
+		applied = { done: 0, total: items.length, created: 0, updated: 0, errors: [], links: [] };
 		try {
 			for (let i = 0; i < items.length; i += CHUNK) {
 				const res = await fetch('/api/admin/product-import/apply', {
 					method: 'POST', headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ items: items.slice(i, i + CHUNK) })
 				});
-				if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message || `Apply failed at row ${i} (${res.status})`);
+				if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message || `Apply failed (${res.status})`);
 				const r = await res.json();
 				applied = {
 					done: Math.min(i + CHUNK, items.length), total: items.length,
 					created: applied.created + r.created, updated: applied.updated + r.updated,
-					errors: [...applied.errors, ...r.errors]
+					errors: [...applied.errors, ...r.errors],
+					links: [...applied.links, ...(r.affected ?? []).map((a) => ({ ...a, url: `/sheet/${a.id}?lang=${a.lang}` }))]
 				};
 			}
 		} catch (e) { err = e.message; }
@@ -78,6 +102,7 @@
 			<div class="stat"><span class="n">{fmt(s.publishedChanges)}</span><span class="l">Published changes</span></div>
 			<div class="stat"><span class="n">{fmt(s.categoryChanges)}</span><span class="l">Category changes</span></div>
 			<div class="stat"><span class="n">{fmt(s.dateChanges)}</span><span class="l">With dates</span></div>
+			<div class="stat"><span class="n">{fmt(s.textChanges)}</span><span class="l">Text to fill</span></div>
 			<div class="stat warn"><span class="n">{fmt(s.notMirroredCount)}</span><span class="l">Publish not mirrored (licence)</span></div>
 		</div>
 
@@ -113,21 +138,63 @@
 			</div>
 		</div>
 
+		<!-- Select products to import (test a few from each) -->
+		<div class="pick">
+			<div class="card picker">
+				<div class="picker-head">
+					<h2>New creates <span class="cnt">{fmt(news.length)}</span></h2>
+					<div class="picker-act"><button onclick={() => selectAll('new')}>All shown</button><button onclick={() => clearSel('new')}>Clear</button></div>
+				</div>
+				<input class="psearch" placeholder="Search SKU or name…" bind:value={qNew} />
+				<div class="plist">
+					{#each fNews.slice(0, 500) as i (i.sku)}
+						<label class="prow"><input type="checkbox" checked={selNew.has(i.sku)} onchange={() => toggle('new', i.sku)} /><span class="psku">{i.sku}</span><span class="pname">{i.name}</span></label>
+					{/each}
+					{#if fNews.length > 500}<p class="none">+ {fmt(fNews.length - 500)} more — narrow with search</p>{/if}
+					{#if fNews.length === 0}<p class="none">None.</p>{/if}
+				</div>
+			</div>
+			<div class="card picker">
+				<div class="picker-head">
+					<h2>Updates <span class="cnt">{fmt(upds.length)}</span></h2>
+					<div class="picker-act"><button onclick={() => selectAll('upd')}>All shown</button><button onclick={() => clearSel('upd')}>Clear</button></div>
+				</div>
+				<input class="psearch" placeholder="Search SKU or name…" bind:value={qUpd} />
+				<div class="plist">
+					{#each fUpds.slice(0, 500) as i (i.sku)}
+						<label class="prow"><input type="checkbox" checked={selUpd.has(i.sku)} onchange={() => toggle('upd', i.sku)} /><span class="psku">{i.sku}</span><span class="pname">{i.name}</span></label>
+					{/each}
+					{#if fUpds.length > 500}<p class="none">+ {fmt(fUpds.length - 500)} more — narrow with search</p>{/if}
+					{#if fUpds.length === 0}<p class="none">None.</p>{/if}
+				</div>
+			</div>
+		</div>
+
 		<div class="apply-bar">
-			<button class="btn apply" disabled={busy} onclick={apply}>{busy && applied ? `Applying… ${fmt(applied.done)}/${fmt(applied.total)}` : 'Apply to production'}</button>
+			<button class="btn apply" disabled={busy || selCount === 0} onclick={applySelected}>
+				{busy && applied ? `Applying… ${fmt(applied.done)}/${fmt(applied.total)}` : `Apply ${fmt(selCount)} selected`}
+			</button>
 			{#if applied}
 				<span class="prog">Created {fmt(applied.created)} · Updated {fmt(applied.updated)} · Errors {fmt(applied.errors.length)}</span>
 			{/if}
 		</div>
 
+		{#if applied?.links?.length}
+			<div class="card">
+				<h2>Open affected products ({fmt(applied.links.length)})</h2>
+				<p class="hint">Quick links to the editor — check how the import landed.</p>
+				<div class="links">
+					{#each applied.links as l}
+						<a class="plink" class:new={l.created} href={l.url} target="_blank" rel="noopener">{l.created ? '＋' : '✎'} {l.sku}</a>
+					{/each}
+				</div>
+			</div>
+		{/if}
 		{#if applied?.errors?.length}
 			<div class="card errbox">
 				<h2>Errors ({fmt(applied.errors.length)})</h2>
 				<ul class="scroll">{#each applied.errors.slice(0, 100) as e}<li><span>{e.sku}</span><b>{e.error}</b></li>{/each}</ul>
 			</div>
-		{/if}
-		{#if applied && applied.done >= applied.total && !applied.errors.length && !busy}
-			<div class="done">✓ Import complete — {fmt(applied.created)} created, {fmt(applied.updated)} updated.</div>
 		{/if}
 	{/if}
 </main>
@@ -157,6 +224,24 @@
 	.card li { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; padding: 3px 0; border-bottom: 1px solid #F5F0E4; }
 	.card li span { color: #27272A; } .card li b { color: #8a7550; font-weight: 700; white-space: nowrap; }
 	.none { font-size: 12px; color: #A1A1AA; margin: 4px 0 0; }
+	.pick { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+	@media (max-width: 760px) { .pick { grid-template-columns: 1fr; } }
+	.picker { display: flex; flex-direction: column; }
+	.picker-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+	.picker-head h2 { font-size: 14px; font-weight: 800; color: #18181B; margin: 0; }
+	.picker-head .cnt { font-size: 11px; font-weight: 700; color: #fff; background: #A1A1AA; border-radius: 999px; padding: 1px 7px; margin-left: 6px; }
+	.picker-act { display: flex; gap: 6px; }
+	.picker-act button { font-size: 11px; font-weight: 700; font-family: inherit; color: #52525B; background: #FAFAF7; border: 1px solid var(--border, #E4E4E7); border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+	.psearch { margin: 10px 0 8px; font-size: 12.5px; font-family: inherit; border: 1px solid var(--border, #E4E4E7); border-radius: 8px; padding: 7px 9px; }
+	.psearch:focus { outline: none; border-color: #F57832; }
+	.plist { max-height: 320px; overflow: auto; display: flex; flex-direction: column; }
+	.prow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 4px 2px; border-bottom: 1px solid #F5F0E4; cursor: pointer; }
+	.prow input { accent-color: #F57832; }
+	.prow .psku { font-weight: 700; color: #18181B; font-variant-numeric: tabular-nums; min-width: 92px; }
+	.prow .pname { color: #52525B; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.links { display: flex; flex-wrap: wrap; gap: 6px; }
+	.plink { font-size: 12px; font-weight: 700; color: #B15A12; background: #FBF4E2; border: 1px solid #F0E3C0; border-radius: 7px; padding: 3px 9px; text-decoration: none; }
+	.plink.new { color: #15803D; background: #EAF7EE; border-color: #BBE7C6; }
 	.apply-bar { display: flex; align-items: center; gap: 14px; }
 	.prog { font-size: 13px; font-weight: 600; color: #52525B; }
 	.errbox { margin-top: 14px; border-color: #FECACA; }
