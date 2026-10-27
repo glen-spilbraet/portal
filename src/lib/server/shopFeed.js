@@ -32,17 +32,28 @@ function fieldMap(dataFields) {
 export async function buildShopFeed(db, salesDb, origin) {
 	const imgUrl = (/** @type {string | null} */ key) => (key ? `${origin}/api/img/${key}` : null);
 
-	const [sheetsRes, trRes, imgRes, videoRes] = await db.batch([
+	const [sheetsRes, trRes, imgRes, videoRes, articleRes] = await db.batch([
 		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, preorder_date, restock_date, updated_at, awards_updated_at
 			FROM sales_sheets WHERE trim(sku) != '' ORDER BY updated_at DESC`),
 		db.prepare(`SELECT sheet_id, language, key, value FROM translations WHERE trim(value) != ''`),
 		db.prepare(`SELECT sheet_id, r2_key, type FROM sheet_images ORDER BY display_order ASC`),
-		db.prepare(`SELECT sheet_id, url, orientation FROM sheet_video ORDER BY display_order ASC, created_at ASC`)
+		db.prepare(`SELECT sheet_id, url, orientation, markets FROM sheet_video ORDER BY display_order ASC, created_at ASC`),
+		db.prepare(`SELECT sheet_id, url, title, description, site_name, image_key, image_url, favicon_url, markets FROM sheet_article ORDER BY display_order ASC, created_at ASC`)
 	]);
 
-	/** @type {Record<string, { url: string, orientation: string }[]>} */
+	// markets: JSON array of DK/SE/NO/INT/PL, or null = available in all markets.
+	const mkts = (/** @type {string|null} */ v) => { if (v == null) return null; try { return JSON.parse(v); } catch { return null; } };
+
+	/** @type {Record<string, any[]>} */
 	const videos = {};
-	for (const r of /** @type {any[]} */ (videoRes.results ?? [])) (videos[r.sheet_id] ??= []).push({ url: r.url, orientation: r.orientation === '9:16' ? '9:16' : '16:9' });
+	for (const r of /** @type {any[]} */ (videoRes.results ?? [])) (videos[r.sheet_id] ??= []).push({ url: r.url, orientation: r.orientation === '9:16' ? '9:16' : '16:9', markets: mkts(r.markets) });
+
+	/** @type {Record<string, any[]>} */
+	const articles = {};
+	for (const r of /** @type {any[]} */ (articleRes.results ?? [])) (articles[r.sheet_id] ??= []).push({
+		url: r.url, title: r.title, description: r.description, site_name: r.site_name,
+		image: imgUrl(r.image_key) || r.image_url || null, favicon: r.favicon_url || null, markets: mkts(r.markets)
+	});
 
 	/** @type {Record<string, Record<string, Record<string, string>>>} */
 	const tr = {};
@@ -121,6 +132,7 @@ export async function buildShopFeed(db, salesDb, origin) {
 			},
 			youtube_url: s.youtube_url || null,
 			videos: videos[s.id] ?? [],
+			articles: articles[s.id] ?? [],
 			preorder_date: s.preorder_date || null,
 			restock_date: s.restock_date || null,
 			awards: awards[key] ?? []

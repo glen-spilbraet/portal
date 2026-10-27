@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
-import { getVideos, addVideo, deleteVideo } from '$lib/db.js';
+import { getVideos, addVideo, deleteVideo, setVideoMarkets, getSheet } from '$lib/db.js';
+import { notifyShops } from '$lib/server/shopNotify.js';
 
 async function checkAuth(cookies, platform) {
 	const token = cookies.get('session');
@@ -43,4 +44,17 @@ export async function DELETE({ params, url, cookies, platform }) {
 	await deleteVideo(db, videoId);
 	const videos = await syncPrimary(db, params.id);
 	return json({ ok: true, videos });
+}
+
+/** PATCH /api/sheets/:id/videos  { videoId, markets: string[]|null }  — availability. */
+export async function PATCH({ params, request, cookies, platform }) {
+	if (!(await checkAuth(cookies, platform))) error(401, 'Unauthorized');
+	const db = platform?.env?.DB;
+	if (!db) error(500, 'DB unavailable');
+	const body = await request.json().catch(() => ({}));
+	if (!body.videoId) error(400, 'videoId required');
+	await setVideoMarkets(db, body.videoId, Array.isArray(body.markets) ? body.markets : null);
+	const sheet = await getSheet(db, params.id);
+	if (sheet) await notifyShops(platform, { type: 'sheet_video', sku: sheet.sku });
+	return json({ ok: true });
 }

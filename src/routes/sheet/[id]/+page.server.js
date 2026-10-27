@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { getSheet, getTranslations, getImages, getVideos, getGlobalLabels, listCtaVersions, getCtaVersionTranslations } from '$lib/db.js';
+import { getSheet, getTranslations, getImages, getVideos, getArticles, getGlobalLabels, listCtaVersions, getCtaVersionTranslations } from '$lib/db.js';
 import { fetchSalesPrices } from '$lib/server/rackbeat.js';
 import { getBadgesForSku } from '$lib/server/awards.js';
 import { listTaxonomy, productCategoryIds, CATEGORY_LANGS } from '$lib/server/categories.js';
@@ -20,15 +20,20 @@ export async function load({ params, url, platform }) {
 	if (!sheet) error(404, 'Sheet not found');
 
 	const apiKey = platform?.env?.RACKBEAT_API_KEY;
-	const [allTranslations, images, contentImages, videos, globalLabels, ctaVersions, salesPrices] = await Promise.all([
+	const [allTranslations, images, contentImages, rawVideos, rawArticles, globalLabels, ctaVersions, salesPrices] = await Promise.all([
 		getTranslations(db, params.id),
 		getImages(db, params.id),                 // people-playing grid
 		getImages(db, params.id, 'content'),      // webshop content images
 		getVideos(db, params.id),
+		getArticles(db, params.id),
 		getGlobalLabels(db),
 		listCtaVersions(db),
 		fetchSalesPrices(sheet.sku, apiKey),
 	]);
+	// markets: stored JSON string | null (null = all). Parse for the client.
+	const parseMkts = (v) => { if (v == null) return null; try { return JSON.parse(v); } catch { return null; } };
+	const videos = rawVideos.map((v) => ({ ...v, markets: parseMkts(v.markets) }));
+	const articles = rawArticles.map((a) => ({ ...a, markets: parseMkts(a.markets) }));
 	const awardBadges = await getBadgesForSku(db, sheet.sku, new Date().toISOString().slice(0, 10));
 
 	// Category tagging (SALES_DB — shared prod taxonomy, read by the shop feed)
@@ -63,6 +68,7 @@ export async function load({ params, url, platform }) {
 		images,
 		contentImages,
 		videos,
+		articles,
 		language: lang,
 		primaryLanguage,
 		languages: LANGUAGES,

@@ -209,6 +209,35 @@ export async function addVideo(db, sheetId, url, orientation, order) {
 export async function deleteVideo(db, id) {
 	await db.prepare('DELETE FROM sheet_video WHERE id = ?').bind(id).run();
 }
+/** Per-market availability for a video. markets: string[]|null (null/[] = all). */
+export async function setVideoMarkets(db, id, markets) {
+	const v = markets == null ? null : JSON.stringify(Array.isArray(markets) ? markets : []);
+	await db.prepare('UPDATE sheet_video SET markets = ? WHERE id = ?').bind(v, id).run();
+}
+
+// ── Sheet articles (visual link cards) ──────────────────────────────────────
+export async function getArticles(db, sheetId) {
+	const rows = await db
+		.prepare('SELECT * FROM sheet_article WHERE sheet_id = ? ORDER BY display_order ASC, created_at ASC')
+		.bind(sheetId).all();
+	return rows.results ?? [];
+}
+export async function addArticle(db, sheetId, id, data, order) {
+	await db.prepare(
+		`INSERT INTO sheet_article (id, sheet_id, url, title, description, site_name, image_key, image_url, favicon_url, display_order)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	).bind(id, sheetId, data.url, data.title ?? null, data.description ?? null, data.siteName ?? null,
+		data.imageKey ?? null, data.imageUrl ?? null, data.favicon ?? null, order ?? 0).run();
+	return id;
+}
+export async function deleteArticle(db, id) {
+	await db.prepare('DELETE FROM sheet_article WHERE id = ?').bind(id).run();
+}
+/** Per-market availability for an article. markets: string[]|null (null/[] = all). */
+export async function setArticleMarkets(db, id, markets) {
+	const v = markets == null ? null : JSON.stringify(Array.isArray(markets) ? markets : []);
+	await db.prepare('UPDATE sheet_article SET markets = ? WHERE id = ?').bind(v, id).run();
+}
 
 export async function setVideoOrder(db, id, order) {
 	await db.prepare('UPDATE sheet_video SET display_order = ? WHERE id = ?').bind(order, id).run();

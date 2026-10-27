@@ -3,6 +3,7 @@
 	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
 	import BoxCropper from '$lib/components/BoxCropper.svelte';
 	import FlatCropper from '$lib/components/FlatCropper.svelte';
+	import MarketAvailability from '$lib/components/MarketAvailability.svelte';
 
 	let { data } = $props();
 
@@ -279,8 +280,12 @@
 		setTimeout(() => (refreshMsg = ''), 2500);
 	}
 
-	// ── Videos ─────────────────────────────────────────────────────────────────
+	// ── Videos & articles (local state; markets null = all markets) ─────────────
+	const pm = (m) => (m == null ? null : (typeof m === 'string' ? (() => { try { return JSON.parse(m); } catch { return null; } })() : m));
+	const normList = (list) => (list ?? []).map((x) => ({ ...x, markets: pm(x.markets) }));
+
 	const YT_RE = /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+	let vids = $state(normList(data.videos));
 	let videoUrl = $state('');
 	let videoOrient = $state('auto'); // 'auto' | '16:9' | '9:16'
 	let videoErr = $state('');
@@ -289,15 +294,49 @@
 		if (!YT_RE.test(url)) { videoErr = 'Not a valid YouTube URL'; return; }
 		videoErr = '';
 		const orientation = videoOrient === 'auto' ? undefined : videoOrient;
-		await fetch(`/api/sheets/${sheetId}/videos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, orientation }) });
+		const res = await fetch(`/api/sheets/${sheetId}/videos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, orientation }) });
 		videoUrl = ''; videoOrient = 'auto';
-		flashSaved(); await invalidateAll();
+		if (res.ok) { const b = await res.json(); vids = normList(b.videos); }
+		flashSaved();
 	}
 	async function removeVideo(id) {
-		await fetch(`/api/sheets/${sheetId}/videos?videoId=${id}`, { method: 'DELETE' });
-		flashSaved(); await invalidateAll();
+		const res = await fetch(`/api/sheets/${sheetId}/videos?videoId=${id}`, { method: 'DELETE' });
+		if (res.ok) { const b = await res.json(); vids = normList(b.videos); }
+		flashSaved();
+	}
+	function setVideoMkts(id, markets) {
+		vids = vids.map((v) => (v.id === id ? { ...v, markets } : v));
+		fetch(`/api/sheets/${sheetId}/videos`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ videoId: id, markets }) });
+		flashSaved();
 	}
 	const ytId = (u) => (u.match(YT_RE)?.[1] ?? null);
+
+	// ── Articles (visual link cards) ─────────────────────────────────────────────
+	let arts = $state(normList(data.articles));
+	let articleUrl = $state('');
+	let articleErr = $state('');
+	let articleAdding = $state(false);
+	async function addArticle() {
+		const url = articleUrl.trim();
+		if (!/^https?:\/\//i.test(url)) { articleErr = 'Enter a full URL (https://…)'; return; }
+		articleErr = ''; articleAdding = true;
+		try {
+			const res = await fetch(`/api/sheets/${sheetId}/articles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+			if (!res.ok) throw new Error('Could not fetch that page');
+			const b = await res.json(); arts = normList(b.articles); articleUrl = ''; flashSaved();
+		} catch (e) { articleErr = e.message; }
+		articleAdding = false;
+	}
+	async function removeArticle(id) {
+		const res = await fetch(`/api/sheets/${sheetId}/articles?articleId=${id}`, { method: 'DELETE' });
+		if (res.ok) { const b = await res.json(); arts = normList(b.articles); }
+		flashSaved();
+	}
+	function setArticleMkts(id, markets) {
+		arts = arts.map((a) => (a.id === id ? { ...a, markets } : a));
+		fetch(`/api/sheets/${sheetId}/articles`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ articleId: id, markets }) });
+		flashSaved();
+	}
 
 	// ── Images ───────────────────────────────────────────────────────────────
 	let uploading = $state('');
@@ -376,6 +415,7 @@
 		ctaId = data.sheet.cta_version_id ?? null;
 		language = data.language;
 		videoUrl = ''; videoOrient = 'auto'; videoErr = '';
+		vids = normList(data.videos); arts = normList(data.articles); articleUrl = ''; articleErr = '';
 	});
 </script>
 
@@ -500,12 +540,16 @@
 		<!-- Videos -->
 		<section class="card">
 			<div class="card-head"><h2>Videos</h2><span class="hint">YouTube — normal (16:9) or Shorts (9:16), auto-detected</span></div>
-			{#if data.videos.length}
+			{#if vids.length}
 				<div class="vid-list">
-					{#each data.videos as v (v.id)}
+					{#each vids as v (v.id)}
 						<div class="vid">
 							{#if ytId(v.url)}<img class="vthumb" class:portrait={v.orientation === '9:16'} src="https://img.youtube.com/vi/{ytId(v.url)}/mqdefault.jpg" alt="" />{/if}
-							<div class="vmeta"><span class="vorient {v.orientation === '9:16' ? 'p' : 'l'}">{v.orientation}</span><a class="vurl" href={v.url} target="_blank" rel="noopener">{v.url}</a></div>
+							<div class="vmeta">
+								<span class="vorient {v.orientation === '9:16' ? 'p' : 'l'}">{v.orientation}</span>
+								<a class="vurl" href={v.url} target="_blank" rel="noopener">{v.url}</a>
+								<MarketAvailability value={v.markets} onchange={(m) => setVideoMkts(v.id, m)} />
+							</div>
 							<button class="x" onclick={() => removeVideo(v.id)}>✕</button>
 						</div>
 					{/each}
@@ -517,6 +561,46 @@
 				<button class="btn primary sm" onclick={addVideo}>Add</button>
 			</div>
 			{#if videoErr}<p class="err">{videoErr}</p>{/if}
+		</section>
+
+		<!-- Articles (visual link cards) -->
+		<section class="card">
+			<div class="card-head"><h2>Articles</h2><span class="hint">Press, blog or other web articles — paste a URL and it builds a visual card</span></div>
+			{#if arts.length}
+				<div class="art-list">
+					{#each arts as a (a.id)}
+						<div class="art">
+							<div class="art-card">
+								{#if a.image_key}
+									<img class="art-img" src={imgUrl(a.image_key)} alt="" />
+								{:else if a.image_url}
+									<img class="art-img" src={a.image_url} alt="" />
+								{:else}
+									<div class="art-img ph">No image</div>
+								{/if}
+								<div class="art-body">
+									<div class="art-site">
+										{#if a.favicon_url}<img class="art-fav" src={a.favicon_url} alt="" />{/if}
+										<span>{a.site_name || new URL(a.url).hostname}</span>
+									</div>
+									<a class="art-title" href={a.url} target="_blank" rel="noopener">{a.title || a.url}</a>
+									{#if a.description}<p class="art-desc">{a.description}</p>{/if}
+								</div>
+								<button class="x art-x" title="Remove" onclick={() => removeArticle(a.id)}>✕</button>
+							</div>
+							<div class="art-avail">
+								<span class="avail-label">Available in</span>
+								<MarketAvailability value={a.markets} onchange={(m) => setArticleMkts(a.id, m)} />
+							</div>
+						</div>
+					{/each}
+				</div>
+			{:else}<p class="empty">No articles yet.</p>{/if}
+			<div class="vid-add">
+				<input placeholder="Paste article URL (https://…)" bind:value={articleUrl} onkeydown={(e) => e.key === 'Enter' && addArticle()} disabled={articleAdding} />
+				<button class="btn primary sm" onclick={addArticle} disabled={articleAdding}>{articleAdding ? 'Fetching…' : 'Add'}</button>
+			</div>
+			{#if articleErr}<p class="err">{articleErr}</p>{/if}
 		</section>
 
 		<!-- Images -->
@@ -765,8 +849,26 @@
 	.vorient { align-self: flex-start; font-size: 10.5px; font-weight: 800; padding: 1px 7px; border-radius: 100px; }
 	.vorient.l { background: #EEF4FF; color: #1D4ED8; } .vorient.p { background: #F3EEFE; color: #6D28D9; }
 	.vurl { font-size: 11.5px; color: #71717A; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+	.vid { align-items: flex-start; }
+	.vmeta { gap: 6px; }
 	.vid-add { display: flex; gap: 8px; }
 	.vid-add input { flex: 1; } .vid-add select { width: auto; }
+
+	/* Articles (visual link cards) */
+	.art-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+	.art { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+	.art-card { display: flex; gap: 0; position: relative; }
+	.art-img { width: 150px; height: 104px; object-fit: cover; flex-shrink: 0; background: #FAFAFA; }
+	.art-img.ph { display: flex; align-items: center; justify-content: center; font-size: 11px; color: #A1A1AA; }
+	.art-body { padding: 10px 12px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+	.art-site { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: #8a7550; }
+	.art-fav { width: 14px; height: 14px; border-radius: 3px; object-fit: contain; }
+	.art-title { font-size: 14px; font-weight: 700; color: #18181B; text-decoration: none; line-height: 1.3; }
+	.art-title:hover { color: #F57832; }
+	.art-desc { font-size: 12px; color: #71717A; margin: 0; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+	.art-x { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.9); }
+	.art-avail { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid #F1EADB; background: #FCFBF7; }
+	.avail-label { font-size: 11px; font-weight: 700; color: #8a7550; }
 
 	.img-group { padding: 12px 0; border-top: 1px solid #F1EADB; }
 	.img-group:first-of-type { border-top: none; padding-top: 0; }
