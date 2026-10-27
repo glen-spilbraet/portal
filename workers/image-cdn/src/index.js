@@ -13,6 +13,13 @@
  *
  * Keys are UUID paths that are never reused for other content, so successful
  * responses are cached for a year at the edge and in browsers.
+ *
+ * Export (for the B2B shop's image downloads, not public):
+ *   https://export.internal/__export/<r2 key>?w=3000&h=3000&fit=fit|fill
+ *   → JPEG of exactly w×h on white: fit = whole image, padded; fill = cropped
+ *   to fill. Only answered for the host export.internal, which only exists
+ *   through the shop's service binding — Cloudflare never routes it from the
+ *   internet. Anything else under /__export/ is a 404.
  */
 
 const WIDTHS = [300, 600, 1000, 1600];
@@ -52,6 +59,7 @@ export default {
 	async fetch(request, env, ctx) {
 		if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
 		const url = new URL(request.url);
+		if (url.pathname.startsWith('/__export/')) return exportImage(request, env, ctx, url);
 		const key = keyFromPath(url.pathname);
 		if (!key) return new Response('Not found', { status: 404 });
 		const wParam = url.searchParams.get('w');
@@ -100,5 +108,56 @@ async function variant(env, key, w) {
 	} catch (e) {
 		console.warn('variant failed, serving original', key, w, e instanceof Error ? e.message : e);
 		return original(env, key, SHORT);
+	}
+}
+
+/** Host only reachable through a service binding (see the file comment). */
+export const EXPORT_HOST = 'export.internal';
+
+/**
+ * Validated export request, or null. Pure (tested via the shop's use).
+ * @param {URL} url
+ * @returns {{ key: string, w: number, h: number, fit: 'fit' | 'fill' } | null}
+ */
+export function exportParams(url) {
+	const key = keyFromPath(url.pathname.slice('/__export'.length));
+	const w = Number(url.searchParams.get('w'));
+	const h = Number(url.searchParams.get('h'));
+	const fit = url.searchParams.get('fit');
+	const ok = (/** @type {number} */ n) => Number.isInteger(n) && n >= 100 && n <= 6000;
+	if (!key || !ok(w) || !ok(h) || (fit !== 'fit' && fit !== 'fill')) return null;
+	return { key, w, h, fit };
+}
+
+/**
+ * @param {Request} request @param {{ BUCKET: R2Bucket, IMAGES: any }} env
+ * @param {ExecutionContext} ctx @param {URL} url
+ */
+async function exportImage(request, env, ctx, url) {
+	const notFound = () => new Response('Not found', { status: 404 });
+	if (request.method !== 'GET' || url.hostname !== EXPORT_HOST) return notFound();
+	const p = exportParams(url);
+	if (!p) return new Response('Bad export request', { status: 400 });
+
+	// Only reachable through the binding, so the edge cache entry is too.
+	const cacheKey = new Request(`https://${EXPORT_HOST}/__export/${p.key}?w=${p.w}&h=${p.h}&fit=${p.fit}`);
+	const hit = await caches.default.match(cacheKey);
+	if (hit) return hit;
+
+	const src = await env.BUCKET.get(p.key);
+	if (!src) return notFound();
+	if (src.size > MAX_SOURCE) return new Response('Source image too large to resize', { status: 413 });
+	try {
+		const out = await env.IMAGES.input(src.body)
+			.transform({ width: p.w, height: p.h, fit: p.fit === 'fill' ? 'cover' : 'pad', background: '#FFFFFF' })
+			.output({ format: 'image/jpeg', quality: 90 });
+		const bytes = await out.response().arrayBuffer();
+		if (!bytes.byteLength) throw new Error('empty output');
+		const response = new Response(bytes, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': YEAR, 'X-Content-Type-Options': 'nosniff' } });
+		ctx.waitUntil(caches.default.put(cacheKey, response.clone()));
+		return response;
+	} catch (e) {
+		console.warn('export failed', p, e instanceof Error ? e.message : e);
+		return new Response('Could not resize this image', { status: 502 });
 	}
 }
