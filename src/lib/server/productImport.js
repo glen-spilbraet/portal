@@ -13,7 +13,7 @@ import { createSheet, setTranslation, updateSheet } from '$lib/db.js';
 import { listTaxonomy } from '$lib/server/categories.js';
 import { MARKETS, getPublisherMarkets, resolvePublisherForSku } from '$lib/server/webshopMarkets.js';
 
-const PRIMARY_LANGUAGE = 'da';           // language new auto-created sheets get
+const PRIMARY_LANGUAGE = 'da';           // fallback when a new sheet publishes nothing (see primaryLanguageForRow)
 const CSV_DELIM = ';';
 
 // CSV "Publiseret <X>" → Portal market. PL is intentionally absent.
@@ -95,6 +95,16 @@ export function parseCsv(text, keep = NEEDED_COLS, delim = CSV_DELIM) {
 
 const isBlank = (v) => { const t = (v ?? '').trim(); return t === '' || t.toLowerCase() === 'null'; };
 const yes = (v) => (v ?? '').trim().toLowerCase() === 'ja';
+
+/** A NEW sheet's primary language = the first PUBLISHED market in priority
+ *  DA → SE → NO → EN (→ da/sv/no/en). Falls back to PRIMARY_LANGUAGE when the
+ *  row publishes nothing. Existing sheets keep their stored primary_language. */
+function primaryLanguageForRow(r) {
+	for (const [flag, L] of Object.entries(LANG_FROM_PUB)) {
+		if (yes(r[`Publiseret ${flag}`])) return L;
+	}
+	return PRIMARY_LANGUAGE;
+}
 
 /** Comma-separated multi-value cell → trimmed non-blank tokens. */
 function tokens(v) {
@@ -285,7 +295,7 @@ export async function buildPlan(db, salesDb, rows) {
 			sku,
 			name: (r['Produktnavn'] ?? '').trim(),
 			create: willCreate,
-			primaryLanguage: existingSheet?.primary_language ?? PRIMARY_LANGUAGE,
+			primaryLanguage: existingSheet?.primary_language ?? primaryLanguageForRow(r),
 			published: publishedSet,
 			preorder, restock,
 			catIds,
