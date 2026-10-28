@@ -1390,18 +1390,28 @@ async function findCompanyByRackbeatId(env, rackbeatId) {
 	return data?.results?.[0] ?? null;
 }
 
-/** A company's deals currently in the Rest stage → [{id,name}]. */
+/** A company's deals currently in the Rest stage → [{id,name}].
+ *  Filters by company + stage via the search API (with paging) instead of
+ *  reading the company's associations list: that endpoint caps at 500 rows and
+ *  was not paginated, so customers with >500 total deals had their rest deals
+ *  silently dropped and always reported "no rest orders". */
 async function fetchCompanyRestDeals(env, companyId, stageId) {
-	const assoc = await hsGet(env, `${HS}/crm/v4/objects/companies/${companyId}/associations/deals?limit=500`);
-	const dealIds = (assoc?.results || []).map((r) => r.toObjectId ?? r.id).filter(Boolean).map(String);
-	if (!dealIds.length) return [];
 	const deals = [];
-	for (const chunk of chunks(dealIds, 100)) {
-		const data = await hsPost(env, `${HS}/crm/v3/objects/deals/batch/read`, { inputs: chunk.map((id) => ({ id })), properties: ['dealname', 'dealstage', 'pipeline'] });
-		for (const d of data?.results || []) {
-			if (d.properties?.dealstage === stageId) deals.push({ id: d.id, name: d.properties?.dealname ?? d.id });
-		}
-	}
+	let after;
+	do {
+		const body = {
+			filterGroups: [{ filters: [
+				{ propertyName: 'associations.company', operator: 'EQ', value: String(companyId) },
+				{ propertyName: 'dealstage', operator: 'EQ', value: String(stageId) },
+			] }],
+			properties: ['dealname'],
+			limit: 100,
+			...(after ? { after } : {}),
+		};
+		const data = await hsPost(env, `${HS}/crm/v3/objects/deals/search`, body);
+		for (const d of data?.results || []) deals.push({ id: d.id, name: d.properties?.dealname ?? d.id });
+		after = data?.paging?.next?.after ?? null;
+	} while (after);
 	return deals;
 }
 
