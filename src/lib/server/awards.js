@@ -86,7 +86,7 @@ function statusAndFlags(d) {
 	const status = d.status || (d.is_winner ? 'winner' : d.is_nominated ? 'nominated' : null);
 	if (status === 'winner') return { status, nom: 1, win: 1 };
 	if (status === 'nominated') return { status, nom: 1, win: 0 };
-	if (status === 'submitted') return { status, nom: 0, win: 0 };
+	if (status === 'submitted' || status === 'nothing') return { status, nom: 0, win: 0 };
 	if (PRESS_STATUSES.has(status)) return { status, nom: 0, win: 0 };
 	return { status: status || null, nom: d.is_nominated ? 1 : 0, win: d.is_winner ? 1 : 0 };
 }

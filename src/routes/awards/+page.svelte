@@ -17,12 +17,16 @@
 		submitted: { label: 'Submitted', cls: 'sub' },
 		nominated: { label: 'Nominated', cls: 'nom' },
 		winner:    { label: 'Winner',    cls: 'win' },
+		nothing:   { label: 'Nothing',   cls: 'nothing' },
 		sent:      { label: 'Sent',      cls: 'sent' },
 		used:      { label: 'Used',      cls: 'used' },
 		not_used:  { label: 'Not used',  cls: 'notused' }
 	};
-	const STATUS_ORDER = ['submitted', 'nominated', 'winner', 'sent', 'used', 'not_used'];
-	const AWARD_STATUSES = ['submitted', 'nominated', 'winner'];
+	const STATUS_ORDER = ['submitted', 'nominated', 'winner', 'nothing', 'sent', 'used', 'not_used'];
+	const AWARD_STATUSES = ['submitted', 'nominated', 'winner', 'nothing'];
+	// "Open" = still awaiting an outcome: no status yet, or sent/submitted.
+	const OPEN_STATUSES = new Set(['', 'sent', 'submitted']);
+	const isOpenStatus = (i) => OPEN_STATUSES.has(i.status ?? '');
 
 
 	// ── Filters (country · media · free text on SKU/product) ───────────────────
@@ -30,7 +34,8 @@
 	let fMedia = $state('');
 	let fText = $state('');
 	let fMissing = $state(false); // only instances where a SKU has no sales sheet
-	const anyFilter = $derived(!!(fCountry || fMedia || fText.trim() || fMissing));
+	let fOpen = $state(false);    // only still-open entries (no status / sent / submitted)
+	const anyFilter = $derived(!!(fCountry || fMedia || fText.trim() || fMissing || fOpen));
 	// True if the main SKU or any additional product SKU exists but has no sheet.
 	function hasMissingSheet(i) {
 		if ((i.sku ?? '').trim() && !i.sheet_id) return true;
@@ -51,10 +56,11 @@
 			(!fCountry || i.media_country === fCountry) &&
 			(!fMedia || i.media_id === fMedia) &&
 			(!fMissing || hasMissingSheet(i)) &&
+			(!fOpen || isOpenStatus(i)) &&
 			(!q || matchesText(i, q))
 		);
 	});
-	function clearFilters() { fCountry = ''; fMedia = ''; fText = ''; fMissing = false; }
+	function clearFilters() { fCountry = ''; fMedia = ''; fText = ''; fMissing = false; fOpen = false; }
 
 	// ── Group: year → (media + date), newest first ─────────────────────────────
 	const years = $derived.by(() => {
@@ -316,6 +322,9 @@
 				{#each mediaOpts as m}<option value={m.id}>{m.name}</option>{/each}
 			</select>
 			<input class="f-search" type="search" bind:value={fText} placeholder="Search SKU or product name…" />
+			<label class="f-check" class:on={fOpen} title="Still open — no status yet, Sent or Submitted">
+				<input type="checkbox" bind:checked={fOpen} /> Open
+			</label>
 			<label class="f-check" class:on={fMissing} title="Only instances where a SKU has no sales sheet">
 				<input type="checkbox" bind:checked={fMissing} /> Missing sheet
 			</label>
@@ -368,7 +377,7 @@
 												<td class="status-cell">
 													<select class="status-sel {STATUSES[i.status]?.cls ?? 'none'}" value={i.status ?? ''} disabled={statusBusy === i.id} onchange={(e) => changeStatus(i, e.currentTarget.value)} aria-label="Status">
 														<option value="">—</option>
-														<optgroup label="Award"><option value="submitted">Submitted</option><option value="nominated">Nominated</option><option value="winner">Winner</option></optgroup>
+														<optgroup label="Award"><option value="submitted">Submitted</option><option value="nominated">Nominated</option><option value="winner">Winner</option><option value="nothing">Nothing</option></optgroup>
 														<optgroup label="Press"><option value="sent">Sent</option><option value="used">Used</option><option value="not_used">Not used</option></optgroup>
 													</select>
 													{#if i.is_winner && i.winner_badge_key}<img class="bdg" src="/api/img/{i.winner_badge_key}" alt="winner" />{:else if i.is_nominated && i.nominee_badge_key}<img class="bdg" src="/api/img/{i.nominee_badge_key}" alt="nominee" />{/if}
@@ -464,7 +473,7 @@
 						<label class="fld"><span>Status</span>
 							<select bind:value={form.status}>
 								<option value="">— none —</option>
-								<optgroup label="Award"><option value="submitted">Submitted</option><option value="nominated">Nominated</option><option value="winner">Winner</option></optgroup>
+								<optgroup label="Award"><option value="submitted">Submitted</option><option value="nominated">Nominated</option><option value="winner">Winner</option><option value="nothing">Nothing</option></optgroup>
 								<optgroup label="Press"><option value="sent">Sent</option><option value="used">Used</option><option value="not_used">Not used</option></optgroup>
 							</select>
 						</label>
@@ -563,7 +572,7 @@
 					</div>
 					<label class="fld"><span>Starting status (change individually later)</span>
 						<select bind:value={batch.status}>
-							<optgroup label="Award"><option value="submitted">Submitted</option><option value="nominated">Nominated</option><option value="winner">Winner</option></optgroup>
+							<optgroup label="Award"><option value="submitted">Submitted</option><option value="nominated">Nominated</option><option value="winner">Winner</option><option value="nothing">Nothing</option></optgroup>
 							<optgroup label="Press"><option value="sent">Sent</option><option value="used">Used</option><option value="not_used">Not used</option></optgroup>
 						</select>
 					</label>
@@ -667,6 +676,7 @@
 	.pill.win { background: #E7F6EC; color: #16794C; }
 	.pill.st { background: #EEF4FF; color: #1D4ED8; }
 	.pill.sub { background: #F1EADB; color: #8A7550; }
+	.pill.nothing { background: #E9E6E1; color: #74706A; }
 	.pill.sent { background: #EAF0FA; color: #3C5A99; }
 	.pill.used { background: #E3F3F1; color: #0F766E; }
 	.pill.notused { background: #F5E7E3; color: #A1543F; }
@@ -682,6 +692,7 @@
 	.status-sel:disabled { opacity: 0.5; cursor: default; }
 	.status-sel.none { color: #98876e; }
 	.status-sel.sub { background-color: #F1EADB; color: #8A7550; border-color: #E6D9BC; }
+	.status-sel.nothing { background-color: #E9E6E1; color: #74706A; border-color: #D9D4CC; }
 	.status-sel.nom { background-color: #FFF1D6; color: #9A6100; border-color: #F0D9A8; }
 	.status-sel.win { background-color: #E7F6EC; color: #16794C; border-color: #BFE6CD; }
 	.status-sel.sent { background-color: #EAF0FA; color: #3C5A99; border-color: #CFDDF2; }
