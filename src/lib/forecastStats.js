@@ -68,21 +68,27 @@ export async function getSkippedCount(db, ownerEmail) {
  */
 export async function getCompletedAccuracy(db, today, ownerEmail, years) {
 	const f = filterClause(ownerEmail, years);
+	// Actual units via a LEFT JOIN + GROUP BY (one indexed pass) instead of a
+	// correlated subquery per forecast line — the latter ran tens of thousands of
+	// separate lookups (~34s). Semantics are identical: each forecast line's
+	// actual = SUM of matching closed quantity in its window.
 	const rows = (await db
 		.prepare(
 			`SELECT f.company_id AS cid, f.company_name AS company,
 			        f.owner_name AS owner, f.owner_email AS owner_email,
-			        li.sku, li.name,
+			        li.sku AS sku, li.name AS name,
 			        ${FC_QTY} AS forecast_qty,
-			        (SELECT COALESCE(SUM(c.quantity), 0) FROM deal_line_items c
-			           WHERE c.deal_kind = 'closed' AND c.company_id = f.company_id AND c.sku = li.sku
-			             AND c.close_date >= f.forecast_start_date AND c.close_date <= f.forecast_end_date) AS actual_qty
+			        COALESCE(SUM(c.quantity), 0) AS actual_qty
 			 FROM forecast_deals f
 			 JOIN deal_line_items li ON li.deal_id = f.deal_id AND li.deal_kind = 'forecast'
+			 LEFT JOIN deal_line_items c
+			        ON c.deal_kind = 'closed' AND c.company_id = f.company_id AND c.sku = li.sku
+			       AND c.close_date >= f.forecast_start_date AND c.close_date <= f.forecast_end_date
 			 WHERE f.forecast_start_date IS NOT NULL AND f.forecast_end_date IS NOT NULL
 			   AND f.forecast_end_date < ?
 			   AND ${FC_QTY} > 0
-			   ${f.clause}`
+			   ${f.clause}
+			 GROUP BY li.line_item_id`
 		)
 		.bind(today, ...f.binds)
 		.all()).results ?? [];
@@ -139,22 +145,27 @@ function rollup(rows, keyOf, labelOf, metaOf, childKeyOf, childLabelOf) {
  */
 export async function getOngoingProgress(db, today, ownerEmail, years) {
 	const f = filterClause(ownerEmail, years);
+	// Same LEFT JOIN + GROUP BY rewrite as getCompletedAccuracy (was ~19s as a
+	// per-line correlated subquery). Actual = units bought from window start →
+	// today.
 	const rows = await db
 		.prepare(
 			`SELECT f.company_id AS cid, f.company_name AS company,
 			        f.owner_name AS owner, f.owner_email AS owner_email,
 			        f.forecast_start_date AS start, f.forecast_end_date AS end,
-			        li.sku, li.name,
+			        li.sku AS sku, li.name AS name,
 			        ${FC_QTY} AS forecast_qty,
-			        (SELECT COALESCE(SUM(c.quantity), 0) FROM deal_line_items c
-			           WHERE c.deal_kind = 'closed' AND c.company_id = f.company_id AND c.sku = li.sku
-			             AND c.close_date >= f.forecast_start_date AND c.close_date <= ?) AS actual_qty
+			        COALESCE(SUM(c.quantity), 0) AS actual_qty
 			 FROM forecast_deals f
 			 JOIN deal_line_items li ON li.deal_id = f.deal_id AND li.deal_kind = 'forecast'
+			 LEFT JOIN deal_line_items c
+			        ON c.deal_kind = 'closed' AND c.company_id = f.company_id AND c.sku = li.sku
+			       AND c.close_date >= f.forecast_start_date AND c.close_date <= ?
 			 WHERE f.forecast_start_date IS NOT NULL AND f.forecast_end_date IS NOT NULL
 			   AND f.forecast_start_date <= ? AND f.forecast_end_date >= ?
 			   AND ${FC_QTY} > 0
-			   ${f.clause}`
+			   ${f.clause}
+			 GROUP BY li.line_item_id`
 		)
 		.bind(today, today, today, ...f.binds)
 		.all();
