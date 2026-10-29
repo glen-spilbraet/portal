@@ -73,7 +73,23 @@ export async function deleteMedia(db, id) {
 }
 
 // ── Instances ────────────────────────────────────────────────────────────
-const INST_FIELDS = ['media_id', 'sku', 'award_category', 'is_nominated', 'is_winner', 'disclosure_date', 'instance_date', 'proof_url', 'proof_key', 'nominee_badge_key', 'winner_badge_key', 'notes'];
+const INST_FIELDS = ['media_id', 'sku', 'award_category', 'is_nominated', 'is_winner', 'disclosure_date', 'instance_date', 'proof_url', 'proof_key', 'nominee_badge_key', 'winner_badge_key', 'notes', 'status'];
+
+// An entry's status is the source of truth for the award flags. Award track:
+// submitted → nominated → winner (winner implies nominated). Press track:
+// sent / used / not_used (no nomination/badges). The track is implied by the
+// value, so one media can hold both.
+const PRESS_STATUSES = new Set(['sent', 'used', 'not_used']);
+/** Resolve {status, nom, win} from a payload. Legacy callers that only send
+ *  is_nominated/is_winner (no status) still map to a sensible status + flags. */
+function statusAndFlags(d) {
+	const status = d.status || (d.is_winner ? 'winner' : d.is_nominated ? 'nominated' : null);
+	if (status === 'winner') return { status, nom: 1, win: 1 };
+	if (status === 'nominated') return { status, nom: 1, win: 0 };
+	if (status === 'submitted') return { status, nom: 0, win: 0 };
+	if (PRESS_STATUSES.has(status)) return { status, nom: 0, win: 0 };
+	return { status: status || null, nom: d.is_nominated ? 1 : 0, win: d.is_winner ? 1 : 0 };
+}
 
 async function replaceStatements(db, instanceId, statements) {
 	await db.prepare('DELETE FROM award_statement WHERE instance_id = ?').bind(instanceId).run();
@@ -95,9 +111,11 @@ async function replaceProducts(db, instanceId, skus) {
 }
 
 function instBinds(d) {
+	const { status, nom, win } = statusAndFlags(d);
 	return [d.media_id, d.sku || null, d.award_category || null,
-		d.is_nominated ? 1 : 0, d.is_winner ? 1 : 0, d.disclosure_date || null, d.instance_date || null,
-		d.proof_url || null, d.proof_key || null, d.nominee_badge_key || null, d.winner_badge_key || null, d.notes || null];
+		nom, win, d.disclosure_date || null, d.instance_date || null,
+		d.proof_url || null, d.proof_key || null, d.nominee_badge_key || null, d.winner_badge_key || null, d.notes || null,
+		status];
 }
 
 /** Set the same instance_date on many instances (edit a whole block's date). */
@@ -107,6 +125,35 @@ export async function setInstancesDate(db, ids, date) {
 	for (const b of chunk(clean, 25)) {
 		await db.batch(b.map((id) => db.prepare('UPDATE press_instance SET instance_date = ? WHERE id = ?').bind(date || null, id)));
 	}
+}
+
+/** Set status (and the derived award flags) on many instances — used by the
+ *  per-row quick status change in the overview. */
+export async function setInstancesStatus(db, ids, status) {
+	const clean = (ids ?? []).filter(Boolean);
+	if (!clean.length) return;
+	const { status: st, nom, win } = statusAndFlags({ status });
+	for (const b of chunk(clean, 25)) {
+		await db.batch(b.map((id) => db.prepare(
+			'UPDATE press_instance SET status = ?, is_nominated = ?, is_winner = ? WHERE id = ?'
+		).bind(st, nom, win, id)));
+	}
+}
+
+/** Bulk submission: create one instance per SKU, all sharing media, date and
+ *  starting status (e.g. 10 titles submitted to an award, or 30 sent to press).
+ *  Each is independent afterwards. Returns the created ids. */
+export async function bulkCreateInstances(db, { media_id, instance_date, status, skus }) {
+	const clean = [...new Set((skus ?? []).map((s) => (s ?? '').trim()).filter(Boolean))];
+	const ids = [];
+	for (const b of chunk(clean, 20)) {
+		await db.batch(b.map((sku) => {
+			const id = uid(); ids.push(id);
+			return db.prepare(`INSERT INTO press_instance (id, ${INST_FIELDS.join(', ')}) VALUES (?, ${INST_FIELDS.map(() => '?').join(', ')})`)
+				.bind(id, ...instBinds({ media_id, sku, instance_date, status }));
+		}));
+	}
+	return ids;
 }
 
 export async function createInstance(db, d) {
@@ -145,7 +192,7 @@ export async function getBadgesForSkus(db, skus, today) {
 	const out = {};
 	for (const b of chunk(clean, 40)) {
 		const rows = (await db.prepare(
-			`SELECT s.sku AS sku, i.is_winner, i.disclosure_date, i.nominee_badge_key, i.winner_badge_key,
+			`SELECT s.sku AS sku, i.is_nominated, i.is_winner, i.disclosure_date, i.nominee_badge_key, i.winner_badge_key,
 			        i.instance_date, i.created_at,
 			        m.name AS media_name, m.badge_placement, m.badge_placement_2,
 			        m.badge_pad_top, m.badge_pad_right, m.badge_pad_bottom, m.badge_pad_left, m.badge_size_pct
@@ -162,7 +209,7 @@ export async function getBadgesForSkus(db, skus, today) {
 		for (const r of rows) {
 			const disclosed = !r.disclosure_date || r.disclosure_date <= today;
 			const isWinner = !!(r.is_winner && r.winner_badge_key && disclosed);
-			const key = isWinner ? r.winner_badge_key : r.nominee_badge_key;
+			const key = isWinner ? r.winner_badge_key : (r.is_nominated ? r.nominee_badge_key : null);
 			if (!key) continue;
 			(out[r.sku] ??= []).push({
 				image_key: key,
