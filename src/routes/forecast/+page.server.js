@@ -12,24 +12,34 @@ export async function load({ parent, platform, url }) {
 	const ownerParam = url.searchParams.get('owner') || null;
 	const yearParam = (url.searchParams.get('year') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 
-	// Per-query timing so we can see which step is slow (console + ?debug=1).
-	const timings = {};
-	const run = async (label, p) => { const s = Date.now(); try { return await p; } finally { timings[label] = Date.now() - s; } };
-	const t0 = Date.now();
-
-	const [owners, years, completed, ongoing, skipped, halfYears] = await Promise.all([
-		run('owners', getForecastOwners(db)),
-		run('years', getForecastYears(db)),
-		run('completed', getCompletedAccuracy(db, today, ownerParam, yearParam)),
-		run('ongoing', getOngoingProgress(db, today, ownerParam, yearParam)),
-		run('skipped', getSkippedCount(db, ownerParam)),
-		run('halfYears', getCompletedHalfYearBreakdown(db, today, ownerParam, yearParam))
-	]);
-	timings.total = Date.now() - t0;
-	console.log('[forecast] query timings (ms):', JSON.stringify(timings));
-
-	return {
-		user, owners, years, ownerParam, yearParam, completed, ongoing, skipped, halfYears, today,
-		timings: url.searchParams.get('debug') ? timings : null,
+	const tasks = {
+		owners:    () => getForecastOwners(db),
+		years:     () => getForecastYears(db),
+		completed: () => getCompletedAccuracy(db, today, ownerParam, yearParam),
+		ongoing:   () => getOngoingProgress(db, today, ownerParam, yearParam),
+		skipped:   () => getSkippedCount(db, ownerParam),
+		halfYears: () => getCompletedHalfYearBreakdown(db, today, ownerParam, yearParam),
 	};
+	const defaults = {
+		owners: [], years: [], completed: { customers: [], owners: [], products: [] },
+		ongoing: [], skipped: 0, halfYears: [],
+	};
+
+	// ?debug=1: run each query in isolation, capturing per-query time AND error
+	// (via allSettled) so the page renders a diagnostic instead of a blanket 500.
+	if (url.searchParams.get('debug')) {
+		const timings = {}, errors = {}, res = { ...defaults };
+		await Promise.all(Object.entries(tasks).map(async ([k, fn]) => {
+			const s = Date.now();
+			try { res[k] = await fn(); } catch (e) { errors[k] = e?.message ?? String(e); }
+			timings[k] = Date.now() - s;
+		}));
+		console.log('[forecast] timings(ms):', JSON.stringify(timings), 'errors:', JSON.stringify(errors));
+		return { user, ownerParam, yearParam, today, ...res, timings, errors };
+	}
+
+	const [owners, years, completed, ongoing, skipped, halfYears] = await Promise.all(
+		Object.values(tasks).map((fn) => fn())
+	);
+	return { user, owners, years, ownerParam, yearParam, completed, ongoing, skipped, halfYears, today, timings: null };
 }

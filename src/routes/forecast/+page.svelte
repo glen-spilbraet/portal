@@ -97,7 +97,10 @@
 
 <main class="wrap">
 	{#if data.timings}
-		<div class="dbg">⏱ query timings (ms): {#each Object.entries(data.timings) as [k, v]}<span><b>{k}</b> {v}</span>{/each}</div>
+		<div class="dbg">⏱ timings (ms): {#each Object.entries(data.timings) as [k, v]}<span class:err={data.errors?.[k]}><b>{k}</b> {v}{#if data.errors?.[k]} ✗{/if}</span>{/each}</div>
+		{#if data.errors && Object.keys(data.errors).length}
+			<div class="dbg err-box">{#each Object.entries(data.errors) as [k, msg]}<div><b>{k}:</b> {msg}</div>{/each}</div>
+		{/if}
 	{/if}
 	<div class="head">
 		<div>
@@ -357,4 +360,7 @@
 	.dbg { display: flex; flex-wrap: wrap; gap: 14px; background: #18181B; color: #FFE6A5; font-size: 12px; font-weight: 600; padding: 8px 14px; border-radius: 8px; margin-bottom: 14px; font-family: ui-monospace, monospace; }
 	.dbg span { white-space: nowrap; }
 	.dbg b { color: #fff; font-weight: 800; }
+	.dbg span.err { color: #FCA5A5; }
+	.dbg.err-box { display: block; background: #450A0A; color: #FCA5A5; }
+	.dbg.err-box div { margin: 2px 0; white-space: normal; }
 </style>
