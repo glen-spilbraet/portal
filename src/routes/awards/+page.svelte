@@ -389,11 +389,15 @@
 									<tbody>
 										{#each g.items as i (i.id)}
 											<tr>
-												<td class="prod">{i.sheet_id ? (i.product_name || i.sku) : 'N/A'}
-													{#if i.additional_products?.length}<div class="addl-prods">+ {i.additional_products.map((a) => a.product_name || a.sku).join(', ')}</div>{/if}
+												<td class="prod">
+													<div class="trunc" title={i.sheet_id ? (i.product_name || i.sku) : 'N/A'}>{i.sheet_id ? (i.product_name || i.sku) : 'N/A'}</div>
+													{#if i.additional_products?.length}
+														{@const addl = i.additional_products.map((a) => a.product_name || a.sku).join(', ')}
+														<div class="addl-prods trunc" title={addl}>+ {addl}</div>
+													{/if}
 												</td>
 												<td class="sku">{i.sku || '—'}</td>
-												<td>{i.award_category || '—'}</td>
+												<td class="cat" title={i.award_category || ''}>{i.award_category || '—'}</td>
 												<td class="status-cell">
 													<select class="status-sel {STATUSES[i.status]?.cls ?? 'none'}" value={i.status ?? ''} disabled={statusBusy === i.id} onchange={(e) => changeStatus(i, e.currentTarget.value)} aria-label="Status">
 														<option value="">—</option>
@@ -741,7 +745,7 @@
 	.tbl-scroll { overflow-x: auto; padding: 6px 8px 10px; }
 	.tbl { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; min-width: 880px; }
 	/* Fixed column widths so every block's table lines up (reviews takes the rest). */
-	.c-prod { width: 22%; }
+	.c-prod { width: 16%; }
 	.c-sku { width: 88px; }
 	.c-cat { width: 15%; }
 	.c-status { width: 166px; }
@@ -752,6 +756,9 @@
 	.tbl td { padding: 8px 10px; border-top: 1px solid #F1EADB; vertical-align: top; overflow-wrap: anywhere; }
 	.tbl td.c { text-align: center; }
 	.tbl .prod { font-weight: 700; color: #18181B; }
+	/* Single-line, ellipsis-truncated cells (full text in the title tooltip). */
+	.trunc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.tbl td.cat { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.tbl .sku { color: #6b5e4e; font-variant-numeric: tabular-nums; }
 	.muted { color: #98876e; }
 	.stmts { display: flex; flex-direction: column; gap: 6px; }
