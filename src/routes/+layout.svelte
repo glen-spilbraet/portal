@@ -1,5 +1,6 @@
 <script>
 	import '../app.css';
+	import { navigating } from '$app/state';
 	let { children, data } = $props();
 
 	// On dev: prefix every page title with [DEV] whenever it changes
@@ -33,6 +34,15 @@
 	<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
 </svelte:head>
 
+<!-- Global navigation progress bar: visible whenever a page `load` is in flight,
+     so it's never unclear that the app is fetching the next view. Fades in after
+     a short delay so instant navigations don't flash a bar. -->
+{#if navigating.to}
+	<div class="nav-progress" role="status" aria-label="Loading page">
+		<div class="nav-progress-bar"></div>
+	</div>
+{/if}
+
 {#if data?.isDev || data?.simulatedAs}
 	<div class="top-bars">
 		{#if data?.isDev}
@@ -61,6 +71,37 @@
 {@render children()}
 
 <style>
+	/* ── Global navigation progress bar ─────────────────────────────────────── */
+	.nav-progress {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 3px;
+		z-index: 9999;
+		overflow: hidden;
+		pointer-events: none;
+		background: rgba(245, 120, 50, 0.16);
+		/* Hold invisible briefly so fast navigations never flash the bar. */
+		animation: np-appear 0.2s ease-in 0.12s both;
+	}
+	@keyframes np-appear { from { opacity: 0; } to { opacity: 1; } }
+	.nav-progress-bar {
+		height: 100%;
+		width: 35%;
+		border-radius: 0 3px 3px 0;
+		background: var(--accent, #F57832);
+		box-shadow: 0 0 8px rgba(245, 120, 50, 0.6);
+		animation: np-slide 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+	}
+	@keyframes np-slide {
+		0%   { transform: translateX(-120%); }
+		100% { transform: translateX(400%); }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.nav-progress-bar { animation-duration: 2s; }
+	}
+
 	.top-bars {
 		position: sticky;
 		top: 0;
