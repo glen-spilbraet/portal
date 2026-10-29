@@ -363,8 +363,11 @@
 							</div>
 							<div class="tbl-scroll">
 								<table class="tbl">
+									<colgroup>
+										<col class="c-prod" /><col class="c-sku" /><col class="c-cat" /><col class="c-status" /><col class="c-disc" /><col class="c-rev" /><col class="c-act" />
+									</colgroup>
 									<thead>
-										<tr><th>Product</th><th>SKU</th><th>Category</th><th>Status</th><th>Disclosure</th><th>Reviews</th><th class="c">Proof</th><th class="c">Actions</th></tr>
+										<tr><th>Product</th><th>SKU</th><th>Category</th><th>Status</th><th>Disclosure</th><th>Reviews</th><th class="c">Actions</th></tr>
 									</thead>
 									<tbody>
 										{#each g.items as i (i.id)}
@@ -393,7 +396,6 @@
 														</div>
 													{:else}<span class="muted">—</span>{/if}
 												</td>
-												<td class="c">{#if proofHref(i)}<a href={proofHref(i)} target="_blank" rel="noopener" title="Open proof">↗</a>{:else}—{/if}</td>
 												<td class="c acts">
 													<button class="icon" title="Edit" aria-label="Edit" onclick={() => openEdit(i)}>{@html PEN}</button>
 													<button class="icon" title="Create similar" aria-label="Create similar" onclick={() => createSimilar(i)}>{@html COPY}</button>
@@ -702,15 +704,21 @@
 	.items { border-top: 1px solid var(--border); }
 	.items-bar { display: flex; justify-content: flex-end; padding: 8px 12px 0; }
 	.tbl-scroll { overflow-x: auto; padding: 6px 8px 10px; }
-	.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+	.tbl { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; min-width: 880px; }
+	/* Fixed column widths so every block's table lines up (reviews takes the rest). */
+	.c-prod { width: 22%; }
+	.c-sku { width: 88px; }
+	.c-cat { width: 15%; }
+	.c-status { width: 166px; }
+	.c-disc { width: 104px; }
+	.c-act { width: 92px; }
 	.tbl th { text-align: left; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #A88B52; padding: 8px 10px; white-space: nowrap; }
 	.tbl th.c { text-align: center; }
-	.tbl td { padding: 8px 10px; border-top: 1px solid #F1EADB; vertical-align: top; }
+	.tbl td { padding: 8px 10px; border-top: 1px solid #F1EADB; vertical-align: top; overflow-wrap: anywhere; }
 	.tbl td.c { text-align: center; }
 	.tbl .prod { font-weight: 700; color: #18181B; }
 	.tbl .sku { color: #6b5e4e; font-variant-numeric: tabular-nums; }
 	.muted { color: #98876e; }
-	.reviews { max-width: 360px; min-width: 240px; }
 	.stmts { display: flex; flex-direction: column; gap: 6px; }
 	.stmt { position: relative; background: #FBF7EF; border: 1px solid #F1EADB; border-radius: 8px; padding: 6px 30px 6px 10px; color: #3f3a33; line-height: 1.45; }
 	.stmt-score { font-weight: 800; color: #B15A12; margin-right: 5px; white-space: nowrap; }
