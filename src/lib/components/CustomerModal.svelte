@@ -1,7 +1,7 @@
 <script>
 	import OrderList from '$lib/components/OrderList.svelte';
 
-	let { company, ranges, periodLabel, priorLabel, onClose } = $props();
+	let { company, ranges, periodLabel, priorLabel, onClose, isAdmin = false } = $props();
 
 	const PORTAL = '145052209';
 	const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -62,7 +62,12 @@
 			</div>
 		</div>
 		{#if company.cid !== 'none'}
-			<a class="cm-hs" href={companyUrl(company.cid)} target="_blank" rel="noopener">View in HubSpot ↗</a>
+			<div class="cm-actions">
+				{#if isAdmin}
+					<a class="cm-detail" href="/customer/{company.cid}">Full breakdown →</a>
+				{/if}
+				<a class="cm-hs" href={companyUrl(company.cid)} target="_blank" rel="noopener">View in HubSpot ↗</a>
+			</div>
 		{/if}
 	</div>
 
@@ -147,8 +152,11 @@
 	.cm-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 20px 22px; border-bottom: 1px solid var(--border); }
 	.cm-name { font-size: 19px; font-weight: 800; letter-spacing: -0.3px; color: #18181B; }
 	.cm-sub { font-size: 12.5px; color: #8A7550; margin-top: 3px; font-weight: 600; }
-	.cm-hs { font-size: 12.5px; font-weight: 700; color: var(--accent); text-decoration: none; white-space: nowrap; border: 1px solid var(--border); padding: 7px 12px; border-radius: 8px; margin-right: 34px; }
+	.cm-actions { display: flex; align-items: center; gap: 8px; margin-right: 34px; }
+	.cm-hs { font-size: 12.5px; font-weight: 700; color: var(--accent); text-decoration: none; white-space: nowrap; border: 1px solid var(--border); padding: 7px 12px; border-radius: 8px; }
 	.cm-hs:hover { background: #FFF5D2; }
+	.cm-detail { font-size: 12.5px; font-weight: 700; color: #fff; background: #18181B; text-decoration: none; white-space: nowrap; border: 1px solid #18181B; padding: 7px 12px; border-radius: 8px; }
+	.cm-detail:hover { background: #000; }
 
 	.state { padding: 40px; text-align: center; color: #8A7550; font-weight: 600; }
 	.state.err { color: var(--danger); }

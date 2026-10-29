@@ -174,6 +174,123 @@ export async function getPublisherProducts(db, windows, publisher, mode = 'sku')
 		.sort((a, b) => b.rev2 - a.rev2);
 }
 
+// ─── Customer detail (ONE company_id across all its closed line items) ───────
+// Admin-only /customer/[id] page: top figures + monthly chart, then breakdowns
+// by product, publisher (SKU view / mapped view) and series — the mirror image
+// of the publisher-detail page, scoped to a single customer instead.
+
+/** Basic info (name / owner / country / level / group) for ONE customer. */
+export async function getCustomerInfo(db, companyId) {
+	const row = await db
+		.prepare(
+			`SELECT COALESCE(company_name, '(No company)') AS name, MAX(owner_name) AS owner,
+			        MAX(country) AS country, MAX(customer_level) AS level, MAX(customer_group) AS grp
+			 FROM sales_deals WHERE COALESCE(company_id, 'none') = ?`
+		)
+		.bind(companyId)
+		.first();
+	return row && row.name !== null
+		? { name: row.name, owner: row.owner, country: row.country, level: row.level, group: row.grp }
+		: null;
+}
+
+/** Market totals (DKK) for ONE customer over a window (line items → deals for market). */
+export async function getCustomerMarketTotals(db, startIncl, endExcl, companyId) {
+	const rows = await db
+		.prepare(
+			`SELECT d.market AS market, COALESCE(SUM(li.amount_dkk), 0) AS dkk
+			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
+			 WHERE li.deal_kind = 'closed' AND COALESCE(li.company_id, 'none') = ? AND li.close_date >= ? AND li.close_date < ?
+			 GROUP BY d.market`
+		)
+		.bind(companyId, startIncl, endExcl)
+		.all();
+	const byMarket = {};
+	for (const m of MARKETS) byMarket[m] = { dkk: 0 };
+	let total = 0;
+	for (const r of rows.results ?? []) {
+		const m = MARKETS.includes(r.market) ? r.market : 'International';
+		byMarket[m].dkk += r.dkk;
+		total += r.dkk;
+	}
+	return { total: { dkk: total }, byMarket };
+}
+
+/** Monthly DKK for ONE customer in a year (12-element array). */
+export async function getCustomerMonthly(db, year, companyId) {
+	const rows = await db
+		.prepare(
+			`SELECT CAST(strftime('%m', close_date) AS INTEGER) AS m, COALESCE(SUM(amount_dkk), 0) AS rev
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND COALESCE(company_id, 'none') = ? AND close_date >= ? AND close_date < ? GROUP BY m`
+		)
+		.bind(companyId, `${year}-01-01`, `${year + 1}-01-01`)
+		.all();
+	const months = Array(12).fill(0);
+	for (const r of rows.results ?? []) if (r.m >= 1 && r.m <= 12) months[r.m - 1] = r.rev || 0;
+	return months;
+}
+
+/** Per-product (SKU) 3-window breakdown for ONE customer. */
+export async function getCustomerProducts(db, windows, companyId) {
+	const { y0, y1, y2 } = windows;
+	const rows = await db
+		.prepare(
+			`SELECT sku AS key, MAX(name) AS name,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND COALESCE(company_id, 'none') = ? AND sku IS NOT NULL GROUP BY sku`
+		)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, companyId)
+		.all();
+	return (rows.results ?? [])
+		.map((r) => ({ key: r.key, sku: r.key, name: r.name, rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0, index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null }))
+		.sort((a, b) => b.rev2 - a.rev2);
+}
+
+/** Per-publisher 3-window breakdown for ONE customer (sku or mapped view). */
+export async function getCustomerPublishers(db, windows, companyId, mode = 'sku') {
+	const { y0, y1, y2 } = windows;
+	const key = pubExpr(mode);
+	const rows = await db
+		.prepare(
+			`SELECT COALESCE(${key}, '—') AS key, COALESCE(${key}, '—') AS label,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
+			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND COALESCE(company_id, 'none') = ? GROUP BY key`
+		)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, companyId)
+		.all();
+	return (rows.results ?? [])
+		.map((r) => ({ key: r.key, label: r.label ?? r.key, rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0, index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null }))
+		.sort((a, b) => b.rev2 - a.rev2);
+}
+
+/** Per-series 3-window breakdown for ONE customer (mapped view) + "Everything else". */
+export async function getCustomerSeries(db, windows, companyId) {
+	const { y0, y1, y2 } = windows;
+	const rows = await db
+		.prepare(
+			`SELECT li.series_id AS key, (SELECT name FROM series WHERE id = li.series_id) AS label,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev0,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev1,
+			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev2
+			 FROM deal_line_items li WHERE li.deal_kind = 'closed' AND COALESCE(li.company_id, 'none') = ? GROUP BY li.series_id`
+		)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, companyId)
+		.all();
+	return (rows.results ?? [])
+		.map((r) => ({
+			key: r.key ?? null,
+			label: r.key ? (r.label ?? '—') : 'Everything else',
+			isRest: !r.key,
+			rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0,
+			index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null,
+		}))
+		.sort((a, b) => (a.isRest ? 1 : 0) - (b.isRest ? 1 : 0) || b.rev2 - a.rev2);
+}
+
 // ─── Series (sub-groups of a mapped publisher) ──────────────────────────────
 // Series live only in the MAPPED view: a line's series_id is set only when the
 // series' publisher matches the line's stored (mapped) publisher.

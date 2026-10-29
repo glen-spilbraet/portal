@@ -598,6 +598,7 @@
 		ranges={data.ranges}
 		periodLabel={data.periodLabel}
 		priorLabel={data.priorLabel}
+		isAdmin={data.isAdmin}
 		onClose={() => (openCompany = null)}
 	/>
 {/if}
