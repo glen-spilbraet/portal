@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { getSeriesMarketTotals, getSeriesMonthly, getSeriesCustomers, getSeriesProducts, MARKETS } from '$lib/salesStats.js';
+import { getSeriesMarketTotals, getSeriesMonthly, getSeriesCustomers, getSeriesProducts, getSyncMeta, MARKETS } from '$lib/salesStats.js';
 import { getSeries } from '$lib/server/series.js';
 import { effectiveParams, resolveRange, getPeriodOptions, yearWindows, addDaysStr } from '$lib/server/statsRange.js';
 
@@ -22,13 +22,14 @@ export async function load({ params, platform, url, cookies, parent }) {
 	if (!series) error(404, 'Series not found');
 
 	const { windows, yearCols, colNoData } = yearWindows(cur, prior);
-	const [curM, priorM, monCur, monPrior, customers, products] = await Promise.all([
+	const [curM, priorM, monCur, monPrior, customers, products, syncMeta] = await Promise.all([
 		getSeriesMarketTotals(db, cur.start, cur.end, seriesId),
 		getSeriesMarketTotals(db, prior.start, prior.end, seriesId),
 		getSeriesMonthly(db, curYear, seriesId),
 		getSeriesMonthly(db, curYear - 1, seriesId),
 		getSeriesCustomers(db, windows, seriesId),
 		getSeriesProducts(db, windows, seriesId),
+		getSyncMeta(db),
 	]);
 
 	const widget = (key, wLabel, cd, pd) => ({ key, label: wLabel, dkk: cd, index: pd > 0 ? Math.round((cd / pd) * 100) : null });
@@ -41,6 +42,6 @@ export async function load({ params, platform, url, cookies, parent }) {
 		publisher, pub, series: { id: series.id, name: series.name },
 		widgets, monthly: { year: curYear, cur: monCur, prior: monPrior },
 		customers, products, yearCols, colNoData, selected, range, periodLabel: label,
-		yearOptions, quarterOptions, monthOptions,
+		yearOptions, quarterOptions, monthOptions, syncMeta,
 	};
 }

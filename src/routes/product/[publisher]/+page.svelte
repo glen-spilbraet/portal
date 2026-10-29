@@ -25,6 +25,7 @@
 	yearOptions={data.yearOptions}
 	quarterOptions={data.quarterOptions}
 	monthOptions={data.monthOptions}
+	syncMeta={data.syncMeta}
 />
 
 <main class="wrap">

@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { getPublisherMarketTotals, getPublisherMonthly, getPublisherCustomers, getPublisherProducts, getSeriesBreakdown, MARKETS } from '$lib/salesStats.js';
+import { getPublisherMarketTotals, getPublisherMonthly, getPublisherCustomers, getPublisherProducts, getSeriesBreakdown, getSyncMeta, MARKETS } from '$lib/salesStats.js';
 import { listSeries } from '$lib/server/series.js';
 import { effectiveParams, resolveRange, getPeriodOptions, yearWindows, addDaysStr } from '$lib/server/statsRange.js';
 
@@ -13,7 +13,7 @@ export async function load({ params, platform, url, cookies, parent }) {
 	const { yearOptions, quarterOptions, monthOptions } = getPeriodOptions(now);
 	const { cur, prior, label, selected } = resolveRange(effectiveParams(url, cookies), now);
 	const range = { start: cur.start, endInclusive: addDaysStr(cur.end, -1) };
-	const empty = { publisher, widgets: [], monthly: { year: curYear, cur: Array(12).fill(0), prior: Array(12).fill(0) }, customers: [], products: [], series: [], yearCols: ['—', '—', '—'], colNoData: [false, false, false], selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
+	const empty = { publisher, widgets: [], monthly: { year: curYear, cur: Array(12).fill(0), prior: Array(12).fill(0) }, customers: [], products: [], series: [], yearCols: ['—', '—', '—'], colNoData: [false, false, false], selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions, syncMeta: null };
 
 	const pub = url.searchParams.get('pub') === 'mapped' ? 'mapped' : 'sku';
 
@@ -21,13 +21,14 @@ export async function load({ params, platform, url, cookies, parent }) {
 	if (!db) return { ...empty, pub };
 
 	const { windows, yearCols, colNoData } = yearWindows(cur, prior);
-	const [curM, priorM, monCur, monPrior, customers, products] = await Promise.all([
+	const [curM, priorM, monCur, monPrior, customers, products, syncMeta] = await Promise.all([
 		getPublisherMarketTotals(db, cur.start, cur.end, publisher, pub),
 		getPublisherMarketTotals(db, prior.start, prior.end, publisher, pub),
 		getPublisherMonthly(db, curYear, publisher, pub),
 		getPublisherMonthly(db, curYear - 1, publisher, pub),
 		getPublisherCustomers(db, windows, publisher, pub),
 		getPublisherProducts(db, windows, publisher, pub),
+		getSyncMeta(db),
 	]);
 
 	const widget = (key, wLabel, cd, pd) => ({ key, label: wLabel, dkk: cd, index: pd > 0 ? Math.round((cd / pd) * 100) : null });
@@ -45,6 +46,6 @@ export async function load({ params, platform, url, cookies, parent }) {
 	return {
 		publisher, pub, widgets, monthly: { year: curYear, cur: monCur, prior: monPrior },
 		customers, products, series, yearCols, colNoData, selected, range, periodLabel: label,
-		yearOptions, quarterOptions, monthOptions,
+		yearOptions, quarterOptions, monthOptions, syncMeta,
 	};
 }

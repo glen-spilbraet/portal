@@ -238,6 +238,7 @@
 	quarterOptions={data.quarterOptions}
 	monthOptions={data.monthOptions}
 	filters={data.activeFilters}
+	syncMeta={data.meta}
 />
 
 <main class="wrap">

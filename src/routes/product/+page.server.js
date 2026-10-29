@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { getPublisherBreakdown, getSeriesChildrenByPublisher, getAllSeriesBreakdown } from '$lib/salesStats.js';
+import { getPublisherBreakdown, getSeriesChildrenByPublisher, getAllSeriesBreakdown, getSyncMeta } from '$lib/salesStats.js';
 import { effectiveParams, resolveRange, getPeriodOptions, yearWindows, addDaysStr } from '$lib/server/statsRange.js';
 
 export async function load({ platform, url, cookies, parent }) {
@@ -16,20 +16,21 @@ export async function load({ platform, url, cookies, parent }) {
 
 	const db = platform?.env?.SALES_DB;
 	if (!db) {
-		return { publishers: [], seriesRows: [], seriesChildren: {}, pub, yearCols: ['—', '—', '—'], colNoData: [false, false, false], selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
+		return { publishers: [], seriesRows: [], seriesChildren: {}, pub, yearCols: ['—', '—', '—'], colNoData: [false, false, false], selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions, syncMeta: null };
 	}
 
 	const { windows, yearCols, colNoData } = yearWindows(cur, prior);
+	const syncMeta = await getSyncMeta(db);
 
 	// "Mapped series" = a flat leaderboard of every series across all publishers.
 	if (pub === 'series') {
 		const seriesRows = await getAllSeriesBreakdown(db, windows);
-		return { publishers: [], seriesRows, seriesChildren: {}, pub, yearCols, colNoData, selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
+		return { publishers: [], seriesRows, seriesChildren: {}, pub, yearCols, colNoData, selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions, syncMeta };
 	}
 
 	const publishers = await getPublisherBreakdown(db, windows, pub);
 	// Series sub-rows for the expandable list (mapped view only).
 	const seriesChildren = pub === 'mapped' ? await getSeriesChildrenByPublisher(db, windows) : {};
 
-	return { publishers, seriesRows: [], seriesChildren, pub, yearCols, colNoData, selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions };
+	return { publishers, seriesRows: [], seriesChildren, pub, yearCols, colNoData, selected, range, periodLabel: label, yearOptions, quarterOptions, monthOptions, syncMeta };
 }

@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import {
 	getCustomerInfo, getCustomerMarketTotals, getCustomerMonthly,
-	getCustomerProducts, getCustomerPublishers, getCustomerSeries, MARKETS,
+	getCustomerProducts, getCustomerPublishers, getCustomerSeries, getSyncMeta, MARKETS,
 } from '$lib/salesStats.js';
 import { effectiveParams, resolveRange, getPeriodOptions, yearWindows, addDaysStr } from '$lib/server/statsRange.js';
 
@@ -30,7 +30,7 @@ export async function load({ params, platform, url, cookies, parent }) {
 	if (!info) error(404, 'Customer not found.');
 
 	const { windows, yearCols, colNoData } = yearWindows(cur, prior);
-	const [curM, priorM, monCur, monPrior, products, pubSku, pubMapped, series] = await Promise.all([
+	const [curM, priorM, monCur, monPrior, products, pubSku, pubMapped, series, syncMeta] = await Promise.all([
 		getCustomerMarketTotals(db, cur.start, cur.end, id),
 		getCustomerMarketTotals(db, prior.start, prior.end, id),
 		getCustomerMonthly(db, curYear, id),
@@ -39,6 +39,7 @@ export async function load({ params, platform, url, cookies, parent }) {
 		getCustomerPublishers(db, windows, id, 'sku'),
 		getCustomerPublishers(db, windows, id, 'mapped'),
 		getCustomerSeries(db, windows, id),
+		getSyncMeta(db),
 	]);
 
 	const widget = (key, wLabel, cd, pd) => ({ key, label: wLabel, dkk: cd, index: pd > 0 ? Math.round((cd / pd) * 100) : null });
@@ -53,6 +54,6 @@ export async function load({ params, platform, url, cookies, parent }) {
 		widgets,
 		monthly: { year: curYear, cur: monCur, prior: monPrior },
 		dims: { products, pub_sku: pubSku, pub_mapped: pubMapped, series },
-		yearCols, colNoData,
+		yearCols, colNoData, syncMeta,
 	};
 }

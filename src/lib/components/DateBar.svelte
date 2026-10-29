@@ -5,7 +5,35 @@
 	// route (period/from/to) and writes a `statsRange` cookie so the selection
 	// mirrors when switching between the two views. `filters` (optional) is
 	// preserved in the URL on date changes.
-	let { selected, range, yearOptions, quarterOptions, monthOptions, filters = {} } = $props();
+	let { selected, range, yearOptions, quarterOptions, monthOptions, filters = {}, syncMeta = null } = $props();
+
+	// ── Data freshness chip ───────────────────────────────────────────────────
+	// Derived purely from sales_sync_meta: green when the last run is recent,
+	// amber when it's gone stale (> ~28h, i.e. a daily run was missed), red on a
+	// sync error. Absent syncMeta → no chip (e.g. public share page).
+	const STALE_MS = 28 * 3600 * 1000;
+	function relTime(iso) {
+		const t = Date.parse(iso);
+		if (!Number.isFinite(t)) return 'unknown';
+		const mins = Math.round((Date.now() - t) / 60000);
+		if (mins < 1) return 'just now';
+		if (mins < 60) return `${mins} min ago`;
+		const hrs = Math.round(mins / 60);
+		if (hrs < 24) return `${hrs} h ago`;
+		const days = Math.round(hrs / 24);
+		return days === 1 ? 'yesterday' : `${days} days ago`;
+	}
+	const fresh = $derived.by(() => {
+		if (!syncMeta) return null;
+		const { last_run, status, deal_count } = syncMeta;
+		const ageMs = last_run ? Date.now() - Date.parse(last_run) : Infinity;
+		const absolute = last_run ? new Date(last_run).toLocaleString('da-DK') : 'never';
+		const count = deal_count != null ? ` · ${deal_count} deals` : '';
+		if (status === 'error') return { cls: 'bad', label: 'Sync error', title: `Last sync FAILED — data may be stale.\nLast completed: ${absolute}${count}` };
+		if (status === 'running') return { cls: 'run', label: 'Syncing…', title: `A sync is running.\nLast completed: ${absolute}${count}` };
+		if (!last_run || ageMs > STALE_MS) return { cls: 'warn', label: `Stale · ${relTime(last_run)}`, title: `Data may be stale (no recent sync).\nLast run: ${absolute}${count}` };
+		return { cls: 'ok', label: `Updated ${relTime(last_run)}`, title: `Sales data as of ${absolute}${count}` };
+	});
 
 	let scrollY = $state(0);
 	const isQuickSelected = $derived(selected !== 'custom');
@@ -61,6 +89,11 @@
 
 <div class="date-bar" class:scrolled={scrollY > 4}>
 	<div class="date-bar-inner">
+		{#if fresh}
+			<div class="freshness {fresh.cls}" title={fresh.title}>
+				<span class="dot"></span>{fresh.label}
+			</div>
+		{/if}
 		<div class="range-controls" class:busy aria-busy={busy}>
 			<select class="quick-select" class:active={isQuickSelected} aria-label="Quick select" onchange={pickQuick} disabled={busy}>
 				<option value="" disabled selected={!isQuickSelected}>Quick Select</option>
@@ -107,6 +140,19 @@
 	}
 	.range-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; transition: opacity 0.15s ease; }
 	.range-controls.busy { opacity: 0.75; }
+
+	/* Data freshness chip — floats left, controls stay right. */
+	.freshness { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 100px; white-space: nowrap; cursor: default; }
+	.freshness .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+	.freshness.ok   { background: #EAF7EF; color: #16794C; }
+	.freshness.ok .dot   { background: #16794C; }
+	.freshness.warn { background: #FDEBD2; color: #B4611A; }
+	.freshness.warn .dot { background: #E0892B; }
+	.freshness.bad  { background: #FDECEC; color: #C4381B; }
+	.freshness.bad .dot  { background: #C4381B; }
+	.freshness.run  { background: #F4F4F5; color: #52525B; }
+	.freshness.run .dot  { background: #A1A1AA; }
+	@media (max-width: 640px) { .freshness { display: none; } }
 	.range-controls.busy .quick-select,
 	.range-controls.busy .date-input { cursor: progress; }
 	.quick-select:disabled,
