@@ -62,36 +62,85 @@ export async function getSkippedCount(db, ownerEmail) {
 }
 
 /**
+ * Pull every closed line item for the given companies within [minDate, maxDate]
+ * and index it by `company_id + ' ' + sku` → [{close_date, quantity}]. One flat
+ * scan (indexed by idx_dli_company_sku_close), chunked to stay under SQL bind
+ * limits — matching is then done in JS. This is what keeps the forecast page
+ * fast: doing the forecast↔actuals match in SQL (correlated subquery OR join)
+ * blew D1's per-query CPU limit.
+ */
+async function closedQtyLookup(db, cids, minDate, maxDate) {
+	const map = new Map();
+	if (!cids.length || !minDate || !maxDate) return map;
+	const CHUNK = 300;
+	for (let i = 0; i < cids.length; i += CHUNK) {
+		const batch = cids.slice(i, i + CHUNK);
+		const closed = (await db
+			.prepare(
+				`SELECT company_id AS cid, sku, close_date, quantity FROM deal_line_items
+				 WHERE deal_kind = 'closed' AND company_id IN (${batch.map(() => '?').join(',')})
+				   AND close_date >= ? AND close_date <= ?`
+			)
+			.bind(...batch, minDate, maxDate)
+			.all()).results ?? [];
+		for (const r of closed) {
+			const key = r.cid + ' ' + r.sku;
+			let arr = map.get(key);
+			if (!arr) { arr = []; map.set(key, arr); }
+			arr.push(r);
+		}
+	}
+	return map;
+}
+
+/**
+ * Given forecast line rows, attach `actual_qty` = SUM of matching closed units
+ * (same company+sku) whose close_date falls in each line's actual window.
+ * `windowOf(line)` returns [startInclusive, endInclusive] for that line.
+ */
+async function attachActuals(db, lines, windowOf) {
+	if (!lines.length) return [];
+	const cids = [...new Set(lines.map((r) => r.cid).filter(Boolean))];
+	let minDate = null, maxDate = null;
+	for (const line of lines) {
+		const [s, e] = windowOf(line);
+		if (s && (minDate === null || s < minDate)) minDate = s;
+		if (e && (maxDate === null || e > maxDate)) maxDate = e;
+	}
+	const closedByKey = await closedQtyLookup(db, cids, minDate, maxDate);
+	return lines.map((line) => {
+		const [s, e] = windowOf(line);
+		let actual = 0;
+		const arr = closedByKey.get(line.cid + ' ' + line.sku);
+		if (arr) for (const c of arr) if (c.close_date >= s && c.close_date <= e) actual += c.quantity || 0;
+		return { ...line, actual_qty: actual };
+	});
+}
+
+/**
  * Ended forecasts. Each forecast line's actual is the units of that SKU the
  * customer bought within that forecast's window. Returned rolled up three ways
  * (customers / owners / products), each with expandable drill-down children.
  */
 export async function getCompletedAccuracy(db, today, ownerEmail, years) {
 	const f = filterClause(ownerEmail, years);
-	// Actual units via a LEFT JOIN + GROUP BY (one indexed pass) instead of a
-	// correlated subquery per forecast line — the latter ran tens of thousands of
-	// separate lookups (~34s). Semantics are identical: each forecast line's
-	// actual = SUM of matching closed quantity in its window.
-	const rows = (await db
+	const lines = (await db
 		.prepare(
 			`SELECT f.company_id AS cid, f.company_name AS company,
 			        f.owner_name AS owner, f.owner_email AS owner_email,
+			        f.forecast_start_date AS fstart, f.forecast_end_date AS fend,
 			        li.sku AS sku, li.name AS name,
-			        ${FC_QTY} AS forecast_qty,
-			        COALESCE(SUM(c.quantity), 0) AS actual_qty
+			        ${FC_QTY} AS forecast_qty
 			 FROM forecast_deals f
 			 JOIN deal_line_items li ON li.deal_id = f.deal_id AND li.deal_kind = 'forecast'
-			 LEFT JOIN deal_line_items c
-			        ON c.deal_kind = 'closed' AND c.company_id = f.company_id AND c.sku = li.sku
-			       AND c.close_date >= f.forecast_start_date AND c.close_date <= f.forecast_end_date
 			 WHERE f.forecast_start_date IS NOT NULL AND f.forecast_end_date IS NOT NULL
 			   AND f.forecast_end_date < ?
 			   AND ${FC_QTY} > 0
-			   ${f.clause}
-			 GROUP BY li.line_item_id`
+			   ${f.clause}`
 		)
 		.bind(today, ...f.binds)
 		.all()).results ?? [];
+	const rows = await attachActuals(db, lines, (line) => [line.fstart, line.fend]);
 
 	return {
 		customers: rollup(rows,
@@ -145,31 +194,26 @@ function rollup(rows, keyOf, labelOf, metaOf, childKeyOf, childLabelOf) {
  */
 export async function getOngoingProgress(db, today, ownerEmail, years) {
 	const f = filterClause(ownerEmail, years);
-	// Same LEFT JOIN + GROUP BY rewrite as getCompletedAccuracy (was ~19s as a
-	// per-line correlated subquery). Actual = units bought from window start →
-	// today.
-	const rows = await db
+	// Two-pass (JS match), same as getCompletedAccuracy. Actual = units bought
+	// from window start → today.
+	const lines = (await db
 		.prepare(
 			`SELECT f.company_id AS cid, f.company_name AS company,
 			        f.owner_name AS owner, f.owner_email AS owner_email,
 			        f.forecast_start_date AS start, f.forecast_end_date AS end,
 			        li.sku AS sku, li.name AS name,
-			        ${FC_QTY} AS forecast_qty,
-			        COALESCE(SUM(c.quantity), 0) AS actual_qty
+			        ${FC_QTY} AS forecast_qty
 			 FROM forecast_deals f
 			 JOIN deal_line_items li ON li.deal_id = f.deal_id AND li.deal_kind = 'forecast'
-			 LEFT JOIN deal_line_items c
-			        ON c.deal_kind = 'closed' AND c.company_id = f.company_id AND c.sku = li.sku
-			       AND c.close_date >= f.forecast_start_date AND c.close_date <= ?
 			 WHERE f.forecast_start_date IS NOT NULL AND f.forecast_end_date IS NOT NULL
 			   AND f.forecast_start_date <= ? AND f.forecast_end_date >= ?
 			   AND ${FC_QTY} > 0
-			   ${f.clause}
-			 GROUP BY li.line_item_id`
+			   ${f.clause}`
 		)
-		.bind(today, today, today, ...f.binds)
-		.all();
-	const custs = aggregateByCustomer(rows.results ?? [], true);
+		.bind(today, today, ...f.binds)
+		.all()).results ?? [];
+	const rows = await attachActuals(db, lines, (line) => [line.start, today]);
+	const custs = aggregateByCustomer(rows, true);
 	// Attach time-elapsed pace for the ongoing view.
 	const t = Date.parse(today + 'T00:00:00Z');
 	for (const c of custs) {
