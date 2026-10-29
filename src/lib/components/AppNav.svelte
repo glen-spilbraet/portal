@@ -141,8 +141,8 @@
 						<a href={statsItems[0].href} class="nav-link" class:active={statsActive}>{@html ICONS.stats}Stats</a>
 					{:else}
 						<div class="nav-group" class:active={statsActive}>
-							<button class="nav-top" class:active={statsActive}>{@html ICONS.stats}Stats
-							</button>
+							<a href={statsItems[0].href} class="nav-top" class:active={statsActive}>{@html ICONS.stats}Stats
+							</a>
 							<div class="dropdown"><div class="dropdown-inner">
 								{#each statsItems as item}<a href={item.href} class="dropdown-item" class:active={active === item.key}>{item.label}</a>{/each}
 							</div></div>
@@ -153,8 +153,8 @@
 				<!-- Sales (incl. Mail) -->
 				{#if showSales}
 					<div class="nav-group" class:active={salesActive}>
-						<button class="nav-top" class:active={salesActive}>{@html ICONS.sales}Sales
-						</button>
+						<a href={salesItems[0].href} class="nav-top" class:active={salesActive}>{@html ICONS.sales}Sales
+						</a>
 						<div class="dropdown"><div class="dropdown-inner">
 							{#each salesItems as item}<a href={item.href} class="dropdown-item" class:active={active === item.key || (item.key === 'mail' && mailActive)}>{item.label}</a>{/each}
 						</div></div>
@@ -164,8 +164,8 @@
 				<!-- Events -->
 				{#if showEvents}
 					<div class="nav-group" class:active={eventsActive}>
-						<button class="nav-top" class:active={eventsActive}>{@html ICONS.events}Events
-						</button>
+						<a href={eventItems[0].href} class="nav-top" class:active={eventsActive}>{@html ICONS.events}Events
+						</a>
 						<div class="dropdown"><div class="dropdown-inner">
 							{#each eventItems as item}<a href={item.href} class="dropdown-item" class:active={active === item.key}>{item.label}</a>{/each}
 						</div></div>
@@ -175,8 +175,8 @@
 				<!-- Orders -->
 				{#if showOrders}
 					<div class="nav-group" class:active={orderActive}>
-						<button class="nav-top" class:active={orderActive}>{@html ICONS.orders}Orders
-						</button>
+						<a href={orderItems[0].href} class="nav-top" class:active={orderActive}>{@html ICONS.orders}Orders
+						</a>
 						<div class="dropdown"><div class="dropdown-inner">
 							{#each orderItems as item}<a href={item.href} class="dropdown-item" class:active={active === item.key}>{item.label}</a>{/each}
 						</div></div>
@@ -393,6 +393,7 @@
 		border: none;
 		cursor: pointer;
 		font-family: inherit;
+		text-decoration: none;
 		transition: background 0.15s, color 0.15s;
 		white-space: nowrap;
 	}
