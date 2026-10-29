@@ -66,6 +66,7 @@ export async function deleteMedia(db, id) {
 	await db.batch([
 		db.prepare('DELETE FROM award_statement WHERE instance_id IN (SELECT id FROM press_instance WHERE media_id = ?)').bind(id),
 		db.prepare('DELETE FROM press_instance_product WHERE instance_id IN (SELECT id FROM press_instance WHERE media_id = ?)').bind(id),
+		db.prepare('DELETE FROM press_instance_link WHERE instance_id IN (SELECT id FROM press_instance WHERE media_id = ?)').bind(id),
 		db.prepare('DELETE FROM press_instance WHERE media_id = ?').bind(id),
 		db.prepare('DELETE FROM award_media_contact WHERE media_id = ?').bind(id),
 		db.prepare('DELETE FROM award_media WHERE id = ?').bind(id),
@@ -98,6 +99,17 @@ async function replaceStatements(db, instanceId, statements) {
 		await db.batch(b.map((s) => db.prepare(
 			'INSERT INTO award_statement (id, instance_id, statement, score) VALUES (?,?,?,?)'
 		).bind(uid(), instanceId, s.statement || null, s.score === '' || s.score == null ? null : Number(s.score))));
+	}
+}
+
+/** Replace an instance's links (each a url + a type like SoMe/article/review). */
+async function replaceLinks(db, instanceId, links) {
+	await db.prepare('DELETE FROM press_instance_link WHERE instance_id = ?').bind(instanceId).run();
+	const valid = (links ?? []).filter((l) => l && (l.url ?? '').trim());
+	for (const b of chunk(valid, 20)) {
+		await db.batch(b.map((l) => db.prepare(
+			'INSERT INTO press_instance_link (id, instance_id, type, url, label) VALUES (?,?,?,?,?)'
+		).bind(uid(), instanceId, l.type || 'other', l.url.trim(), (l.label ?? '').trim() || null)));
 	}
 }
 
@@ -162,6 +174,7 @@ export async function createInstance(db, d) {
 		.bind(id, ...instBinds(d)).run();
 	await replaceStatements(db, id, d.statements);
 	await replaceProducts(db, id, d.additional_skus);
+	await replaceLinks(db, id, d.links);
 	return id;
 }
 
@@ -170,12 +183,14 @@ export async function updateInstance(db, id, d) {
 		.bind(...instBinds(d), id).run();
 	if (d.statements) await replaceStatements(db, id, d.statements);
 	if (d.additional_skus !== undefined) await replaceProducts(db, id, d.additional_skus);
+	if (d.links !== undefined) await replaceLinks(db, id, d.links);
 }
 
 export async function deleteInstance(db, id) {
 	await db.batch([
 		db.prepare('DELETE FROM award_statement WHERE instance_id = ?').bind(id),
 		db.prepare('DELETE FROM press_instance_product WHERE instance_id = ?').bind(id),
+		db.prepare('DELETE FROM press_instance_link WHERE instance_id = ?').bind(id),
 		db.prepare('DELETE FROM press_instance WHERE id = ?').bind(id),
 	]);
 }
@@ -262,5 +277,11 @@ export async function listAllInstances(db) {
 	const addlByInst = {};
 	for (const a of addl) (addlByInst[a.instance_id] ??= []).push({ sku: a.sku, sheet_id: a.sheet_id, product_name: a.product_name });
 	for (const i of instances) i.additional_products = addlByInst[i.id] ?? [];
+
+	// Links (url + type) per instance.
+	const links = (await db.prepare('SELECT instance_id, type, url, label FROM press_instance_link ORDER BY rowid').all()).results ?? [];
+	const linksByInst = {};
+	for (const l of links) (linksByInst[l.instance_id] ??= []).push({ type: l.type, url: l.url, label: l.label });
+	for (const i of instances) i.links = linksByInst[i.id] ?? [];
 	return instances;
 }

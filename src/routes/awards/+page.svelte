@@ -28,6 +28,20 @@
 	const OPEN_STATUSES = new Set(['', 'sent', 'submitted']);
 	const isOpenStatus = (i) => OPEN_STATUSES.has(i.status ?? '');
 
+	// Link types — places a product gets mentioned / shown.
+	const LINK_TYPES = [
+		{ v: 'some', label: 'Social media' },
+		{ v: 'article', label: 'Article' },
+		{ v: 'review', label: 'Review' },
+		{ v: 'video', label: 'Video' },
+		{ v: 'podcast', label: 'Podcast' },
+		{ v: 'blog', label: 'Blog' },
+		{ v: 'newsletter', label: 'Newsletter' },
+		{ v: 'webshop', label: 'Webshop' },
+		{ v: 'retailer', label: 'Retailer' },
+		{ v: 'other', label: 'Other' }
+	];
+
 
 	// ── Filters (country · media · free text on SKU/product) ───────────────────
 	let fCountry = $state('');
@@ -96,7 +110,7 @@
 	function initSections() { showProof = !!(form.proof_url || form.proof_key); showNotes = !!((form.notes || '').trim()); }
 	function blank() {
 		return { id: null, media_id: '', sku: '', additional_skus: [], status: '', award_category: '',
-			disclosure_date: '', instance_date: today, statements: [], proof_url: '', proof_key: '', proof_name: '',
+			disclosure_date: '', instance_date: today, statements: [], links: [], proof_url: '', proof_key: '', proof_name: '',
 			nominee_badge_key: '', nominee_badge_name: '', winner_badge_key: '', winner_badge_name: '', notes: '' };
 	}
 	function fromInstance(i, { newId = false, clearSku = false } = {}) {
@@ -109,7 +123,8 @@
 			proof_url: i.proof_url ?? '', proof_key: i.proof_key ?? '', proof_name: i.proof_key ? 'Uploaded file' : '',
 			nominee_badge_key: i.nominee_badge_key ?? '', nominee_badge_name: i.nominee_badge_key ? 'badge' : '',
 			winner_badge_key: i.winner_badge_key ?? '', winner_badge_name: i.winner_badge_key ? 'badge' : '',
-			notes: i.notes ?? '', statements: (i.statements ?? []).map((s) => ({ statement: s.statement ?? '', score: s.score ?? '' }))
+			notes: i.notes ?? '', statements: (i.statements ?? []).map((s) => ({ statement: s.statement ?? '', score: s.score ?? '' })),
+			links: (i.links ?? []).map((l) => ({ type: l.type ?? 'other', url: l.url ?? '', label: l.label ?? '' }))
 		};
 	}
 	let form = $state(blank());
@@ -124,6 +139,8 @@
 	function close() { open = false; }
 	function addStatement() { form.statements = [...form.statements, { statement: '', score: '' }]; }
 	function removeStatement(i) { form.statements = form.statements.filter((_, x) => x !== i); }
+	function addLink() { form.links = [...form.links, { type: 'some', url: '', label: '' }]; }
+	function removeLink(i) { form.links = form.links.filter((_, x) => x !== i); }
 
 	// Product name (from the matching sheet) shown next to each SKU, or "N/A".
 	let nameCache = $state({});
@@ -467,9 +484,9 @@
 				</div>
 			</section>
 
-			<!-- Status (award: submitted/nominated/winner · press: sent/used/not used) -->
+			<!-- Award / status (award: submitted/nominated/winner · press: sent/used/not used) -->
 			<section class="sect">
-				<div class="sect-head"><span>Status</span></div>
+				<div class="sect-head"><span>Award</span></div>
 				<div class="sect-body">
 					<div class="row2">
 						<label class="fld"><span>Status</span>
@@ -517,6 +534,24 @@
 							<textarea bind:value={s.statement} rows="2" placeholder="Quote / statement"></textarea>
 							<input class="score-in" type="number" step="0.5" min="0" max={selMedia?.review_scale ?? undefined} bind:value={s.score} placeholder="Score" />
 							<button class="x sm" onclick={() => removeStatement(i)}>✕</button>
+						</div>
+					{/each}
+				</div>
+			</section>
+
+			<!-- Links -->
+			<section class="sect">
+				<div class="sect-head"><span>Links</span><button class="btn sm" onclick={addLink}>+ Add link</button></div>
+				<div class="sect-body">
+					{#if !form.links.length}<p class="hint">No links yet. Add social posts, articles, reviews, videos…</p>{/if}
+					{#each form.links as l, i (i)}
+						<div class="link-row">
+							<select class="link-type" bind:value={l.type}>
+								{#each LINK_TYPES as t}<option value={t.v}>{t.label}</option>{/each}
+							</select>
+							<input class="link-url" bind:value={l.url} placeholder="https://…" />
+							<input class="link-label" bind:value={l.label} placeholder="Label (optional)" />
+							<button class="x sm" onclick={() => removeLink(i)}>✕</button>
 						</div>
 					{/each}
 				</div>
@@ -761,6 +796,9 @@
 	.stmt-row { display: grid; grid-template-columns: 1fr 90px auto; gap: 6px; align-items: start; }
 	.stmt-row textarea { font-family: inherit; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 	.score-in { font-family: inherit; font-size: 13px; border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+	.link-row { display: grid; grid-template-columns: 150px 1fr 150px auto; gap: 6px; align-items: center; }
+	.link-row select, .link-row input { font-family: inherit; font-size: 13px; color: #18181B; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+	.link-row select:focus, .link-row input:focus { outline: none; border-color: var(--accent); }
 	/* In-flow (not absolute) so the section card's overflow:hidden can't clip it. */
 	.sku-drop { background: #fff; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; max-height: 200px; overflow-y: auto; }
 	.sku-opt { display: block; width: 100%; text-align: left; background: none; border: none; font-family: inherit; font-size: 13px; padding: 7px 10px; cursor: pointer; color: #3f3a33; }
