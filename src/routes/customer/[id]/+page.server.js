@@ -4,6 +4,7 @@ import {
 	getCustomerProducts, getCustomerPublishers, getCustomerSeries, getSyncMeta, MARKETS,
 } from '$lib/salesStats.js';
 import { effectiveParams, resolveRange, getPeriodOptions, yearWindows, addDaysStr } from '$lib/server/statsRange.js';
+import { withCache } from '$lib/server/statsCache.js';
 
 /**
  * Admin-only customer detail — the mirror of the publisher-detail page, scoped
@@ -11,13 +12,14 @@ import { effectiveParams, resolveRange, getPeriodOptions, yearWindows, addDaysSt
  * table with a dimension switch (products / publishers SKU / publishers mapped /
  * series). The period follows the shared DateBar (url params → cookies).
  */
-export async function load({ params, platform, url, cookies, parent }) {
+export async function load({ params, platform, url, cookies, parent, setHeaders }) {
 	const { user } = await parent();
 	if (user?.role !== 'admin') error(403, "You don't have access to this section.");
 
 	const id = params.id;
 	const now = new Date();
 	const curYear = now.getUTCFullYear();
+	const todayStr = now.toISOString().slice(0, 10);
 	const { yearOptions, quarterOptions, monthOptions } = getPeriodOptions(now);
 	const { cur, prior, label, selected } = resolveRange(effectiveParams(url, cookies), now);
 	const range = { start: cur.start, endInclusive: addDaysStr(cur.end, -1) };
@@ -29,31 +31,41 @@ export async function load({ params, platform, url, cookies, parent }) {
 	const info = await getCustomerInfo(db, id);
 	if (!info) error(404, 'Customer not found.');
 
-	const { windows, yearCols, colNoData } = yearWindows(cur, prior);
-	const [curM, priorM, monCur, monPrior, products, pubSku, pubMapped, series, syncMeta] = await Promise.all([
-		getCustomerMarketTotals(db, cur.start, cur.end, id),
-		getCustomerMarketTotals(db, prior.start, prior.end, id),
-		getCustomerMonthly(db, curYear, id),
-		getCustomerMonthly(db, curYear - 1, id),
-		getCustomerProducts(db, windows, id),
-		getCustomerPublishers(db, windows, id, 'sku'),
-		getCustomerPublishers(db, windows, id, 'mapped'),
-		getCustomerSeries(db, windows, id),
-		getSyncMeta(db),
-	]);
+	const meta = await getSyncMeta(db);
+	const version = `${meta?.last_run ?? 'none'}|${todayStr}`;
 
-	const widget = (key, wLabel, cd, pd) => ({ key, label: wLabel, dkk: cd, index: pd > 0 ? Math.round((cd / pd) * 100) : null });
-	const widgets = [
-		widget('total', 'Total revenue', curM.total.dkk, priorM.total.dkk),
-		...MARKETS.map((m) => widget(m.toLowerCase(), m, curM.byMarket[m].dkk, priorM.byMarket[m].dkk)),
-	];
+	// Admin-only, company-wide (all data) → scope is the customer id + period.
+	const payload = await withCache(
+		{ platform, url, setHeaders, ns: 'customer', version, scope: { id, selected, start: cur.start, end: cur.end } },
+		async () => {
+			const { windows, yearCols, colNoData } = yearWindows(cur, prior);
+			const [curM, priorM, monCur, monPrior, products, pubSku, pubMapped, series] = await Promise.all([
+				getCustomerMarketTotals(db, cur.start, cur.end, id),
+				getCustomerMarketTotals(db, prior.start, prior.end, id),
+				getCustomerMonthly(db, curYear, id),
+				getCustomerMonthly(db, curYear - 1, id),
+				getCustomerProducts(db, windows, id),
+				getCustomerPublishers(db, windows, id, 'sku'),
+				getCustomerPublishers(db, windows, id, 'mapped'),
+				getCustomerSeries(db, windows, id),
+			]);
 
-	return {
-		...base,
-		customer: info,
-		widgets,
-		monthly: { year: curYear, cur: monCur, prior: monPrior },
-		dims: { products, pub_sku: pubSku, pub_mapped: pubMapped, series },
-		yearCols, colNoData, syncMeta,
-	};
+			const widget = (key, wLabel, cd, pd) => ({ key, label: wLabel, dkk: cd, index: pd > 0 ? Math.round((cd / pd) * 100) : null });
+			const widgets = [
+				widget('total', 'Total revenue', curM.total.dkk, priorM.total.dkk),
+				...MARKETS.map((m) => widget(m.toLowerCase(), m, curM.byMarket[m].dkk, priorM.byMarket[m].dkk)),
+			];
+
+			return {
+				...base,
+				customer: info,
+				widgets,
+				monthly: { year: curYear, cur: monCur, prior: monPrior },
+				dims: { products, pub_sku: pubSku, pub_mapped: pubMapped, series },
+				yearCols, colNoData, syncMeta: meta,
+			};
+		}
+	);
+
+	return payload;
 }
