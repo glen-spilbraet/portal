@@ -28,6 +28,23 @@ Check the raw state:
 wrangler d1 execute portal-db --remote --command "SELECT * FROM sales_sync_meta WHERE id = 1"
 ```
 
+### Failure alerts (email)
+
+On a failed scheduled run (an exception, or `sales_sync_meta.status = 'error'`
+after the run) the worker emails an alert via **Resend** — reusing the Rest Check
+`RESEND_API_KEY` / `RESEND_FROM`. Set the recipient once:
+```bash
+cd workers/hubspot-sales-sync
+wrangler secret put ALERT_EMAIL   # e.g. glen@spilbraet.dk
+npx wrangler deploy --keep-vars   # --keep-vars so existing secrets survive
+```
+If `ALERT_EMAIL` is unset the alert is a silent no-op (nothing breaks).
+
+A run that **never fires at all** can't email itself. Cover that case with
+Cloudflare's built-in **Cron Trigger failure notifications** (Workers & Pages →
+the worker → Settings → Trigger Events / Notifications) and/or the amber "Stale"
+freshness chip, which appears for anyone who opens a Stats view.
+
 ## 2. Re-running a sync manually
 
 Trigger the worker over HTTP with the `SYNC_SECRET` bearer (do NOT wait on the

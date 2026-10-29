@@ -75,7 +75,7 @@ function hsYmd(v) {
 
 export default {
 	async scheduled(event, env, ctx) {
-		ctx.waitUntil(handleScheduled(event, env));
+		ctx.waitUntil(runScheduledWithAlert(event, env));
 	},
 
 	async fetch(request, env, ctx) {
@@ -227,6 +227,53 @@ export default {
 		}
 	},
 };
+
+/**
+ * Run the scheduled sync and email an alert (Resend) if it fails — either by
+ * throwing, or by leaving sales_sync_meta in an 'error' state. Needs ALERT_EMAIL
+ * set (recipient); reuses the Rest Check RESEND_API_KEY / RESEND_FROM. A run that
+ * never fires at all can't alert itself — pair this with Cloudflare's Cron Trigger
+ * failure notifications in the dashboard for that case.
+ */
+async function runScheduledWithAlert(event, env) {
+	try {
+		await handleScheduled(event, env);
+	} catch (e) {
+		await alertSyncFailure(env, e?.message ?? String(e)).catch(() => {});
+		throw e;
+	}
+	try {
+		const meta = await getMeta(env.DB);
+		if (meta?.status === 'error') await alertSyncFailure(env, meta.message || 'sync reported an error');
+	} catch (_) { /* alerting is best-effort */ }
+}
+
+/** Email a sync-failure alert via Resend. No-op unless RESEND_API_KEY + RESEND_FROM + ALERT_EMAIL are set. */
+async function alertSyncFailure(env, detail) {
+	const to = env.ALERT_EMAIL;
+	const from = env.RESEND_FROM;
+	if (!env.RESEND_API_KEY || !to || !from) return false;
+	const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+	const when = new Date().toISOString();
+	const subject = `⚠️ Sales sync FAILED — ${when.slice(0, 10)}`;
+	const html = `<div style="font-family:system-ui,Arial,sans-serif;max-width:640px;color:#18181B">
+		<h2 style="margin:0 0 10px">Sales Stats sync failed</h2>
+		<p style="margin:0 0 8px">The HubSpot → portal sales sync did not complete successfully. Stats views will show a red “Sync error” chip until the next good run.</p>
+		<p style="margin:0 0 8px"><b>When:</b> ${esc(when)}<br><b>Detail:</b> ${esc(detail)}</p>
+		<p style="margin:0 0 6px">Re-run a full reconcile manually:</p>
+		<pre style="background:#F6F6F6;padding:10px;border-radius:8px;font-size:12px;white-space:pre-wrap">curl "https://hubspot-sales-sync.glen-16a.workers.dev/?reconcile=1" -H "Authorization: Bearer $SYNC_SECRET"</pre>
+	</div>`;
+	try {
+		const res = await fetch('https://api.resend.com/emails', {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ from, to: [to], subject, html }),
+		});
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
 
 async function handleScheduled(event, env) {
 	const currentYear = new Date().getUTCFullYear();
