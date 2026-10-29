@@ -12,14 +12,24 @@ export async function load({ parent, platform, url }) {
 	const ownerParam = url.searchParams.get('owner') || null;
 	const yearParam = (url.searchParams.get('year') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 
-	const [owners, years, completed, ongoing, skipped, halfYears] = await Promise.all([
-		getForecastOwners(db),
-		getForecastYears(db),
-		getCompletedAccuracy(db, today, ownerParam, yearParam),
-		getOngoingProgress(db, today, ownerParam, yearParam),
-		getSkippedCount(db, ownerParam),
-		getCompletedHalfYearBreakdown(db, today, ownerParam, yearParam)
-	]);
+	// Per-query timing so we can see which step is slow (console + ?debug=1).
+	const timings = {};
+	const run = async (label, p) => { const s = Date.now(); try { return await p; } finally { timings[label] = Date.now() - s; } };
+	const t0 = Date.now();
 
-	return { user, owners, years, ownerParam, yearParam, completed, ongoing, skipped, halfYears, today };
+	const [owners, years, completed, ongoing, skipped, halfYears] = await Promise.all([
+		run('owners', getForecastOwners(db)),
+		run('years', getForecastYears(db)),
+		run('completed', getCompletedAccuracy(db, today, ownerParam, yearParam)),
+		run('ongoing', getOngoingProgress(db, today, ownerParam, yearParam)),
+		run('skipped', getSkippedCount(db, ownerParam)),
+		run('halfYears', getCompletedHalfYearBreakdown(db, today, ownerParam, yearParam))
+	]);
+	timings.total = Date.now() - t0;
+	console.log('[forecast] query timings (ms):', JSON.stringify(timings));
+
+	return {
+		user, owners, years, ownerParam, yearParam, completed, ongoing, skipped, halfYears, today,
+		timings: url.searchParams.get('debug') ? timings : null,
+	};
 }

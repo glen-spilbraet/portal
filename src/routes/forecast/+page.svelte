@@ -96,6 +96,9 @@
 <AppNav active="forecast" user={data.user} />
 
 <main class="wrap">
+	{#if data.timings}
+		<div class="dbg">⏱ query timings (ms): {#each Object.entries(data.timings) as [k, v]}<span><b>{k}</b> {v}</span>{/each}</div>
+	{/if}
 	<div class="head">
 		<div>
 			<h1>Forecast Stats</h1>
@@ -351,4 +354,7 @@
 	.skipped-note { font-size: 12px; color: #98876e; margin: 4px 2px; }
 
 	@media (max-width: 820px) { .cards { grid-template-columns: 1fr 1fr; } }
+	.dbg { display: flex; flex-wrap: wrap; gap: 14px; background: #18181B; color: #FFE6A5; font-size: 12px; font-weight: 600; padding: 8px 14px; border-radius: 8px; margin-bottom: 14px; font-family: ui-monospace, monospace; }
+	.dbg span { white-space: nowrap; }
+	.dbg b { color: #fff; font-weight: 800; }
 </style>
