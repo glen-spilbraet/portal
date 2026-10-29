@@ -1,0 +1,12 @@
+-- Forecast page speed (quick win). The Forecast accuracy queries compute each
+-- forecast line's "actual" by summing closed line items matched on
+-- (company_id, sku, close_date range). Without a composite index each match
+-- scanned ALL of a company's line items, once per forecast line → multi-second
+-- loads. This index turns every match into a direct range seek.
+--
+-- Also helps getCompletedHalfYearBreakdown's closed pull
+-- (company_id IN (...) AND close_date BETWEEN …) via the (company_id, …) prefix.
+--
+-- SALES_DB is always the prod portal-db, so apply there only:
+--   wrangler d1 execute portal-db --remote --file=migrations/0090_forecast_actuals_index.sql
+CREATE INDEX IF NOT EXISTS idx_dli_company_sku_close ON deal_line_items(company_id, sku, close_date);
