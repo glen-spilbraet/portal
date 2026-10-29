@@ -25,16 +25,22 @@ export async function load({ parent, platform, url }) {
 		ongoing: [], skipped: 0, halfYears: [],
 	};
 
-	// ?debug=1: run each query in isolation, capturing per-query time AND error
-	// (via allSettled) so the page renders a diagnostic instead of a blanket 500.
+	// ?debug=1: run each query SEQUENTIALLY (D1 serialises a Worker's queries, so
+	// parallel timings all collapse to the batch total) with a SELECT 1 baseline,
+	// capturing per-query time + error so one query's isolated cost is visible.
 	if (url.searchParams.get('debug')) {
 		const timings = {}, errors = {}, res = { ...defaults };
-		await Promise.all(Object.entries(tasks).map(async ([k, fn]) => {
+		{
+			const s = Date.now();
+			try { await db.prepare('SELECT 1').first(); } catch (e) { errors.ping = e?.message ?? String(e); }
+			timings.ping = Date.now() - s;
+		}
+		for (const [k, fn] of Object.entries(tasks)) {
 			const s = Date.now();
 			try { res[k] = await fn(); } catch (e) { errors[k] = e?.message ?? String(e); }
 			timings[k] = Date.now() - s;
-		}));
-		console.log('[forecast] timings(ms):', JSON.stringify(timings), 'errors:', JSON.stringify(errors));
+		}
+		console.log('[forecast] seq timings(ms):', JSON.stringify(timings), 'errors:', JSON.stringify(errors));
 		return { user, ownerParam, yearParam, today, ...res, timings, errors };
 	}
 
