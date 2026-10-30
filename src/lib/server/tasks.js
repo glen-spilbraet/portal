@@ -77,8 +77,23 @@ export async function updateTask(db, id, patch) {
 export async function deleteTask(db, id) {
 	await db.batch([
 		db.prepare('DELETE FROM task_associations WHERE task_id = ?').bind(id),
+		db.prepare('DELETE FROM task_updates WHERE task_id = ?').bind(id),
 		db.prepare('DELETE FROM tasks WHERE id = ?').bind(id),
 	]);
+}
+
+// ── Updates (comment feed) ─────────────────────────────────────────────────────
+
+export async function listUpdates(db, taskId) {
+	const rows = await db.prepare('SELECT * FROM task_updates WHERE task_id = ? ORDER BY created_at ASC').bind(taskId).all();
+	return rows.results ?? [];
+}
+
+export async function addUpdate(db, taskId, { author, body }) {
+	const id = uid();
+	await db.prepare('INSERT INTO task_updates (id, task_id, author_email, body) VALUES (?,?,?,?)')
+		.bind(id, taskId, author ?? null, body).run();
+	return id;
 }
 
 // ── Associations ─────────────────────────────────────────────────────────────
