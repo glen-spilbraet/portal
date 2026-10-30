@@ -514,9 +514,9 @@
 	.chip-add:hover { background: #FDF6EC; }
 
 	/* ── Detail pane ───────────────────────────────────────── */
-	.overlay { position: fixed; inset: 0; background: rgba(24,24,27,.28); z-index: 40; }
-	.overlay.high { z-index: 50; }
-	.pane { position: fixed; z-index: 41; top: 16px; right: 16px; bottom: 16px; width: min(460px, calc(100vw - 32px)); background: #fff; border-radius: var(--radius-lg); box-shadow: 0 12px 40px rgba(100,60,0,.20); display: flex; flex-direction: column; overflow-y: auto; }
+	.overlay { position: fixed; inset: 0; background: rgba(24,24,27,.28); z-index: 150; }
+	.overlay.high { z-index: 160; }
+	.pane { position: fixed; z-index: 151; top: 16px; right: 16px; bottom: 16px; width: min(460px, calc(100vw - 32px)); background: #fff; border-radius: var(--radius-lg); box-shadow: 0 12px 40px rgba(100,60,0,.20); display: flex; flex-direction: column; overflow-y: auto; }
 	.pane-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 0; }
 	.pane-kicker { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #A1A1AA; }
 	.pane-close { border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: #A1A1AA; }
@@ -552,7 +552,7 @@
 	.upd-compose .btn { align-self: flex-end; }
 
 	/* ── Picker modal ─────────────────────────────────────── */
-	.pick-modal { position: fixed; z-index: 51; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100vw - 32px)); background: #fff; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 16px; display: flex; flex-direction: column; gap: 12px; max-height: 80vh; }
+	.pick-modal { position: fixed; z-index: 161; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100vw - 32px)); background: #fff; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 16px; display: flex; flex-direction: column; gap: 12px; max-height: 80vh; }
 	.pm-head { display: flex; align-items: center; justify-content: space-between; }
 	.pm-close { border: 0; background: none; font-size: 22px; line-height: 1; cursor: pointer; color: #A1A1AA; }
 	.pm-tabs { display: flex; gap: 6px; }
