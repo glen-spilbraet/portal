@@ -7,7 +7,7 @@
 
 	// New set form
 	let newName = $state('');
-	let newAccess = $state({ stats: true, stats_all: false, sheets: true, sheets_edit: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false, credit_notes: false });
+	let newAccess = $state({ stats: true, stats_all: false, sheets: true, sheets_edit: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false, credit_notes: false, q4_orders: false });
 	let creating = $state(false);
 	let createError = $state('');
 	let showCreate = $state(false);
@@ -35,6 +35,7 @@
 		{ key: 'price_sync',  label: 'Price Sync' },
 		{ key: 'events',      label: 'Events' },
 		{ key: 'order_conf',  label: 'Order Confirmations' },
+		{ key: 'q4_orders',   label: 'Q4 Orders' },
 		{ key: 'reports',     label: 'Reports' },
 		{ key: 'knowledge',   label: 'Knowledge' },
 	];
@@ -44,7 +45,7 @@
 	const GROUPS = [
 		{ label: 'Stats',  keys: ['stats', 'stats_all', 'product', 'forecast', 'reports', 'credit_notes'] },
 		{ label: 'Sales',  keys: ['sheets', 'sheets_edit', 'catalogues', 'planograms', 'awards', 'price_lists', 'mail'] },
-		{ label: 'Orders', keys: ['orders', 'order_conf', 'rest_check', 'price_sync'] },
+		{ label: 'Orders', keys: ['orders', 'q4_orders', 'order_conf', 'rest_check', 'price_sync'] },
 		{ label: 'Events', keys: ['events'] },
 		{ label: 'Data',   keys: ['data'] },
 		{ label: 'Knowledge', keys: ['knowledge'] },
@@ -80,6 +81,7 @@
 					access_reports:     newAccess.reports,
 					access_knowledge:   newAccess.knowledge,
 					access_credit_notes: newAccess.credit_notes,
+					access_q4_orders:   newAccess.q4_orders,
 				})
 			});
 			if (!res.ok) throw new Error((await res.json()).message ?? 'Failed');
@@ -107,6 +109,7 @@
 				access_reports:     newAccess.reports     ? 1 : 0,
 				access_knowledge:   newAccess.knowledge   ? 1 : 0,
 				access_credit_notes: newAccess.credit_notes ? 1 : 0,
+				access_q4_orders:   newAccess.q4_orders    ? 1 : 0,
 			}];
 			newName = '';
 			newAccess = { stats: true, stats_all: false, sheets: true, sheets_edit: true, catalogues: true, planograms: true, data: true, price_lists: false, orders: false, mail: false, product: false, forecast: false, awards: false, rest_check: false, price_sync: false, events: false, order_conf: false, reports: false, knowledge: false, credit_notes: false };
@@ -141,6 +144,7 @@
 			access_reports:     !!set.access_reports,
 			access_knowledge:   !!set.access_knowledge,
 			access_credit_notes: !!set.access_credit_notes,
+			access_q4_orders:   !!set.access_q4_orders,
 		};
 	}
 
@@ -179,6 +183,7 @@
 					access_reports:     e.access_reports,
 					access_knowledge:   e.access_knowledge,
 					access_credit_notes: e.access_credit_notes,
+					access_q4_orders:   e.access_q4_orders,
 				})
 			});
 			if (!res.ok) throw new Error('Failed to save');
@@ -205,6 +210,7 @@
 				access_reports:     e.access_reports  ? 1 : 0,
 				access_knowledge:   e.access_knowledge  ? 1 : 0,
 				access_credit_notes: e.access_credit_notes ? 1 : 0,
+				access_q4_orders:   e.access_q4_orders    ? 1 : 0,
 			});
 			cancelEdit(id);
 		} catch (err) {

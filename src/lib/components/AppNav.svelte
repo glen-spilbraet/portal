@@ -2,7 +2,7 @@
 	let { active = 'sheets', user = null } = $props();
 
 	// Permissions — default to full access so the nav never breaks if not provided
-	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true, credit_notes: true });
+	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true, credit_notes: true, q4_orders: true });
 
 	const mailActive = $derived(active.startsWith('mail-'));
 	const salesItems = $derived([
@@ -38,11 +38,12 @@
 	const statsActive = $derived(active === 'stats' || active === 'product' || active === 'forecast' || active === 'reports' || active === 'credit_notes');
 	const showData  = $derived(p.data);
 	const showKnowledge = $derived(!!p.knowledge);
-	const showOrders = $derived(!!p.orders || !!p.rest_check || !!p.price_sync || !!p.order_conf);
+	const showOrders = $derived(!!p.orders || !!p.rest_check || !!p.price_sync || !!p.order_conf || !!p.q4_orders);
 
 	const orderItems = $derived([
 		p.orders     && { href: '/orders',                 label: 'Orders',        key: 'orders' },
 		p.orders     && { href: '/orders/rackbeat-drafts', label: 'Create Orders', key: 'create-orders' },
+		p.q4_orders  && { href: '/orders/q4-orders',       label: 'Q4 Orders',     key: 'q4-orders' },
 		p.order_conf && { href: '/orders/order-confirmations', label: 'Order Confirmations', key: 'order-confirmations' },
 		p.rest_check && { href: '/orders/rest-check',      label: 'Rest Check',    key: 'rest-check' },
 		p.price_sync && { href: '/orders/price-sync',      label: 'Price Sync',    key: 'price-sync' },

@@ -38,6 +38,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/orders/rest-check'))           return 'rest_check';
 	if (pathname.startsWith('/orders/price-sync'))           return 'price_sync';
 	if (pathname.startsWith('/orders/order-confirmations'))  return 'order_conf';
+	if (pathname.startsWith('/orders/q4-orders'))            return 'q4_orders';
 	if (pathname.startsWith('/orders'))                      return 'orders';
 	if (pathname.startsWith('/product'))                     return 'product';
 	if (pathname.startsWith('/forecast'))                    return 'forecast';
@@ -138,6 +139,7 @@ export async function load({ cookies, url, platform }) {
 			['planograms', '/planograms'],
 			['price_lists', '/price-lists'],
 			['orders', '/orders'],
+			['q4_orders', '/orders/q4-orders'],
 			['data', '/data'],
 			['mail', '/mail/accounts'],
 		].find(([perm]) => effectivePermissions[perm]);
