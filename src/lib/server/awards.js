@@ -25,6 +25,40 @@ export async function getMedia(db, id) {
 	return { ...media, contacts };
 }
 
+// ── Public asset-library share key ──────────────────────────────────────────
+/** Short, unguessable key for the public /media/[slug]/[key] URL (48 bits hex). */
+function genShareKey() {
+	const b = crypto.getRandomValues(new Uint8Array(6));
+	return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+/** Make sure a media has a share key, creating one if missing. Returns the key. */
+export async function ensureShareKey(db, id) {
+	const row = await db.prepare('SELECT share_key FROM award_media WHERE id = ?').bind(id).first();
+	if (row?.share_key) return row.share_key;
+	for (let i = 0; i < 5; i++) {
+		const key = genShareKey();
+		try {
+			await db.prepare('UPDATE award_media SET share_key = ? WHERE id = ?').bind(key, id).run();
+			return key;
+		} catch { /* unique collision — retry with a new key */ }
+	}
+	return null;
+}
+
+/** Ensure every media in a list has a share key (used by the media admin page). */
+export async function ensureShareKeys(db, media) {
+	for (const m of media) {
+		if (!m.share_key) m.share_key = await ensureShareKey(db, m.id);
+	}
+	return media;
+}
+
+export async function getMediaByShareKey(db, key) {
+	if (!key) return null;
+	return db.prepare('SELECT * FROM award_media WHERE share_key = ?').bind(key).first();
+}
+
 async function replaceContacts(db, mediaId, contacts) {
 	await db.prepare('DELETE FROM award_media_contact WHERE media_id = ?').bind(mediaId).run();
 	const valid = (contacts ?? []).filter((c) => c && (c.name || c.email || c.phone || c.role));
@@ -49,8 +83,8 @@ const BADGE_COLS = 'badge_placement, badge_placement_2, badge_pad_top, badge_pad
 
 export async function createMedia(db, d) {
 	const id = uid();
-	await db.prepare(`INSERT INTO award_media (id, name, country, review_scale, notes, ${BADGE_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-		.bind(id, d.name, d.country || null, d.review_scale ? Number(d.review_scale) : null, d.notes || null, ...badgeBinds(d)).run();
+	await db.prepare(`INSERT INTO award_media (id, name, country, review_scale, notes, share_key, ${BADGE_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+		.bind(id, d.name, d.country || null, d.review_scale ? Number(d.review_scale) : null, d.notes || null, genShareKey(), ...badgeBinds(d)).run();
 	await replaceContacts(db, id, d.contacts);
 	return id;
 }
@@ -284,4 +318,107 @@ export async function listAllInstances(db) {
 	for (const l of links) (linksByInst[l.instance_id] ??= []).push({ type: l.type, url: l.url, label: l.label });
 	for (const i of instances) i.links = linksByInst[i.id] ?? [];
 	return instances;
+}
+
+// ── Public asset library (one media → sections per send-date → products) ─────
+const LANG_RANK = { en: 0, da: 1, sv: 2, no: 3 };
+
+/**
+ * Build the per-media asset library: every date we sent this media something,
+ * and under each date the products sent (main sku + additional products), each
+ * resolved to its sales-sheet image assets (3D box, flat front, content images,
+ * people-playing images). Used by the public /media/[slug]/[key] page.
+ */
+export async function getMediaAssetLibrary(db, mediaId) {
+	// (date, sku) pairs: main instance skus + additional products.
+	const mainRows = (await db.prepare(
+		`SELECT instance_date AS date, sku FROM press_instance
+		  WHERE media_id = ? AND sku IS NOT NULL AND TRIM(sku) != ''`
+	).bind(mediaId).all()).results ?? [];
+	const addlRows = (await db.prepare(
+		`SELECT i.instance_date AS date, p.sku AS sku
+		   FROM press_instance_product p JOIN press_instance i ON i.id = p.instance_id
+		  WHERE i.media_id = ? AND p.sku IS NOT NULL AND TRIM(p.sku) != ''`
+	).bind(mediaId).all()).results ?? [];
+
+	// date -> ordered unique skus
+	const byDate = new Map();
+	for (const r of [...mainRows, ...addlRows]) {
+		if (!r.date) continue;
+		let set = byDate.get(r.date);
+		if (!set) { set = new Set(); byDate.set(r.date, set); }
+		set.add(r.sku);
+	}
+	if (!byDate.size) return [];
+
+	const allSkus = [...new Set([...byDate.values()].flatMap((s) => [...s]))];
+
+	// Resolve each sku to its sheet (lowest id per sku, matching the rest of the app).
+	const sheetBySku = new Map();
+	for (const b of chunk(allSkus, 50)) {
+		const rows = (await db.prepare(
+			`SELECT id, sku, box_image_key, box_flat_image_key FROM sales_sheets
+			  WHERE sku IN (${b.map(() => '?').join(',')}) ORDER BY id`
+		).bind(...b).all()).results ?? [];
+		for (const r of rows) if (!sheetBySku.has(r.sku)) sheetBySku.set(r.sku, r);
+	}
+
+	const sheetIds = [...sheetBySku.values()].map((s) => s.id);
+	// Best product name per sheet (en > da > sv > no).
+	const nameBySheet = new Map();
+	// Content + people-playing images per sheet.
+	const contentBySheet = new Map();
+	const peopleBySheet = new Map();
+	for (const b of chunk(sheetIds, 50)) {
+		const ph = b.map(() => '?').join(',');
+		const names = (await db.prepare(
+			`SELECT sheet_id, value, language FROM translations
+			  WHERE sheet_id IN (${ph}) AND key = 'product_name' AND value != ''`
+		).bind(...b).all()).results ?? [];
+		for (const n of names) {
+			const cur = nameBySheet.get(n.sheet_id);
+			const rank = LANG_RANK[n.language] ?? 9;
+			if (!cur || rank < cur.rank) nameBySheet.set(n.sheet_id, { value: n.value, rank });
+		}
+		const imgs = (await db.prepare(
+			`SELECT sheet_id, r2_key, type FROM sheet_images
+			  WHERE sheet_id IN (${ph}) AND type IN ('content','people_playing')
+			  ORDER BY display_order ASC, created_at ASC`
+		).bind(...b).all()).results ?? [];
+		for (const im of imgs) {
+			const target = im.type === 'content' ? contentBySheet : peopleBySheet;
+			let arr = target.get(im.sheet_id);
+			if (!arr) { arr = []; target.set(im.sheet_id, arr); }
+			arr.push(im.r2_key);
+		}
+	}
+
+	function product(sku) {
+		const sheet = sheetBySku.get(sku) || null;
+		const sid = sheet?.id ?? null;
+		const content = sid ? (contentBySheet.get(sid) ?? []) : [];
+		const people = sid ? (peopleBySheet.get(sid) ?? []) : [];
+		const box3d = sheet?.box_image_key || null;
+		const flat = sheet?.box_flat_image_key || null;
+		const assets = [
+			...(box3d ? [{ group: 'box3d', label: '3D box', key: box3d }] : []),
+			...(flat ? [{ group: 'flat', label: 'Flat front', key: flat }] : []),
+			...content.map((k, i) => ({ group: 'content', label: `Content ${i + 1}`, key: k })),
+			...people.map((k, i) => ({ group: 'people', label: `People playing ${i + 1}`, key: k })),
+		];
+		return {
+			sku,
+			name: (sid && nameBySheet.get(sid)?.value) || sku,
+			thumb: box3d || flat || content[0] || people[0] || null,
+			assets,
+			assetCount: assets.length,
+		};
+	}
+
+	return [...byDate.entries()]
+		.sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0)) // newest date first
+		.map(([date, skus]) => ({
+			date,
+			products: [...skus].map(product).sort((a, b) => a.name.localeCompare(b.name)),
+		}));
 }

@@ -59,6 +59,19 @@
 		await fetch(`/api/awards/media/${id}`, { method: 'DELETE' });
 		await invalidateAll();
 	}
+
+	// ── Public asset-library link ───────────────────────────────────────────────
+	const slugify = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'media';
+	const libraryUrl = (m) => `${location.origin}/media/${slugify(m.name)}/${m.share_key}`;
+	let copied = $state(null);
+	async function copyLibrary(m) {
+		if (!m.share_key) return;
+		try {
+			await navigator.clipboard.writeText(libraryUrl(m));
+			copied = m.id;
+			setTimeout(() => { if (copied === m.id) copied = null; }, 1600);
+		} catch { prompt('Copy the asset-library link:', libraryUrl(m)); }
+	}
 </script>
 
 <svelte:head><title>Media · Awards & Press · Product Portal</title></svelte:head>
@@ -84,6 +97,8 @@
 							<td class="num">{m.contact_count}</td>
 							<td class="num">{m.instance_count}</td>
 							<td class="actions">
+								<button class="link" onclick={() => copyLibrary(m)} title="Copy the public asset-library link">{copied === m.id ? '✓ Copied' : 'Copy link'}</button>
+								<a class="link" href={`/media/${slugify(m.name)}/${m.share_key}`} target="_blank" rel="noopener">Open</a>
 								<button class="link" onclick={() => openEdit(m.id)}>Edit</button>
 								<button class="link danger" onclick={() => del(m.id, m.name)}>Delete</button>
 							</td>
