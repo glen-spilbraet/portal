@@ -8,6 +8,10 @@
 	let busy = $state({}); // id -> true while zipping
 	const setBusy = (id, v) => (busy = { ...busy, [id]: v });
 
+	// Collapsible sections — newest (first) open by default, the rest collapsed.
+	let expanded = $state(Object.fromEntries(data.sections.map((s, i) => [s.date, i === 0])));
+	const toggle = (date) => (expanded = { ...expanded, [date]: !expanded[date] });
+
 	const extOf = (key) => { const m = /\.([a-z0-9]+)$/i.exec(key || ''); return m ? m[1].toLowerCase() : 'jpg'; };
 	const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
@@ -103,17 +107,26 @@
 		{:else}
 			{#each data.sections as section (section.date)}
 				{@const secId = `sec-${section.date}`}
+				{@const isOpen = expanded[section.date]}
 				<section class="date-sec">
-					<div class="sec-head">
-						<div>
-							<h2>{fmtDate(section.date)}</h2>
-							<span class="sub">{section.products.length} product{section.products.length === 1 ? '' : 's'}</span>
+					<div class="sec-head" role="button" tabindex="0" aria-expanded={isOpen}
+						onclick={() => toggle(section.date)}
+						onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(section.date); } }}>
+						<div class="sec-left">
+							<svg class="chev" class:open={isOpen} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+								<polyline points="9 6 15 12 9 18" />
+							</svg>
+							<div>
+								<h2>{fmtDate(section.date)}</h2>
+								<span class="sub">{section.products.length} product{section.products.length === 1 ? '' : 's'}</span>
+							</div>
 						</div>
-						<button class="dl-all" onclick={() => downloadSection(section)} disabled={busy[secId] || !section.products.some((p) => p.assetCount)}>
+						<button class="dl-all" onclick={(e) => { e.stopPropagation(); downloadSection(section); }} disabled={busy[secId] || !section.products.some((p) => p.assetCount)}>
 							{#if busy[secId]}<span class="spin"></span>Preparing…{:else}Download all{/if}
 						</button>
 					</div>
 
+					{#if isOpen}
 					<div class="grid">
 						{#each section.products as p (p.sku)}
 							<article class="card">
@@ -141,6 +154,7 @@
 							</article>
 						{/each}
 					</div>
+					{/if}
 				</section>
 			{/each}
 		{/if}
@@ -172,16 +186,23 @@
 
 	.empty { padding: 80px 20px; text-align: center; color: #8A7550; font-weight: 600; }
 
-	.date-sec { margin-top: 56px; }
-	.date-sec:first-child { margin-top: 24px; }
+	.date-sec { margin-top: 20px; }
+	.date-sec:first-child { margin-top: 20px; }
 	.sec-head {
 		display: flex; align-items: center; justify-content: space-between; gap: 16px;
 		background: linear-gradient(135deg, #F57832 0%, #E4692A 100%);
-		color: #fff; border-radius: 16px; padding: 15px 22px;
-		box-shadow: 0 6px 20px rgba(228, 105, 42, 0.32);
+		color: #fff; border-radius: 14px; padding: 10px 18px;
+		box-shadow: 0 5px 16px rgba(228, 105, 42, 0.30);
+		cursor: pointer; user-select: none;
+		transition: box-shadow 0.14s, filter 0.14s;
 	}
-	.sec-head h2 { margin: 0; font-size: 18px; font-weight: 900; letter-spacing: -0.2px; color: #fff; }
-	.sec-head .sub { font-size: 13px; font-weight: 700; color: rgba(255, 255, 255, 0.85); }
+	.sec-head:hover { filter: brightness(1.03); }
+	.sec-head:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+	.sec-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+	.chev { flex-shrink: 0; transition: transform 0.18s ease; }
+	.chev.open { transform: rotate(90deg); }
+	.sec-head h2 { margin: 0; font-size: 17px; font-weight: 900; letter-spacing: -0.2px; color: #fff; }
+	.sec-head .sub { font-size: 12.5px; font-weight: 700; color: rgba(255, 255, 255, 0.85); }
 
 	.dl-all, .dl {
 		display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
