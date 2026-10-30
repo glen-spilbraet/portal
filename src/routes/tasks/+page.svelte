@@ -102,19 +102,24 @@
 	}
 
 	// ── Tasks ───────────────────────────────────────────────────────────────────
-	async function addTask() {
+	async function addTask(opts = {}) {
 		if (!selectedBoardId) return;
 		busy = true;
 		try {
 			const { id } = await api('/api/tasks', 'POST', { board_id: selectedBoardId, name: '' });
 			const now = new Date().toISOString();
-			tasks = [...tasks, {
+			const t = {
 				id, board_id: selectedBoardId, name: '', description: '',
-				status: 'not_started', priority: 'medium', due_date: null,
-				assignee_email: null, position: boardTasks.length,
+				status: opts.status ?? 'not_started', priority: 'medium', due_date: opts.due ?? null,
+				assignee_email: null, position: 9999,
 				created_at: now, updated_at: now, associations: [],
-			}];
-			openTask(tasks[tasks.length - 1]);
+			};
+			tasks = [...tasks, t];
+			const patch = {};
+			if (opts.status && opts.status !== 'not_started') patch.status = opts.status;
+			if (opts.due) patch.due_date = opts.due;
+			if (Object.keys(patch).length) await api(`/api/tasks/${id}`, 'PUT', patch);
+			openTask(t);
 		} finally { busy = false; }
 	}
 	async function patchTask(task, patch) {
@@ -127,6 +132,38 @@
 		if (paneTaskId === task.id) paneTaskId = null;
 		tasks = tasks.filter((t) => t.id !== task.id);
 	}
+
+	// ── Views (table / board / calendar) ──────────────────────────────────────────
+	const view = $derived(selectedBoard?.view_type ?? 'table');
+	function setView(v) {
+		if (!selectedBoard || selectedBoard.view_type === v) return;
+		selectedBoard.view_type = v;
+		api(`/api/tasks/boards/${selectedBoard.id}`, 'PUT', { view_type: v });
+	}
+	const statusColor = (v) => (STATUS_OPTS.find((o) => o.v === v) ?? STATUS_OPTS[0]).color;
+
+	// Calendar (month grid, Monday-start)
+	const pad = (n) => String(n).padStart(2, '0');
+	const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+	let calY = $state(new Date().getFullYear());
+	let calM = $state(new Date().getMonth());
+	const calLabel = $derived(new Date(calY, calM, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }));
+	const calDays = $derived.by(() => {
+		const first = new Date(calY, calM, 1);
+		const startDow = (first.getDay() + 6) % 7; // Monday = 0
+		const dim = new Date(calY, calM + 1, 0).getDate();
+		const cells = [];
+		for (let i = 0; i < startDow; i++) cells.push(null);
+		for (let d = 1; d <= dim; d++) cells.push(new Date(calY, calM, d));
+		while (cells.length % 7) cells.push(null);
+		return cells;
+	});
+	function calPrev() { if (calM === 0) { calM = 11; calY--; } else calM--; }
+	function calNext() { if (calM === 11) { calM = 0; calY++; } else calM++; }
+	function calToday() { const n = new Date(); calY = n.getFullYear(); calM = n.getMonth(); }
+	const todayYmd = ymd(new Date());
+	const tasksForDay = (d) => { const k = ymd(d); return boardTasks.filter((t) => t.due_date === k); };
+	const unscheduled = $derived(boardTasks.filter((t) => !t.due_date));
 
 	// ── Pill dropdown menus ──────────────────────────────────────────────────────
 	let openMenu = $state(null); // `${taskId}:${field}`
@@ -212,11 +249,11 @@
 {#snippet pill(task, field, opts)}
 	{@const cur = opts.find((o) => o.v === task[field]) ?? opts[0]}
 	<div class="pill-wrap">
-		<button class="pill" style="background-color:{cur.color};color:{cur.fg};" onclick={() => toggleMenu(task.id, field)}>{cur.label}</button>
+		<button class="pill" style="background-color:{cur.color};color:{cur.fg};" onclick={(e) => { e.stopPropagation(); toggleMenu(task.id, field); }}>{cur.label}</button>
 		{#if openMenu === `${task.id}:${field}`}
 			<div class="menu" transition:fade={{ duration: 80 }}>
 				{#each opts as o}
-					<button class="menu-item" onclick={() => { patchTask(task, { [field]: o.v }); openMenu = null; }}>
+					<button class="menu-item" onclick={(e) => { e.stopPropagation(); patchTask(task, { [field]: o.v }); openMenu = null; }}>
 						<span class="swatch" style="background:{o.color};"></span>{o.label}
 					</button>
 				{/each}
@@ -247,11 +284,6 @@
 				{#if boards.length === 0}<div class="side-empty">No boards yet</div>{/if}
 				<button class="add-board" onclick={addBoard} disabled={busy}>+ New board</button>
 			</div>
-
-			<div class="side-section views-stub">
-				<div class="side-label">Views</div>
-				<div class="side-empty">Table <span class="soon">· more soon</span></div>
-			</div>
 		</aside>
 
 		<!-- Right: full-width board -->
@@ -267,11 +299,17 @@
 						onblur={(e) => { const v = e.currentTarget.value.trim(); if (v) renameBoard(selectedBoard, v); else e.currentTarget.value = selectedBoard.name; }}
 						onkeydown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
 					<div class="board-meta">{boardTasks.length} {boardTasks.length === 1 ? 'task' : 'tasks'}</div>
+					<div class="viewseg">
+						<button class:active={view === 'table'} onclick={() => setView('table')}>Table</button>
+						<button class:active={view === 'board'} onclick={() => setView('board')}>Board</button>
+						<button class:active={view === 'calendar'} onclick={() => setView('calendar')}>Calendar</button>
+					</div>
 					<div class="spacer"></div>
-					<button class="btn primary" onclick={addTask} disabled={busy}>+ Add task</button>
+					<button class="btn primary" onclick={() => addTask()} disabled={busy}>+ Add task</button>
 					<button class="btn ghost danger" onclick={() => removeBoard(selectedBoard)} title="Delete board">Delete board</button>
 				</header>
 
+				{#if view === 'table'}
 				<div class="table-wrap">
 					<table class="tasks">
 						<thead>
@@ -310,11 +348,74 @@
 								</tr>
 							{/each}
 							{#if boardTasks.length === 0}
-								<tr><td colspan="6"><div class="empty-tasks">No tasks yet. <button class="linkish" onclick={addTask}>Add the first one.</button></div></td></tr>
+								<tr><td colspan="6"><div class="empty-tasks">No tasks yet. <button class="linkish" onclick={() => addTask()}>Add the first one.</button></div></td></tr>
 							{/if}
 						</tbody>
 					</table>
 				</div>
+
+				{:else if view === 'board'}
+				<div class="kanban">
+					{#each STATUS_OPTS as col (col.v)}
+						<section class="kcol">
+							<header class="kcol-head">
+								<span class="kdot" style="background:{col.color};"></span>{col.label}
+								<span class="kcount">{boardTasks.filter((t) => t.status === col.v).length}</span>
+							</header>
+							<div class="kcol-body">
+								{#each boardTasks.filter((t) => t.status === col.v) as task (task.id)}
+									<article class="kcard" onclick={() => openTask(task)}>
+										<div class="kc-name">{task.name || 'Untitled task'}</div>
+										<div class="kc-pill">{@render pill(task, 'priority', PRIORITY_OPTS)}</div>
+										<div class="kc-foot">
+											{#if task.due_date}<span class="kc-due">{fmtDay(task.due_date)}</span>{/if}
+											{#if task.assignee_email}<span class="kc-who">{userName(task.assignee_email)}</span>{/if}
+											{#if task.associations.length}<span class="kc-links">{task.associations.length} linked</span>{/if}
+										</div>
+									</article>
+								{/each}
+								<button class="kadd" onclick={() => addTask({ status: col.v })}>+ Add</button>
+							</div>
+						</section>
+					{/each}
+				</div>
+
+				{:else}
+				<div class="calendar">
+					<div class="cal-head">
+						<button class="cal-nav" onclick={calPrev} aria-label="Previous month">‹</button>
+						<strong>{calLabel}</strong>
+						<button class="cal-nav" onclick={calNext} aria-label="Next month">›</button>
+						<button class="cal-today" onclick={calToday}>Today</button>
+					</div>
+					<div class="cal-grid">
+						{#each ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as d}<div class="cal-dow">{d}</div>{/each}
+						{#each calDays as day, i (i)}
+							<div class="cal-cell" class:out={!day} class:today={day && ymd(day) === todayYmd}>
+								{#if day}
+									<div class="cal-dnum">
+										<span>{day.getDate()}</span>
+										<button class="cal-add" onclick={() => addTask({ due: ymd(day) })} aria-label="Add task">+</button>
+									</div>
+									<div class="cal-items">
+										{#each tasksForDay(day) as task (task.id)}
+											<button class="cal-item" style="border-left-color:{statusColor(task.status)};" onclick={() => openTask(task)}>{task.name || 'Untitled task'}</button>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+					{#if unscheduled.length}
+						<div class="cal-unsched">
+							<span class="cu-label">No due date</span>
+							{#each unscheduled as task (task.id)}
+								<button class="cal-item inline" style="border-left-color:{statusColor(task.status)};" onclick={() => openTask(task)}>{task.name || 'Untitled task'}</button>
+							{/each}
+						</div>
+					{/if}
+				</div>
+				{/if}
 			{/if}
 		</main>
 	</div>
@@ -448,10 +549,8 @@
 	.bi-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.bi-count { font-size: 12px; color: #A1A1AA; }
 	.side-empty { padding: 6px 10px; font-size: 13px; color: #A1A1AA; }
-	.soon { color: #C7BCAB; }
 	.add-board { width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px dashed var(--border); background: none; border-radius: 8px; cursor: pointer; font-size: 13px; color: #9A5B00; font-weight: 600; }
 	.add-board:hover { background: #FDF6EC; }
-	.views-stub { margin-top: auto; border-top: 1px solid #F0F0F2; }
 
 	/* ── Board area ──────────────────────────────────────── */
 	.board-area { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -462,6 +561,10 @@
 	.board-title:focus { outline: none; border-color: var(--accent); background: #fff; }
 	.board-meta { font-size: 13px; color: #A1A1AA; font-weight: 600; }
 	.spacer { flex: 1; }
+
+	.viewseg { display: inline-flex; background: #EFEDE8; border-radius: 9px; padding: 3px; }
+	.viewseg button { border: 0; background: none; border-radius: 7px; padding: 6px 13px; font-size: 13px; font-weight: 600; color: #52525B; cursor: pointer; }
+	.viewseg button.active { background: #fff; color: #18181B; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 
 	.btn { border: 1px solid var(--border); background: #fff; border-radius: 9px; padding: 8px 14px; font-size: 14px; font-weight: 600; cursor: pointer; color: #3F3F46; }
 	.btn:hover { background: #FAF6EE; }
@@ -514,6 +617,47 @@
 
 	.empty-tasks { padding: 28px 12px; text-align: center; color: #A1A1AA; font-size: 14px; }
 	.linkish { border: 0; background: none; color: var(--accent); font-weight: 700; cursor: pointer; font-size: 14px; }
+
+	/* ── Board (kanban) view ──────────────────────────────── */
+	.kanban { flex: 1; overflow: auto; display: flex; gap: 14px; padding: 4px 28px 60px; align-items: flex-start; }
+	.kcol { flex: 0 0 280px; background: #F7F6F3; border: 1px solid #EEECE6; border-radius: 12px; display: flex; flex-direction: column; max-height: 100%; }
+	.kcol-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; font-size: 13px; font-weight: 800; color: #3F3F46; }
+	.kdot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+	.kcount { margin-left: auto; font-size: 12px; color: #A1A1AA; font-weight: 700; }
+	.kcol-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 12px; overflow-y: auto; }
+	.kcard { background: #fff; border: 1px solid #ECECEF; border-radius: 10px; padding: 10px 11px; cursor: pointer; box-shadow: 0 1px 2px rgba(100,60,0,.05); display: flex; flex-direction: column; gap: 8px; text-align: left; }
+	.kcard:hover { border-color: var(--border); }
+	.kc-name { font-size: 14px; font-weight: 700; color: #18181B; }
+	.kc-pill { display: flex; }
+	.kc-pill :global(.pill-wrap) { justify-content: flex-start; }
+	.kc-pill :global(.pill) { width: auto; min-width: 0; padding: 4px 11px; font-size: 12px; }
+	.kc-foot { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: #71717A; align-items: center; }
+	.kc-due { font-weight: 700; color: #52525B; }
+	.kc-links { color: #9A5B00; font-weight: 600; }
+	.kadd { border: 1px dashed var(--border); background: none; border-radius: 9px; padding: 8px; font-size: 13px; font-weight: 600; color: #9A5B00; cursor: pointer; }
+	.kadd:hover { background: #FDF6EC; }
+
+	/* ── Calendar view ────────────────────────────────────── */
+	.calendar { flex: 1; overflow: auto; padding: 8px 28px 60px; display: flex; flex-direction: column; }
+	.cal-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+	.cal-head strong { font-size: 16px; min-width: 170px; text-align: center; color: #18181B; }
+	.cal-nav, .cal-today { border: 1px solid var(--border); background: #fff; border-radius: 8px; padding: 6px 13px; cursor: pointer; font-size: 14px; font-weight: 700; color: #3F3F46; }
+	.cal-nav:hover, .cal-today:hover { background: #FAF6EE; }
+	.cal-today { margin-left: 4px; font-size: 13px; }
+	.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+	.cal-dow { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #A1A1AA; padding: 2px 6px; }
+	.cal-cell { min-height: 108px; background: #fff; border: 1px solid #F0F0F2; border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+	.cal-cell.out { background: transparent; border-color: transparent; }
+	.cal-cell.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+	.cal-dnum { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700; color: #52525B; }
+	.cal-add { opacity: 0; border: 0; background: none; cursor: pointer; color: var(--accent); font-size: 17px; line-height: 1; font-weight: 700; padding: 0 2px; }
+	.cal-cell:hover .cal-add { opacity: 1; }
+	.cal-items { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+	.cal-item { display: block; width: 100%; text-align: left; border: 0; border-left: 3px solid #ccc; background: #FAFAF8; border-radius: 5px; padding: 3px 7px; font-size: 12px; font-weight: 600; color: #3F3F46; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.cal-item:hover { background: #F2EFE8; }
+	.cal-item.inline { width: auto; max-width: 220px; }
+	.cal-unsched { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+	.cu-label { font-size: 12px; font-weight: 700; color: #A1A1AA; margin-right: 4px; }
 
 	/* Chips */
 	.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
