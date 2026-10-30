@@ -1,8 +1,20 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
 	import { fly, fade } from 'svelte/transition';
+	import { onMount } from 'svelte';
 
 	let { data } = $props();
+
+	// Measure where the board content starts (below the top bar + nav) so the
+	// detail pane can sit beneath the top chrome rather than over it.
+	let workspaceEl;
+	let paneTop = $state(72);
+	function measureTop() { if (workspaceEl) paneTop = Math.max(16, Math.round(workspaceEl.getBoundingClientRect().top)); }
+	onMount(() => {
+		measureTop();
+		window.addEventListener('resize', measureTop);
+		return () => window.removeEventListener('resize', measureTop);
+	});
 
 	// Local, mutable copies (deep-reactive via $state proxies).
 	let boards = $state(data.boards ?? []);
@@ -218,7 +230,7 @@
 <div class="page">
 	<AppNav active="" user={data.user} />
 
-	<div class="workspace">
+	<div class="workspace" bind:this={workspaceEl}>
 		<!-- Left: board list (room for future view types) -->
 		<aside class="sidebar">
 			<div class="side-head"><h1>Tasks</h1></div>
@@ -311,7 +323,7 @@
 <!-- ── Task detail pane ─────────────────────────────────────────────── -->
 {#if paneTask}
 	<div class="overlay" onclick={closePane} role="presentation" transition:fade={{ duration: 120 }}></div>
-	<aside class="pane" transition:fly={{ x: 440, duration: 180 }}>
+	<aside class="pane" style="top:{paneTop}px" transition:fly={{ x: 440, duration: 180 }}>
 		<div class="pane-head">
 			<span class="pane-kicker">Task</span>
 			<button class="pane-close" onclick={closePane} aria-label="Close">×</button>
