@@ -185,6 +185,7 @@
 	let fixField = $state('all');
 	let fixing = $state(false);
 	let fixMsg = $state('');
+	let fixErrors = $state([]); // [{ id, error }] from the last run, for diagnostics
 	let queue = $state(null); // { total, done, fixed, failed, stop, field } while running
 	const QUEUE_BATCH = 30;
 
@@ -218,6 +219,7 @@
 
 		fixing = true;
 		fixMsg = '';
+		fixErrors = [];
 		queue = { total: ids.length, done: 0, fixed: 0, failed: 0, stop: false, field: fixField };
 		for (let i = 0; i < ids.length; i += QUEUE_BATCH) {
 			if (queue.stop) break;
@@ -230,8 +232,10 @@
 				});
 				const b = await res.json().catch(() => ({}));
 				if (!res.ok) throw new Error(b?.message ?? res.status);
+				if (Array.isArray(b.errors) && b.errors.length) fixErrors = [...fixErrors, ...b.errors];
 				queue = { ...queue, done: queue.done + chunk.length, fixed: queue.fixed + (b.fixed || 0), failed: queue.failed + (b.failed || 0) };
 			} catch (e) {
+				fixErrors = [...fixErrors, { id: chunk.join(','), error: e instanceof Error ? e.message : String(e) }];
 				queue = { ...queue, done: queue.done + chunk.length, failed: queue.failed + chunk.length };
 			}
 		}
@@ -412,7 +416,20 @@
 		<button class="fx-cancel" onclick={() => (selected = new Set())} disabled={fixing}>Cancel</button>
 	</div>
 {:else if fixMsg}
-	<div class="fixbar done"><span class="fx-msg">{fixMsg}</span><button class="fx-cancel" onclick={() => (fixMsg = '')}>Dismiss</button></div>
+	<div class="fixbar done" class:has-errs={fixErrors.length}>
+		<div class="fx-done-main">
+			<span class="fx-msg">{fixMsg}</span>
+			<button class="fx-cancel" onclick={() => { fixMsg = ''; fixErrors = []; }}>Dismiss</button>
+		</div>
+		{#if fixErrors.length}
+			<ul class="fx-errs">
+				{#each fixErrors.slice(0, 10) as err}
+					<li><span class="fx-err-id">#{err.id}</span> {err.error}</li>
+				{/each}
+				{#if fixErrors.length > 10}<li class="fx-err-more">…and {fixErrors.length - 10} more</li>{/if}
+			</ul>
+		{/if}
+	</div>
 {/if}
 
 <style>
@@ -511,4 +528,10 @@
 	.q-bar { width: 200px; height: 8px; background: rgba(255,255,255,0.2); border-radius: 100px; overflow: hidden; }
 	.q-fill { height: 100%; background: var(--accent); border-radius: 100px; transition: width 0.2s; }
 	.fixbar.done { background: #16794C; }
+	.fixbar.done.has-errs { flex-direction: column; align-items: stretch; max-width: min(620px, 92vw); background: #7A1B1B; }
+	.fx-done-main { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+	.fx-errs { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid rgba(255,255,255,0.18); max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+	.fx-errs li { font-size: 11.5px; color: #FCE7E7; line-height: 1.35; font-weight: 500; word-break: break-word; }
+	.fx-err-id { font-weight: 800; color: #fff; margin-right: 4px; }
+	.fx-err-more { opacity: 0.8; font-style: italic; }
 </style>
