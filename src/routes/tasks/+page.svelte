@@ -498,7 +498,6 @@
 								<th class="c-prio ctr">Priority</th>
 								<th class="c-due ctr">Due date</th>
 								<th class="c-assignee">Assigned to</th>
-								<th class="c-act"></th>
 							</tr>
 						</thead>
 						<tbody>
@@ -521,13 +520,10 @@
 											{#each users as u}<option value={u.email}>{u.name}</option>{/each}
 										</select>
 									</td>
-									<td class="c-act">
-										<button class="row-del" onclick={() => removeTask(task)} title="Delete task" aria-label="Delete task">✕</button>
-									</td>
 								</tr>
 							{/each}
 							{#if boardTasks.length === 0}
-								<tr><td colspan="6"><div class="empty-tasks">No tasks yet. <button class="linkish" onclick={() => openCreate()}>Add the first one.</button></div></td></tr>
+								<tr><td colspan="5"><div class="empty-tasks">No tasks yet. <button class="linkish" onclick={() => openCreate()}>Add the first one.</button></div></td></tr>
 							{/if}
 						</tbody>
 					</table>
@@ -608,7 +604,12 @@
 	<aside class="pane" style="top:{paneTop}px" transition:fly={{ x: 440, duration: 180 }}>
 		<div class="pane-head">
 			<span class="pane-kicker">Task</span>
-			<button class="pane-close" onclick={closePane} aria-label="Close">×</button>
+			<div class="ph-actions">
+				<button class="pane-del" onclick={() => removeTask(paneTask)} title="Delete task" aria-label="Delete task">
+					<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+				</button>
+				<button class="pane-close" onclick={closePane} aria-label="Close">×</button>
+			</div>
 		</div>
 
 		<textarea class="pane-title" rows="1" placeholder="Untitled task"
@@ -836,25 +837,24 @@
 
 	.table-wrap { flex: 1; overflow: auto; padding: 4px 28px 60px; }
 	table.tasks { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; background: #fff; border: 1px solid #EFECE4; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(100,60,0,.04); }
-	table.tasks thead th { position: sticky; top: 0; z-index: 2; background: #FBFAF7; text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #9A8F7B; padding: 11px 16px; border-bottom: 1px solid #F0ECE2; white-space: nowrap; }
+	table.tasks thead th { position: sticky; top: 0; z-index: 2; background: #FBFAF7; text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #9A8F7B; padding: 15px 16px; border-bottom: 1px solid #F0ECE2; white-space: nowrap; }
 	th.ctr { text-align: center; }
 	.c-name { min-width: 280px; }
-	.c-status, .c-prio { width: 190px; }
-	.c-due { width: 160px; }
-	.c-assignee { width: 180px; }
-	.c-act { width: 40px; }
+	.c-status, .c-prio { width: 170px; }
+	.c-due { width: 150px; }
+	.c-assignee { width: 170px; }
 
-	.trow td { padding: 9px 16px; border-bottom: 1px solid #F4F1EA; background: #fff; vertical-align: middle; transition: background .1s; }
+	.trow td { padding: 4px 16px; border-bottom: 1px solid #F4F1EA; background: #fff; vertical-align: middle; transition: background .1s; }
 	.trow:last-child td { border-bottom: 0; }
 	.trow:hover td { background: #FCFBF8; }
 	.trow.sel td { background: #FDF6EC; }
 
-	.task-open { width: 100%; text-align: left; border: 1px solid transparent; background: none; border-radius: 7px; padding: 8px 9px; font-size: 14px; font-weight: 600; color: #18181B; cursor: pointer; }
+	.task-open { width: 100%; text-align: left; border: 1px solid transparent; background: none; border-radius: 7px; padding: 6px 8px; margin-left: -8px; font-size: 14px; font-weight: 600; color: #18181B; cursor: pointer; }
 	.task-open:hover { border-color: #ECECEF; background: #fff; }
 
 	/* Pill + menu */
 	.pill-wrap { position: relative; display: flex; justify-content: center; }
-	.pill { width: 100%; border: 0; border-radius: 7px; padding: 8px 10px; font-size: 13px; font-weight: 700; text-align: center; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.04); }
+	.pill { width: 100%; border: 0; border-radius: 7px; padding: 5px 10px; font-size: 12px; font-weight: 700; text-align: center; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.04); }
 	.menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; min-width: 170px; background: #fff; border: 1px solid #ECECEF; border-radius: 10px; box-shadow: var(--shadow-lg); padding: 5px; z-index: 30; }
 	.menu-item { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 8px 9px; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600; color: #3F3F46; text-align: left; }
 	.menu-item:hover { background: #F6F3EC; }
@@ -862,17 +862,14 @@
 	.menu-backdrop { position: fixed; inset: 0; z-index: 25; }
 
 	/* Date cell */
-	.due-btn { width: 100%; text-align: center; border: 1px solid transparent; background: none; border-radius: 7px; padding: 8px 10px; font-size: 13px; font-weight: 600; color: #3F3F46; cursor: pointer; }
+	.due-btn { width: 100%; text-align: center; border: 1px solid transparent; background: none; border-radius: 7px; padding: 6px 10px; font-size: 13px; font-weight: 600; color: #3F3F46; cursor: pointer; }
 	.due-btn:hover { border-color: #ECECEF; background: #fff; }
 	.due-btn.empty { color: #B4B4BC; font-weight: 600; }
 	.due-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
-	.assignee { width: 100%; border: 1px solid #ECECEF; background: #fff; border-radius: 7px; padding: 8px 9px; font-size: 13px; color: #3F3F46; }
+	.assignee { width: 100%; border: 1px solid #ECECEF; background: #fff; border-radius: 7px; padding: 6px 9px; font-size: 13px; color: #3F3F46; }
 	.assignee:focus { outline: none; border-color: var(--accent); }
 	.assignee.wide { max-width: 260px; }
-
-	.row-del { border: 0; background: none; cursor: pointer; color: #D4D4D8; font-size: 13px; padding: 6px; border-radius: 6px; }
-	.row-del:hover { color: var(--danger); background: #FEF2F2; }
 
 	.empty-tasks { padding: 28px 12px; text-align: center; color: #A1A1AA; font-size: 14px; }
 	.linkish { border: 0; background: none; color: var(--accent); font-weight: 700; cursor: pointer; font-size: 14px; }
@@ -954,6 +951,9 @@
 	.pane-kicker { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #A1A1AA; }
 	.pane-close { border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer; color: #A1A1AA; }
 	.pane-close:hover { color: #18181B; }
+	.ph-actions { display: flex; align-items: center; gap: 2px; }
+	.pane-del { border: 0; background: none; cursor: pointer; color: #C4C4CC; padding: 5px; border-radius: 7px; display: flex; }
+	.pane-del:hover { color: var(--danger); background: #FEF2F2; }
 	.pane-title { margin: 4px 20px 6px; border: 1px solid transparent; border-radius: 8px; padding: 6px 8px; font-size: 20px; font-weight: 800; color: #18181B; font-family: inherit; resize: none; overflow: hidden; }
 	.pane-title:hover { border-color: #ECECEF; }
 	.pane-title:focus { outline: none; border-color: var(--accent); }
