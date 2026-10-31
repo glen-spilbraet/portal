@@ -477,14 +477,12 @@
 	{#if groups.length === 0}
 		<div class="empty-tasks">Nothing here yet.</div>
 	{:else}
-		{#each groups as g, gi (g.key)}
+		{#each groups as g (g.key)}
 			<section class="ov-sec">
 				<header class="ov-sec-head"><span class="ov-sec-title">{g.label}</span><span class="ov-sec-count">{g.tasks.length}</span></header>
 				<table class="tasks ov">
 					<colgroup><col class="oc-name" /><col class="oc-board" /><col class="oc-status" /><col class="oc-prio" /><col class="oc-due" /></colgroup>
-					{#if gi === 0}
-						<thead><tr><th class="c-name">Task</th><th>Board</th><th class="ctr">Status</th><th class="ctr">Priority</th><th>Due date</th></tr></thead>
-					{/if}
+					<thead><tr><th class="c-name">Task</th><th>Board</th><th class="ctr">Status</th><th class="ctr">Priority</th><th>Due date</th></tr></thead>
 					<tbody>
 						{#each g.tasks as task (task.id)}
 							<tr class="trow" class:sel={paneTaskId === task.id}>
@@ -1019,6 +1017,8 @@
 	.ov-sec-title { font-size: 13px; font-weight: 800; color: #18181B; }
 	.ov-sec-count { font-size: 12px; color: #A1A1AA; font-weight: 700; }
 	.tasks.ov { table-layout: fixed; }
+	.tasks.ov thead th { position: static; padding-top: 0; padding-bottom: 0; height: 40px; }
+	.tasks.ov tbody td { padding-top: 0; padding-bottom: 0; height: 40px; }
 	.oc-board { width: 184px; } .oc-status { width: 160px; } .oc-prio { width: 160px; } .oc-due { width: 150px; }
 	.board-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #ECECEF; background: #fff; border-radius: 7px; padding: 5px 9px; font-size: 12.5px; font-weight: 600; color: #52525B; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.board-chip:hover { background: #FAF6EE; border-color: var(--border); }
