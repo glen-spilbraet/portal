@@ -14,8 +14,15 @@
 	function measureTop() { if (workspaceEl) paneTop = Math.max(16, Math.round(workspaceEl.getBoundingClientRect().top)); }
 	onMount(() => {
 		measureTop();
+		const closeMenu = () => { if (openMenu) openMenu = null; };
 		window.addEventListener('resize', measureTop);
-		return () => window.removeEventListener('resize', measureTop);
+		window.addEventListener('resize', closeMenu);
+		window.addEventListener('scroll', closeMenu, true); // capture inner scrollers too
+		return () => {
+			window.removeEventListener('resize', measureTop);
+			window.removeEventListener('resize', closeMenu);
+			window.removeEventListener('scroll', closeMenu, true);
+		};
 	});
 
 	// Keep ?v= in the URL in sync with the selected view, so refresh stays put.
@@ -329,9 +336,16 @@
 		if (t && (t.due_date ?? null) !== (dateStr ?? null)) await patchTask(t, { due_date: dateStr });
 	}
 
-	// ── Pill dropdown menus ──────────────────────────────────────────────────────
+	// ── Pill dropdown menus (fixed-positioned so they escape table clipping) ────────
 	let openMenu = $state(null); // `${taskId}:${field}`
-	function toggleMenu(id, field) { const k = `${id}:${field}`; openMenu = openMenu === k ? null : k; }
+	let menuPos = $state({ left: 0, top: 0, width: 170 });
+	function toggleMenu(id, field, e) {
+		const k = `${id}:${field}`;
+		if (openMenu === k) { openMenu = null; return; }
+		const r = e.currentTarget.getBoundingClientRect();
+		menuPos = { left: r.left, top: r.bottom + 4, width: r.width };
+		openMenu = k;
+	}
 
 	// ── Date picker (click text → native calendar) ───────────────────────────────
 	function openDate(e) {
@@ -418,9 +432,9 @@
 {#snippet pill(task, field, opts)}
 	{@const cur = opts.find((o) => o.v === task[field]) ?? opts[0]}
 	<div class="pill-wrap">
-		<button class="pill" style="background-color:{cur.color};color:{cur.fg};" onclick={(e) => { e.stopPropagation(); toggleMenu(task.id, field); }}>{cur.label}</button>
+		<button class="pill" style="background-color:{cur.color};color:{cur.fg};" onclick={(e) => { e.stopPropagation(); toggleMenu(task.id, field, e); }}>{cur.label}</button>
 		{#if openMenu === `${task.id}:${field}`}
-			<div class="menu" transition:fade={{ duration: 80 }}>
+			<div class="menu" style="left:{menuPos.left}px; top:{menuPos.top}px; min-width:{Math.max(menuPos.width, 170)}px;" transition:fade={{ duration: 80 }}>
 				{#each opts as o}
 					<button class="menu-item" onclick={(e) => { e.stopPropagation(); patchTask(task, { [field]: o.v }); openMenu = null; }}>
 						<span class="swatch" style="background:{o.color};"></span>{o.label}
@@ -962,11 +976,11 @@
 	/* Pill + menu */
 	.pill-wrap { position: relative; display: flex; justify-content: center; }
 	.pill { width: 100%; border: 0; border-radius: 7px; padding: 5px 10px; font-size: 12px; font-weight: 700; text-align: center; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.04); }
-	.menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; min-width: 170px; background: #fff; border: 1px solid #ECECEF; border-radius: 10px; box-shadow: var(--shadow-lg); padding: 5px; z-index: 30; }
+	.menu { position: fixed; min-width: 170px; background: #fff; border: 1px solid #ECECEF; border-radius: 10px; box-shadow: var(--shadow-lg); padding: 5px; z-index: 210; }
 	.menu-item { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 8px 9px; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600; color: #3F3F46; text-align: left; }
 	.menu-item:hover { background: #F6F3EC; }
 	.swatch { width: 12px; height: 12px; border-radius: 4px; flex-shrink: 0; }
-	.menu-backdrop { position: fixed; inset: 0; z-index: 25; }
+	.menu-backdrop { position: fixed; inset: 0; z-index: 200; }
 
 	/* Date cell */
 	.due-btn { width: 100%; text-align: center; border: 1px solid transparent; background: none; border-radius: 7px; padding: 6px 10px; font-size: 13px; font-weight: 600; color: #3F3F46; cursor: pointer; }
