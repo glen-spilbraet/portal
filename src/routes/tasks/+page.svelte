@@ -113,7 +113,7 @@
 		{ v: 'not_started',      label: 'Not started',          color: '#C4C7D0', fg: '#2B2B35' },
 		{ v: 'working',          label: 'Working',              color: '#FDAB3D', fg: '#fff' },
 		{ v: 'stuck',            label: 'Stuck',                color: '#E2445C', fg: '#fff' },
-		{ v: 'waiting_approval', label: 'Waiting for Approval', color: '#A25DDC', fg: '#fff' },
+		{ v: 'waiting_approval', label: 'Approval', color: '#A25DDC', fg: '#fff' },
 		{ v: 'done',             label: 'Done',                 color: '#00C875', fg: '#fff' },
 	];
 	const PRIORITY_OPTS = [
