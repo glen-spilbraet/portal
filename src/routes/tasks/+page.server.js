@@ -3,10 +3,12 @@ import { listBoards, listTasks } from '$lib/server/tasks.js';
 import { listAllowedUsers } from '$lib/db.js';
 import { listEvents } from '$lib/server/events.js';
 
-export async function load({ parent, platform }) {
+export async function load({ parent, platform, url }) {
 	const { user } = await parent();
 	// Hidden tool — admin only for now (not wired into nav or a permission set).
 	if (user?.role !== 'admin') error(403, "You don't have access to this section.");
+
+	const initialPanel = url.searchParams.get('v') || 'my';
 
 	const db = platform?.env?.DB;
 	if (!db) error(500, 'Database unavailable');
@@ -20,6 +22,7 @@ export async function load({ parent, platform }) {
 
 	return {
 		user,
+		initialPanel,
 		boards,
 		tasks,
 		users: (users ?? []).map((u) => ({ email: u.email, name: u.first_name || u.name || u.email })),

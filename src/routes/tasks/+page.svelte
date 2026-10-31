@@ -2,6 +2,8 @@
 	import AppNav from '$lib/components/AppNav.svelte';
 	import { fly, fade } from 'svelte/transition';
 	import { onMount } from 'svelte';
+	import { replaceState } from '$app/navigation';
+	import { browser } from '$app/environment';
 
 	let { data } = $props();
 
@@ -16,6 +18,16 @@
 		return () => window.removeEventListener('resize', measureTop);
 	});
 
+	// Keep ?v= in the URL in sync with the selected view, so refresh stays put.
+	$effect(() => {
+		if (!browser) return;
+		const u = new URL(window.location.href);
+		if (u.searchParams.get('v') !== panel) {
+			u.searchParams.set('v', panel);
+			replaceState(u, {});
+		}
+	});
+
 	// Local, mutable copies (deep-reactive via $state proxies).
 	let boards = $state(data.boards ?? []);
 	let tasks  = $state(data.tasks ?? []);
@@ -24,11 +36,17 @@
 	const userEmail = data.user?.email ?? null;
 
 	// Left-panel selection: a standard view ('my' | 'created') or a board id.
-	let panel = $state('my');
+	// Initialised from the URL (?v=) so a refresh stays on the same view.
+	const initPanel = data.initialPanel;
+	let panel = $state(
+		(initPanel === 'my' || initPanel === 'created' || boards.some((b) => b.id === initPanel)) ? initPanel : 'my'
+	);
+	let hideDone = $state(true); // completed tasks hidden by default, across every view
+	const notHidden = (t) => !(hideDone && t.status === 'done');
 	const isView = $derived(panel === 'my' || panel === 'created');
 	const selectedBoard = $derived(boards.find((b) => b.id === panel) ?? null);
 	const boardTasks = $derived(
-		tasks.filter((t) => t.board_id === selectedBoard?.id)
+		tasks.filter((t) => t.board_id === selectedBoard?.id && notHidden(t))
 		     .sort((a, b) => (a.position - b.position) || (a.created_at ?? '').localeCompare(b.created_at ?? ''))
 	);
 	const boardName = (id) => boards.find((b) => b.id === id)?.name ?? '—';
@@ -62,9 +80,9 @@
 		return DUE_ORDER.filter((k) => buckets[k]?.length).map((k) => ({ key: k, label: DUE_LABEL[k], tasks: buckets[k].sort(byDue) }));
 	}
 
-	const myTasksGroups = $derived.by(() => groupByDue(tasks.filter((t) => t.assignee_email === userEmail)));
+	const myTasksGroups = $derived.by(() => groupByDue(tasks.filter((t) => t.assignee_email === userEmail && notHidden(t))));
 	const createdGroups = $derived.by(() => {
-		const mine = tasks.filter((t) => (t.created_by ?? null) === userEmail);
+		const mine = tasks.filter((t) => (t.created_by ?? null) === userEmail && notHidden(t));
 		const map = new Map();
 		for (const t of mine) { const k = t.assignee_email ?? '__none'; if (!map.has(k)) map.set(k, []); map.get(k).push(t); }
 		const entries = [...map.entries()].map(([k, arr]) => ({ key: k, label: k === '__none' ? 'Unassigned' : userName(k), tasks: arr.sort(byDue) }));
@@ -146,29 +164,52 @@
 	}
 
 	// ── Tasks ───────────────────────────────────────────────────────────────────
-	async function addTask(opts = {}) {
-		const bid = selectedBoard?.id;
-		if (!bid) return;
+	// ── Create task (staged — nothing is saved until "Save task") ────────────────────
+	let creating = $state(false);
+	let draft = $state(null);
+	function openCreate(prefill = {}) {
+		if (boards.length === 0) return;
+		paneTaskId = null;
+		draft = {
+			board_id: prefill.board_id ?? selectedBoard?.id ?? boards[0]?.id ?? null,
+			name: '', description: '',
+			status: prefill.status ?? 'not_started', priority: 'medium',
+			due_date: prefill.due ?? null, assignee_email: userEmail,
+			associations: [],
+		};
+		creating = true;
+	}
+	function closeCreate() { creating = false; draft = null; }
+	async function saveCreate() {
+		if (!draft?.board_id) return;
 		busy = true;
 		try {
-			const { id } = await api('/api/tasks', 'POST', { board_id: bid, name: '' });
+			const { id } = await api('/api/tasks', 'POST', { board_id: draft.board_id, name: draft.name });
+			const patch = {};
+			for (const k of ['description', 'status', 'priority', 'due_date', 'assignee_email']) {
+				if (draft[k] !== null && draft[k] !== '') patch[k] = draft[k];
+			}
+			if (Object.keys(patch).length) await api(`/api/tasks/${id}`, 'PUT', patch);
+			const createdAssoc = [];
+			for (const a of draft.associations) {
+				const r = await api(`/api/tasks/${id}/associations`, 'POST', { kind: a.kind, ref_id: a.ref_id, ref_label: a.ref_label });
+				createdAssoc.push({ id: r.id, task_id: id, kind: a.kind, ref_id: a.ref_id, ref_label: a.ref_label });
+			}
 			const now = new Date().toISOString();
 			const t = {
-				id, board_id: bid, name: '', description: '', created_by: userEmail,
-				status: opts.status ?? 'not_started', priority: 'medium', due_date: opts.due ?? null,
-				assignee_email: null, position: 9999,
-				created_at: now, updated_at: now, associations: [],
+				id, board_id: draft.board_id, name: draft.name, description: draft.description,
+				status: draft.status, priority: draft.priority, due_date: draft.due_date,
+				assignee_email: draft.assignee_email, created_by: userEmail, position: 9999,
+				created_at: now, updated_at: now, associations: createdAssoc,
 			};
 			tasks = [...tasks, t];
-			const patch = {};
-			if (opts.status && opts.status !== 'not_started') patch.status = opts.status;
-			if (opts.due) patch.due_date = opts.due;
-			if (Object.keys(patch).length) await api(`/api/tasks/${id}`, 'PUT', patch);
+			creating = false; draft = null;
 			openTask(t);
 		} finally { busy = false; }
 	}
 	async function patchTask(task, patch) {
 		Object.assign(task, patch);
+		if (!task.id) return; // unsaved draft — local only
 		await api(`/api/tasks/${task.id}`, 'PUT', patch);
 	}
 	async function removeTask(task) {
@@ -302,10 +343,15 @@
 	async function pick(ref_id, label) {
 		const task = picker;
 		if (task.associations.some((a) => a.kind === pickKind && a.ref_id === String(ref_id))) return;
+		if (!task.id) { // unsaved draft — stage locally, attached on save
+			task.associations = [...task.associations, { kind: pickKind, ref_id: String(ref_id), ref_label: label }];
+			return;
+		}
 		const { id } = await api(`/api/tasks/${task.id}/associations`, 'POST', { kind: pickKind, ref_id, ref_label: label });
 		task.associations = [...task.associations, { id, task_id: task.id, kind: pickKind, ref_id: String(ref_id), ref_label: label }];
 	}
 	async function removeAssoc(task, assoc) {
+		if (!task.id || !assoc.id) { task.associations = task.associations.filter((a) => a !== assoc); return; }
 		await api(`/api/tasks/associations/${assoc.id}`, 'DELETE');
 		task.associations = task.associations.filter((a) => a.id !== assoc.id);
 	}
@@ -331,6 +377,16 @@
 {/snippet}
 
 {#if openMenu}<div class="menu-backdrop" onclick={() => (openMenu = null)} role="presentation"></div>{/if}
+
+<!-- Shared top-right actions for every view: Hide completed + Add task -->
+{#snippet headerActions()}
+	<label class="toggle" title="Hide completed tasks">
+		<input type="checkbox" checked={hideDone} onchange={(e) => (hideDone = e.currentTarget.checked)} />
+		<span class="track"><span class="knob"></span></span>
+		<span class="tlabel">Hide completed</span>
+	</label>
+	<button class="btn primary" onclick={() => openCreate()} disabled={busy || boards.length === 0}>+ Add task</button>
+{/snippet}
 
 <!-- Overview table for the standard views (sections + a Board column) -->
 {#snippet otable(groups)}
@@ -405,6 +461,8 @@
 				<header class="board-head">
 					<div class="board-title static">{panel === 'created' ? 'Created by me' : 'My tasks'}</div>
 					<div class="board-meta">{overviewCount} {overviewCount === 1 ? 'task' : 'tasks'}</div>
+					<div class="spacer"></div>
+					{@render headerActions()}
 				</header>
 				<div class="table-wrap">
 					{@render otable(overviewGroups)}
@@ -426,7 +484,7 @@
 						<button class:active={view === 'calendar'} onclick={() => setView('calendar')}>Calendar</button>
 					</div>
 					<div class="spacer"></div>
-					<button class="btn primary" onclick={() => addTask()} disabled={busy}>+ Add task</button>
+					{@render headerActions()}
 					<button class="btn ghost danger" onclick={() => removeBoard(selectedBoard)} title="Delete board">Delete board</button>
 				</header>
 
@@ -469,7 +527,7 @@
 								</tr>
 							{/each}
 							{#if boardTasks.length === 0}
-								<tr><td colspan="6"><div class="empty-tasks">No tasks yet. <button class="linkish" onclick={() => addTask()}>Add the first one.</button></div></td></tr>
+								<tr><td colspan="6"><div class="empty-tasks">No tasks yet. <button class="linkish" onclick={() => openCreate()}>Add the first one.</button></div></td></tr>
 							{/if}
 						</tbody>
 					</table>
@@ -495,7 +553,7 @@
 										</div>
 									</article>
 								{/each}
-								<button class="kadd" onclick={() => addTask({ status: col.v })}>+ Add</button>
+								<button class="kadd" onclick={() => openCreate({ status: col.v })}>+ Add</button>
 							</div>
 						</section>
 					{/each}
@@ -519,7 +577,7 @@
 								{#if day}
 									<div class="cal-dnum">
 										<span>{day.getDate()}</span>
-										<button class="cal-add" onclick={() => addTask({ due: ymd(day) })} aria-label="Add task">+</button>
+										<button class="cal-add" onclick={() => openCreate({ due: ymd(day) })} aria-label="Add task">+</button>
 									</div>
 									<div class="cal-items">
 										{#each tasksForDay(day) as task (task.id)}
@@ -621,6 +679,72 @@
 	</aside>
 {/if}
 
+<!-- ── Create task pane (staged; nothing saved until Save) ───────────── -->
+{#if creating && draft}
+	<div class="overlay" onclick={closeCreate} role="presentation" transition:fade={{ duration: 120 }}></div>
+	<aside class="pane" style="top:{paneTop}px" transition:fly={{ x: 440, duration: 180 }}>
+		<div class="pane-head">
+			<span class="pane-kicker">New task</span>
+			<button class="pane-close" onclick={closeCreate} aria-label="Close">×</button>
+		</div>
+
+		<textarea class="pane-title" rows="1" placeholder="Task name…"
+			value={draft.name}
+			oninput={(e) => { draft.name = e.currentTarget.value; e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'; }}></textarea>
+
+		<div class="pane-grid">
+			<div class="pg-row"><span class="pg-k">Board</span>
+				<div class="pg-v">
+					<select class="assignee wide" value={draft.board_id ?? ''} onchange={(e) => (draft.board_id = e.currentTarget.value)}>
+						{#each boards as b (b.id)}<option value={b.id}>{b.name}</option>{/each}
+					</select>
+				</div>
+			</div>
+			<div class="pg-row"><span class="pg-k">Status</span><div class="pg-v">{@render pill(draft, 'status', STATUS_OPTS)}</div></div>
+			<div class="pg-row"><span class="pg-k">Priority</span><div class="pg-v">{@render pill(draft, 'priority', PRIORITY_OPTS)}</div></div>
+			<div class="pg-row"><span class="pg-k">Assigned to</span>
+				<div class="pg-v">
+					<select class="assignee wide" value={draft.assignee_email ?? ''} onchange={(e) => (draft.assignee_email = e.currentTarget.value || null)}>
+						<option value="">— Unassigned</option>
+						{#each users as u}<option value={u.email}>{u.name}</option>{/each}
+					</select>
+				</div>
+			</div>
+			<div class="pg-row"><span class="pg-k">Due date</span>
+				<div class="pg-v">
+					<button class="due-btn" class:empty={!draft.due_date} onclick={openDate}>{draft.due_date ? fmtDay(draft.due_date) : 'Set a date'}</button>
+					<input type="date" class="due-hidden" value={draft.due_date ?? ''} onchange={(e) => (draft.due_date = e.currentTarget.value || null)} />
+				</div>
+			</div>
+		</div>
+
+		<div class="pane-sec">
+			<div class="sec-label">Description</div>
+			<textarea class="desc" rows="4" placeholder="Add a description…"
+				value={draft.description ?? ''} oninput={(e) => (draft.description = e.currentTarget.value)}></textarea>
+		</div>
+
+		<div class="pane-sec">
+			<div class="sec-label">Links</div>
+			<div class="chips">
+				{#each draft.associations as a (a.kind + ':' + a.ref_id)}
+					{@const m = KIND_META[a.kind]}
+					<span class="chip" style="color:{m.color};background:{m.bg};">
+						<span class="chip-k">{m.short}</span><span class="chip-l">{a.ref_label ?? a.ref_id}</span>
+						<button class="chip-x" onclick={() => removeAssoc(draft, a)} aria-label="Remove">×</button>
+					</span>
+				{/each}
+				<button class="chip-add" onclick={() => openPicker(draft)}>+ Link</button>
+			</div>
+		</div>
+
+		<div class="pane-foot">
+			<button class="btn ghost" onclick={closeCreate}>Cancel</button>
+			<button class="btn primary" onclick={saveCreate} disabled={busy || !draft.board_id}>Save task</button>
+		</div>
+	</aside>
+{/if}
+
 <!-- ── Association picker modal ──────────────────────────────────────── -->
 {#if picker}
 	<div class="overlay high" onclick={closePicker} role="presentation"></div>
@@ -690,6 +814,16 @@
 	.viewseg button { border: 0; background: none; border-radius: 7px; padding: 6px 13px; font-size: 13px; font-weight: 600; color: #52525B; cursor: pointer; }
 	.viewseg button.active { background: #fff; color: #18181B; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 
+	/* Hide-completed toggle */
+	.toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 13px; font-weight: 600; color: #52525B; }
+	.toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+	.toggle .track { width: 38px; height: 22px; border-radius: 999px; background: #D4D4D8; position: relative; transition: background .15s; flex-shrink: 0; }
+	.toggle .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
+	.toggle input:checked + .track { background: var(--accent); }
+	.toggle input:checked + .track .knob { transform: translateX(16px); }
+	.toggle input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+	.toggle .tlabel { white-space: nowrap; }
+
 	.btn { border: 1px solid var(--border); background: #fff; border-radius: 9px; padding: 8px 14px; font-size: 14px; font-weight: 600; cursor: pointer; color: #3F3F46; }
 	.btn:hover { background: #FAF6EE; }
 	.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -700,9 +834,9 @@
 	.btn.ghost.danger:hover { color: var(--danger); background: #FEF2F2; }
 	.btn:disabled { opacity: .5; cursor: default; }
 
-	.table-wrap { flex: 1; overflow: auto; padding: 0 28px 60px; }
-	table.tasks { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; }
-	table.tasks thead th { position: sticky; top: 0; z-index: 2; background: #FAFAFA; text-align: left; font-size: 12px; font-weight: 700; color: #71717A; padding: 10px 12px; border-bottom: 1px solid #ECECEF; white-space: nowrap; }
+	.table-wrap { flex: 1; overflow: auto; padding: 4px 28px 60px; }
+	table.tasks { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; background: #fff; border: 1px solid #EFECE4; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(100,60,0,.04); }
+	table.tasks thead th { position: sticky; top: 0; z-index: 2; background: #FBFAF7; text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #9A8F7B; padding: 11px 16px; border-bottom: 1px solid #F0ECE2; white-space: nowrap; }
 	th.ctr { text-align: center; }
 	.c-name { min-width: 280px; }
 	.c-status, .c-prio { width: 190px; }
@@ -710,7 +844,8 @@
 	.c-assignee { width: 180px; }
 	.c-act { width: 40px; }
 
-	.trow td { padding: 6px 12px; border-bottom: 1px solid #F1F1F3; background: #fff; vertical-align: middle; }
+	.trow td { padding: 9px 16px; border-bottom: 1px solid #F4F1EA; background: #fff; vertical-align: middle; transition: background .1s; }
+	.trow:last-child td { border-bottom: 0; }
 	.trow:hover td { background: #FCFBF8; }
 	.trow.sel td { background: #FDF6EC; }
 
@@ -835,6 +970,8 @@
 	.sec-label { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #A1A1AA; margin-bottom: 8px; }
 	.desc { width: 100%; border: 1px solid #ECECEF; border-radius: 8px; padding: 9px 11px; font-size: 13px; font-family: inherit; resize: vertical; color: #18181B; }
 	.desc:focus { outline: none; border-color: var(--accent); }
+
+	.pane-foot { margin-top: auto; position: sticky; bottom: 0; background: #fff; display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid #F3F3F5; }
 
 	.updates { flex: 1; display: flex; flex-direction: column; }
 	.upd-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
