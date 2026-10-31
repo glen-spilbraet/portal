@@ -476,7 +476,7 @@
 				<table class="tasks ov">
 					<colgroup><col class="oc-name" /><col class="oc-board" /><col class="oc-status" /><col class="oc-prio" /><col class="oc-due" /></colgroup>
 					{#if gi === 0}
-						<thead><tr><th class="c-name">Task</th><th>Board</th><th class="ctr">Status</th><th class="ctr">Priority</th><th class="ctr">Due date</th></tr></thead>
+						<thead><tr><th class="c-name">Task</th><th>Board</th><th class="ctr">Status</th><th class="ctr">Priority</th><th>Due date</th></tr></thead>
 					{/if}
 					<tbody>
 						{#each g.tasks as task (task.id)}
@@ -584,7 +584,7 @@
 								<th class="c-name">Task</th>
 								<th class="c-status ctr">Status</th>
 								<th class="c-prio ctr">Priority</th>
-								<th class="c-due ctr">Due date</th>
+								<th class="c-due">Due date</th>
 								<th class="c-assignee">Assigned to</th>
 							</tr>
 						</thead>
@@ -983,7 +983,7 @@
 	.menu-backdrop { position: fixed; inset: 0; z-index: 200; }
 
 	/* Date cell */
-	.due-btn { width: 100%; text-align: center; border: 1px solid transparent; background: none; border-radius: 7px; padding: 6px 10px; font-size: 13px; font-weight: 600; color: #3F3F46; cursor: pointer; }
+	.due-btn { width: 100%; text-align: left; border: 1px solid transparent; background: none; border-radius: 7px; padding: 6px 8px; margin-left: -8px; font-size: 13px; font-weight: 600; color: #3F3F46; cursor: pointer; }
 	.due-btn:hover { border-color: #ECECEF; background: #fff; }
 	.due-btn.empty { color: #B4B4BC; font-weight: 600; }
 	.due-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -1085,7 +1085,7 @@
 	.pg-v { display: flex; }
 	.pg-v .pill-wrap { justify-content: flex-start; }
 	.pg-v .pill { width: auto; min-width: 150px; }
-	.pg-v .due-btn { width: auto; text-align: left; padding-left: 9px; border-color: #ECECEF; }
+	.pg-v .due-btn { width: auto; text-align: left; padding-left: 9px; margin-left: 0; border-color: #ECECEF; }
 
 	.pane-sec { padding: 12px 20px; border-top: 1px solid #F3F3F5; }
 	.sec-label { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #A1A1AA; margin-bottom: 8px; }
