@@ -188,16 +188,7 @@
 				{#if showData}
 					<a href="/data" class="nav-link" class:active={active === 'data'}>{@html ICONS.data}Data</a>
 				{/if}
-
-				<!-- Knowledge -->
-				{#if showKnowledge}
-					<a href="/knowledge" class="nav-link" class:active={active === 'knowledge'}>{@html ICONS.knowledge}Knowledge</a>
-				{/if}
-
-				<!-- Admin -->
-				{#if user?.role === 'admin'}
-					<a href="/admin" class="nav-link" class:active={adminActive}>{@html ICONS.admin}Admin</a>
-				{/if}
+				<!-- Knowledge & Admin now live under the user menu (right side) -->
 			</nav>
 		</div>
 
@@ -210,6 +201,15 @@
 				</button>
 				<div class="dropdown dropdown-right">
 					<div class="dropdown-inner">
+						{#if showKnowledge}
+							<a href="/knowledge" class="dropdown-item" class:active={active === 'knowledge'}>{@html ICONS.knowledge}Knowledge</a>
+						{/if}
+						{#if user.role === 'admin'}
+							<a href="/admin" class="dropdown-item" class:active={adminActive}>{@html ICONS.admin}Admin</a>
+						{/if}
+						{#if showKnowledge || user.role === 'admin'}
+							<div class="dropdown-divider"></div>
+						{/if}
 						{#if user.role === 'admin'}
 							<button class="dropdown-item dropdown-btn" onclick={openSimulate}>
 								<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -466,6 +466,7 @@
 	}
 	.dropdown-item:hover { background: #FFF5D2; color: #7B3803; }
 	.dropdown-item.active { background: #FFE6A5; color: #7B3803; }
+	.dropdown-item :global(.nav-ico) { width: 15px; height: 15px; }
 
 	/* Button-style dropdown item */
 	.dropdown-btn {
