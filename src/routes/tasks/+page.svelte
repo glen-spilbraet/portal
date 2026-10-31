@@ -165,6 +165,29 @@
 	const tasksForDay = (d) => { const k = ymd(d); return boardTasks.filter((t) => t.due_date === k); };
 	const unscheduled = $derived(boardTasks.filter((t) => !t.due_date));
 
+	// ── Drag & drop (board → status, calendar → date) ──────────────────────────────
+	let dragTaskId = $state(null);
+	let dragOver = $state(null); // status value | 'YYYY-MM-DD' | 'unsched'
+	function onDragStart(e, task) {
+		dragTaskId = task.id;
+		e.dataTransfer.effectAllowed = 'move';
+		try { e.dataTransfer.setData('text/plain', task.id); } catch {}
+	}
+	function onDragEnd() { dragTaskId = null; dragOver = null; }
+	function allowDrop(e, key) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOver !== key) dragOver = key; }
+	async function dropToStatus(e, status) {
+		e.preventDefault();
+		const t = tasks.find((x) => x.id === dragTaskId);
+		dragOver = null; dragTaskId = null;
+		if (t && t.status !== status) await patchTask(t, { status });
+	}
+	async function dropToDate(e, dateStr) {
+		e.preventDefault();
+		const t = tasks.find((x) => x.id === dragTaskId);
+		dragOver = null; dragTaskId = null;
+		if (t && (t.due_date ?? null) !== (dateStr ?? null)) await patchTask(t, { due_date: dateStr });
+	}
+
 	// ── Pill dropdown menus ──────────────────────────────────────────────────────
 	let openMenu = $state(null); // `${taskId}:${field}`
 	function toggleMenu(id, field) { const k = `${id}:${field}`; openMenu = openMenu === k ? null : k; }
@@ -357,14 +380,14 @@
 				{:else if view === 'board'}
 				<div class="kanban">
 					{#each STATUS_OPTS as col (col.v)}
-						<section class="kcol">
+						<section class="kcol" class:dragover={dragOver === col.v}>
 							<header class="kcol-head">
 								<span class="kdot" style="background:{col.color};"></span>{col.label}
 								<span class="kcount">{boardTasks.filter((t) => t.status === col.v).length}</span>
 							</header>
-							<div class="kcol-body">
+							<div class="kcol-body" ondragover={(e) => allowDrop(e, col.v)} ondrop={(e) => dropToStatus(e, col.v)} role="list">
 								{#each boardTasks.filter((t) => t.status === col.v) as task (task.id)}
-									<article class="kcard" onclick={() => openTask(task)}>
+									<article class="kcard" draggable="true" ondragstart={(e) => onDragStart(e, task)} ondragend={onDragEnd} onclick={() => openTask(task)}>
 										<div class="kc-name">{task.name || 'Untitled task'}</div>
 										<div class="kc-pill">{@render pill(task, 'priority', PRIORITY_OPTS)}</div>
 										<div class="kc-foot">
@@ -391,7 +414,10 @@
 					<div class="cal-grid">
 						{#each ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as d}<div class="cal-dow">{d}</div>{/each}
 						{#each calDays as day, i (i)}
-							<div class="cal-cell" class:out={!day} class:today={day && ymd(day) === todayYmd}>
+							<div class="cal-cell" class:out={!day} class:today={day && ymd(day) === todayYmd} class:dragover={day && dragOver === ymd(day)}
+								ondragover={day ? (e) => allowDrop(e, ymd(day)) : undefined}
+								ondrop={day ? (e) => dropToDate(e, ymd(day)) : undefined}
+								role={day ? 'listitem' : undefined}>
 								{#if day}
 									<div class="cal-dnum">
 										<span>{day.getDate()}</span>
@@ -399,21 +425,20 @@
 									</div>
 									<div class="cal-items">
 										{#each tasksForDay(day) as task (task.id)}
-											<button class="cal-item" style="border-left-color:{statusColor(task.status)};" onclick={() => openTask(task)}>{task.name || 'Untitled task'}</button>
+											<button class="cal-item" draggable="true" ondragstart={(e) => onDragStart(e, task)} ondragend={onDragEnd} style="border-left-color:{statusColor(task.status)};" onclick={() => openTask(task)}>{task.name || 'Untitled task'}</button>
 										{/each}
 									</div>
 								{/if}
 							</div>
 						{/each}
 					</div>
-					{#if unscheduled.length}
-						<div class="cal-unsched">
-							<span class="cu-label">No due date</span>
-							{#each unscheduled as task (task.id)}
-								<button class="cal-item inline" style="border-left-color:{statusColor(task.status)};" onclick={() => openTask(task)}>{task.name || 'Untitled task'}</button>
-							{/each}
-						</div>
-					{/if}
+					<div class="cal-unsched" class:dragover={dragOver === 'unsched'} ondragover={(e) => allowDrop(e, 'unsched')} ondrop={(e) => dropToDate(e, null)} role="list">
+						<span class="cu-label">No due date</span>
+						{#each unscheduled as task (task.id)}
+							<button class="cal-item inline" draggable="true" ondragstart={(e) => onDragStart(e, task)} ondragend={onDragEnd} style="border-left-color:{statusColor(task.status)};" onclick={() => openTask(task)}>{task.name || 'Untitled task'}</button>
+						{/each}
+						{#if unscheduled.length === 0}<span class="cu-hint">Drag a task here to clear its date</span>{/if}
+					</div>
 				</div>
 				{/if}
 			{/if}
@@ -624,9 +649,12 @@
 	.kcol-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; font-size: 13px; font-weight: 800; color: #3F3F46; }
 	.kdot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 	.kcount { margin-left: auto; font-size: 12px; color: #A1A1AA; font-weight: 700; }
-	.kcol-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 12px; overflow-y: auto; }
-	.kcard { background: #fff; border: 1px solid #ECECEF; border-radius: 10px; padding: 10px 11px; cursor: pointer; box-shadow: 0 1px 2px rgba(100,60,0,.05); display: flex; flex-direction: column; gap: 8px; text-align: left; }
+	.kcol-body { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 12px; overflow-y: auto; min-height: 60px; }
+	.kcard { background: #fff; border: 1px solid #ECECEF; border-radius: 10px; padding: 10px 11px; cursor: grab; box-shadow: 0 1px 2px rgba(100,60,0,.05); display: flex; flex-direction: column; gap: 8px; text-align: left; }
 	.kcard:hover { border-color: var(--border); }
+	.kcard:active { cursor: grabbing; }
+	.kcol.dragover { background: #FBF3E8; }
+	.kcol.dragover .kcol-body { outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: 10px; }
 	.kc-name { font-size: 14px; font-weight: 700; color: #18181B; }
 	.kc-pill { display: flex; }
 	.kc-pill :global(.pill-wrap) { justify-content: flex-start; }
@@ -649,15 +677,19 @@
 	.cal-cell { min-height: 108px; background: #fff; border: 1px solid #F0F0F2; border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
 	.cal-cell.out { background: transparent; border-color: transparent; }
 	.cal-cell.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+	.cal-cell.dragover { border-color: var(--accent); border-style: dashed; background: #FDF6EC; }
 	.cal-dnum { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 700; color: #52525B; }
 	.cal-add { opacity: 0; border: 0; background: none; cursor: pointer; color: var(--accent); font-size: 17px; line-height: 1; font-weight: 700; padding: 0 2px; }
 	.cal-cell:hover .cal-add { opacity: 1; }
 	.cal-items { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
-	.cal-item { display: block; width: 100%; text-align: left; border: 0; border-left: 3px solid #ccc; background: #FAFAF8; border-radius: 5px; padding: 3px 7px; font-size: 12px; font-weight: 600; color: #3F3F46; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.cal-item { display: block; width: 100%; text-align: left; border: 0; border-left: 3px solid #ccc; background: #FAFAF8; border-radius: 5px; padding: 3px 7px; font-size: 12px; font-weight: 600; color: #3F3F46; cursor: grab; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.cal-item:hover { background: #F2EFE8; }
+	.cal-item:active { cursor: grabbing; }
 	.cal-item.inline { width: auto; max-width: 220px; }
-	.cal-unsched { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+	.cal-unsched { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border: 1px dashed transparent; border-radius: 10px; padding: 6px; }
+	.cal-unsched.dragover { border-color: var(--accent); background: #FDF6EC; }
 	.cu-label { font-size: 12px; font-weight: 700; color: #A1A1AA; margin-right: 4px; }
+	.cu-hint { font-size: 12px; color: #C7BCAB; }
 
 	/* Chips */
 	.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
