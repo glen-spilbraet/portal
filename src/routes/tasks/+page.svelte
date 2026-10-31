@@ -21,16 +21,60 @@
 	let tasks  = $state(data.tasks ?? []);
 	const users  = data.users ?? [];
 	const events = data.events ?? [];
+	const userEmail = data.user?.email ?? null;
 
-	let selectedBoardId = $state(boards[0]?.id ?? null);
-
-	const selectedBoard = $derived(boards.find((b) => b.id === selectedBoardId) ?? null);
+	// Left-panel selection: a standard view ('my' | 'created') or a board id.
+	let panel = $state('my');
+	const isView = $derived(panel === 'my' || panel === 'created');
+	const selectedBoard = $derived(boards.find((b) => b.id === panel) ?? null);
 	const boardTasks = $derived(
-		tasks.filter((t) => t.board_id === selectedBoardId)
+		tasks.filter((t) => t.board_id === selectedBoard?.id)
 		     .sort((a, b) => (a.position - b.position) || (a.created_at ?? '').localeCompare(b.created_at ?? ''))
 	);
+	const boardName = (id) => boards.find((b) => b.id === id)?.name ?? '—';
 
 	let busy = $state(false);
+
+	// ── Standard views (My tasks / Created by me) ──────────────────────────────────
+	const MS = 86400000;
+	const today0 = new Date(); today0.setHours(0, 0, 0, 0);
+	const dowMon = (today0.getDay() + 6) % 7; // Mon = 0
+	const endThisWeek = new Date(today0.getTime() + (6 - dowMon) * MS);
+	const endNextWeek = new Date(endThisWeek.getTime() + 7 * MS);
+	function dueBucket(due) {
+		if (!due) return 'none';
+		const d = new Date(due + 'T00:00:00'); d.setHours(0, 0, 0, 0);
+		const diff = Math.round((d - today0) / MS);
+		if (diff < 0) return 'overdue';
+		if (diff === 0) return 'today';
+		if (diff === 1) return 'tomorrow';
+		if (d <= endThisWeek) return 'this_week';
+		if (d <= endNextWeek) return 'next_week';
+		return 'later';
+	}
+	const DUE_ORDER = ['overdue', 'today', 'tomorrow', 'this_week', 'next_week', 'later', 'none'];
+	const DUE_LABEL = { overdue: 'Overdue', today: 'Due Today', tomorrow: 'Due Tomorrow', this_week: 'Due This Week', next_week: 'Due Next Week', later: 'Due Later', none: 'No due date' };
+	const byDue = (a, b) => (a.due_date ?? '9999-12-31').localeCompare(b.due_date ?? '9999-12-31');
+
+	function groupByDue(list) {
+		const buckets = {};
+		for (const t of list) (buckets[dueBucket(t.due_date)] ??= []).push(t);
+		return DUE_ORDER.filter((k) => buckets[k]?.length).map((k) => ({ key: k, label: DUE_LABEL[k], tasks: buckets[k].sort(byDue) }));
+	}
+
+	const myTasksGroups = $derived.by(() => groupByDue(tasks.filter((t) => t.assignee_email === userEmail)));
+	const createdGroups = $derived.by(() => {
+		const mine = tasks.filter((t) => (t.created_by ?? null) === userEmail);
+		const map = new Map();
+		for (const t of mine) { const k = t.assignee_email ?? '__none'; if (!map.has(k)) map.set(k, []); map.get(k).push(t); }
+		const entries = [...map.entries()].map(([k, arr]) => ({ key: k, label: k === '__none' ? 'Unassigned' : userName(k), tasks: arr.sort(byDue) }));
+		entries.sort((a, b) => (a.key === '__none' ? 1 : 0) - (b.key === '__none' ? 1 : 0) || a.label.localeCompare(b.label));
+		return entries;
+	});
+	const myTasksCount = $derived(tasks.filter((t) => t.assignee_email === userEmail).length);
+	const createdCount = $derived(tasks.filter((t) => (t.created_by ?? null) === userEmail).length);
+	const overviewGroups = $derived(panel === 'created' ? createdGroups : myTasksGroups);
+	const overviewCount = $derived(overviewGroups.reduce((n, g) => n + g.tasks.length, 0));
 
 	// ── Option maps (Monday-style coloured pills) ───────────────────────────────
 	const STATUS_OPTS = [
@@ -84,8 +128,8 @@
 		busy = true;
 		try {
 			const { id, name } = await api('/api/tasks/boards', 'POST', { name: 'New board' });
-			boards = [...boards, { id, name, position: boards.length, archived: 0 }];
-			selectedBoardId = id;
+			boards = [...boards, { id, name, position: boards.length, archived: 0, view_type: 'table' }];
+			panel = id;
 		} finally { busy = false; }
 	}
 	async function renameBoard(board, name) {
@@ -98,18 +142,19 @@
 		await api(`/api/tasks/boards/${board.id}`, 'DELETE');
 		boards = boards.filter((b) => b.id !== board.id);
 		tasks  = tasks.filter((t) => t.board_id !== board.id);
-		if (selectedBoardId === board.id) selectedBoardId = boards[0]?.id ?? null;
+		if (panel === board.id) panel = 'my';
 	}
 
 	// ── Tasks ───────────────────────────────────────────────────────────────────
 	async function addTask(opts = {}) {
-		if (!selectedBoardId) return;
+		const bid = selectedBoard?.id;
+		if (!bid) return;
 		busy = true;
 		try {
-			const { id } = await api('/api/tasks', 'POST', { board_id: selectedBoardId, name: '' });
+			const { id } = await api('/api/tasks', 'POST', { board_id: bid, name: '' });
 			const now = new Date().toISOString();
 			const t = {
-				id, board_id: selectedBoardId, name: '', description: '',
+				id, board_id: bid, name: '', description: '', created_by: userEmail,
 				status: opts.status ?? 'not_started', priority: 'medium', due_date: opts.due ?? null,
 				assignee_email: null, position: 9999,
 				created_at: now, updated_at: now, associations: [],
@@ -287,18 +332,63 @@
 
 {#if openMenu}<div class="menu-backdrop" onclick={() => (openMenu = null)} role="presentation"></div>{/if}
 
+<!-- Overview table for the standard views (sections + a Board column) -->
+{#snippet otable(groups)}
+	{#if groups.length === 0}
+		<div class="empty-tasks">Nothing here yet.</div>
+	{:else}
+		{#each groups as g, gi (g.key)}
+			<section class="ov-sec">
+				<header class="ov-sec-head"><span class="ov-sec-title">{g.label}</span><span class="ov-sec-count">{g.tasks.length}</span></header>
+				<table class="tasks ov">
+					<colgroup><col class="oc-name" /><col class="oc-board" /><col class="oc-status" /><col class="oc-prio" /><col class="oc-due" /></colgroup>
+					{#if gi === 0}
+						<thead><tr><th class="c-name">Task</th><th>Board</th><th class="ctr">Status</th><th class="ctr">Priority</th><th class="ctr">Due date</th></tr></thead>
+					{/if}
+					<tbody>
+						{#each g.tasks as task (task.id)}
+							<tr class="trow" class:sel={paneTaskId === task.id}>
+								<td class="c-name"><button class="task-open" onclick={() => openTask(task)}>{task.name || 'Untitled task'}</button></td>
+								<td><button class="board-chip" onclick={() => (panel = task.board_id)}><span class="dot"></span>{boardName(task.board_id)}</button></td>
+								<td class="c-status">{@render pill(task, 'status', STATUS_OPTS)}</td>
+								<td class="c-prio">{@render pill(task, 'priority', PRIORITY_OPTS)}</td>
+								<td class="c-due">
+									<button class="due-btn" class:empty={!task.due_date} onclick={openDate}>{task.due_date ? fmtDay(task.due_date) : '—'}</button>
+									<input type="date" class="due-hidden" value={task.due_date ?? ''} onchange={(e) => patchTask(task, { due_date: e.currentTarget.value || null })} />
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</section>
+		{/each}
+	{/if}
+{/snippet}
+
 <div class="page">
 	<AppNav active="" user={data.user} />
 
 	<div class="workspace" bind:this={workspaceEl}>
 		<!-- Left: board list (room for future view types) -->
 		<aside class="sidebar">
-			<div class="side-head"><h1>Tasks</h1></div>
+			<div class="side-section">
+				<div class="side-label">Views</div>
+				<button class="board-item" class:active={panel === 'my'} onclick={() => (panel = 'my')}>
+					<svg class="vico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+					<span class="bi-name">My tasks</span>
+					<span class="bi-count">{myTasksCount}</span>
+				</button>
+				<button class="board-item" class:active={panel === 'created'} onclick={() => (panel = 'created')}>
+					<svg class="vico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+					<span class="bi-name">Created by me</span>
+					<span class="bi-count">{createdCount}</span>
+				</button>
+			</div>
 
 			<div class="side-section">
 				<div class="side-label">Boards</div>
 				{#each boards as b (b.id)}
-					<button class="board-item" class:active={b.id === selectedBoardId} onclick={() => (selectedBoardId = b.id)}>
+					<button class="board-item" class:active={b.id === panel} onclick={() => (panel = b.id)}>
 						<span class="dot"></span>
 						<span class="bi-name">{b.name}</span>
 						<span class="bi-count">{taskCount(b.id)}</span>
@@ -311,7 +401,15 @@
 
 		<!-- Right: full-width board -->
 		<main class="board-area">
-			{#if !selectedBoard}
+			{#if isView}
+				<header class="board-head">
+					<div class="board-title static">{panel === 'created' ? 'Created by me' : 'My tasks'}</div>
+					<div class="board-meta">{overviewCount} {overviewCount === 1 ? 'task' : 'tasks'}</div>
+				</header>
+				<div class="table-wrap">
+					{@render otable(overviewGroups)}
+				</div>
+			{:else if !selectedBoard}
 				<div class="blank">
 					<p>Create your first board to get started.</p>
 					<button class="btn primary" onclick={addBoard} disabled={busy}>+ New board</button>
@@ -562,10 +660,9 @@
 	.workspace { flex: 1; display: flex; min-height: 0; }
 
 	/* ── Sidebar ──────────────────────────────────────────── */
-	.sidebar { width: 248px; flex-shrink: 0; background: #fff; border-right: 1px solid #ECECEF; display: flex; flex-direction: column; overflow-y: auto; }
-	.side-head { padding: 20px 20px 8px; }
-	.side-head h1 { margin: 0; font-size: 22px; font-weight: 800; color: #18181B; }
+	.sidebar { width: 248px; flex-shrink: 0; background: #fff; border-right: 1px solid #ECECEF; display: flex; flex-direction: column; overflow-y: auto; padding-top: 14px; }
 	.side-section { padding: 10px 12px; }
+	.vico { color: var(--accent); opacity: .9; flex-shrink: 0; }
 	.side-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #A1A1AA; padding: 6px 8px; }
 	.board-item { width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 0; background: none; border-radius: 8px; cursor: pointer; font-size: 14px; color: #3F3F46; text-align: left; }
 	.board-item:hover { background: #F6F3EC; }
@@ -584,6 +681,8 @@
 	.board-title { font-size: 24px; font-weight: 800; color: #18181B; border: 1px solid transparent; background: none; border-radius: 8px; padding: 4px 8px; margin: -4px -8px; max-width: 520px; }
 	.board-title:hover { border-color: #ECECEF; }
 	.board-title:focus { outline: none; border-color: var(--accent); background: #fff; }
+	.board-title.static { cursor: default; }
+	.board-title.static:hover { border-color: transparent; }
 	.board-meta { font-size: 13px; color: #A1A1AA; font-weight: 600; }
 	.spacer { flex: 1; }
 
@@ -642,6 +741,17 @@
 
 	.empty-tasks { padding: 28px 12px; text-align: center; color: #A1A1AA; font-size: 14px; }
 	.linkish { border: 0; background: none; color: var(--accent); font-weight: 700; cursor: pointer; font-size: 14px; }
+
+	/* ── Overview views (My tasks / Created by me) ─────────── */
+	.ov-sec { margin-bottom: 22px; }
+	.ov-sec-head { display: flex; align-items: baseline; gap: 8px; padding: 2px 2px 8px; }
+	.ov-sec-title { font-size: 13px; font-weight: 800; color: #18181B; }
+	.ov-sec-count { font-size: 12px; color: #A1A1AA; font-weight: 700; }
+	.tasks.ov { table-layout: fixed; }
+	.oc-board { width: 184px; } .oc-status { width: 160px; } .oc-prio { width: 160px; } .oc-due { width: 150px; }
+	.board-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #ECECEF; background: #fff; border-radius: 7px; padding: 5px 9px; font-size: 12.5px; font-weight: 600; color: #52525B; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.board-chip:hover { background: #FAF6EE; border-color: var(--border); }
+	.board-chip .dot { width: 7px; height: 7px; }
 
 	/* ── Board (kanban) view ──────────────────────────────── */
 	.kanban { flex: 1; overflow: auto; display: flex; gap: 14px; padding: 4px 28px 60px; align-items: flex-start; }
