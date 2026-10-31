@@ -28,7 +28,7 @@ export async function createBoard(db, { name, createdBy }) {
 }
 
 export async function updateBoard(db, id, patch) {
-	const allowed = ['name', 'position', 'archived', 'view_type'];
+	const allowed = ['name', 'position', 'archived', 'view_type', 'icon'];
 	const fields = [], values = [];
 	for (const k of allowed) if (k in patch) { fields.push(`${k} = ?`); values.push(patch[k]); }
 	if (!fields.length) return;

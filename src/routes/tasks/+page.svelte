@@ -115,6 +115,34 @@
 		event:    { short: 'Event', color: '#5A2DA8', bg: '#ECE2FB' },
 	};
 
+	// Board icons — a fixed set the user can pick from (inner SVG, stroke-based).
+	const BOARD_ICONS = {
+		board: '<rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="11" rx="1"/>',
+		list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+		megaphone: '<path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+		chart: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+		calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+		cart: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
+		box: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+		star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+		flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
+		bulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.5.4.9 1 1 1.6V18h6v-1.7c.1-.6.5-1.2 1-1.6A7 7 0 0 0 12 2z"/>',
+		rocket: '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+		heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+		tag: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+		truck: '<rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+		image: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+		pen: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+		check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+		folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+		globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+		users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+		bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+		gift: '<polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>',
+		target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+	};
+	const ICON_KEYS = Object.keys(BOARD_ICONS);
+
 	const taskCount = (boardId) => tasks.filter((t) => t.board_id === boardId).length;
 	const userName  = (email) => users.find((u) => u.email === email)?.name ?? (email ?? '');
 
@@ -146,7 +174,7 @@
 		busy = true;
 		try {
 			const { id, name } = await api('/api/tasks/boards', 'POST', { name: 'New board' });
-			boards = [...boards, { id, name, position: boards.length, archived: 0, view_type: 'table' }];
+			boards = [...boards, { id, name, position: boards.length, archived: 0, view_type: 'table', icon: 'board' }];
 			panel = id;
 		} finally { busy = false; }
 	}
@@ -162,6 +190,33 @@
 		tasks  = tasks.filter((t) => t.board_id !== board.id);
 		if (panel === board.id) panel = 'my';
 	}
+
+	// ── Board settings modal (rename / icon / archive / delete) ─────────────────────
+	let boardCfg = $state(null);
+	let cfgName = $state('');
+	let cfgIcon = $state('board');
+	function openBoardCfg(board, e) {
+		e?.stopPropagation();
+		boardCfg = board; cfgName = board.name; cfgIcon = board.icon ?? 'board';
+	}
+	function closeBoardCfg() { boardCfg = null; }
+	async function saveBoardCfg() {
+		const patch = {};
+		const nm = cfgName.trim();
+		if (nm && nm !== boardCfg.name) patch.name = nm;
+		if (cfgIcon !== (boardCfg.icon ?? 'board')) patch.icon = cfgIcon;
+		if (Object.keys(patch).length) { Object.assign(boardCfg, patch); await api(`/api/tasks/boards/${boardCfg.id}`, 'PUT', patch); }
+		boardCfg = null;
+	}
+	async function archiveBoard() {
+		const b = boardCfg;
+		if (!confirm(`Archive "${b.name}"? It will be hidden from the board list.`)) return;
+		await api(`/api/tasks/boards/${b.id}`, 'PUT', { archived: 1 });
+		boards = boards.filter((x) => x.id !== b.id);
+		if (panel === b.id) panel = 'my';
+		boardCfg = null;
+	}
+	function deleteBoardCfg() { const b = boardCfg; boardCfg = null; removeBoard(b); }
 
 	// ── Tasks ───────────────────────────────────────────────────────────────────
 	// ── Create task (staged — nothing is saved until "Save task") ────────────────────
@@ -380,12 +435,20 @@
 
 <!-- Shared top-right actions for every view: Hide completed + Add task -->
 {#snippet headerActions()}
-	<label class="toggle" title="Hide completed tasks">
+	<label class="toggle ctl-box" title="Hide completed tasks">
 		<input type="checkbox" checked={hideDone} onchange={(e) => (hideDone = e.currentTarget.checked)} />
 		<span class="track"><span class="knob"></span></span>
 		<span class="tlabel">Hide completed</span>
 	</label>
-	<button class="btn primary" onclick={() => openCreate()} disabled={busy || boards.length === 0}>+ Add task</button>
+	<button class="btn primary" onclick={() => openCreate()} disabled={busy || boards.length === 0}>
+		<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+		Add task
+	</button>
+{/snippet}
+
+<!-- Board icon from the fixed set -->
+{#snippet bicon(key, size)}
+	<svg class="bic" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{@html BOARD_ICONS[key] ?? BOARD_ICONS.board}</svg>
 {/snippet}
 
 <!-- Overview table for the standard views (sections + a Board column) -->
@@ -444,11 +507,15 @@
 			<div class="side-section">
 				<div class="side-label">Boards</div>
 				{#each boards as b (b.id)}
-					<button class="board-item" class:active={b.id === panel} onclick={() => (panel = b.id)}>
-						<span class="dot"></span>
+					<div class="board-item" class:active={b.id === panel} role="button" tabindex="0"
+						onclick={() => (panel = b.id)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); panel = b.id; } }}>
+						<span class="bico">{@render bicon(b.icon ?? 'board', 15)}</span>
 						<span class="bi-name">{b.name}</span>
+						<button class="bi-gear" onclick={(e) => openBoardCfg(b, e)} aria-label="Board settings" title="Board settings">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+						</button>
 						<span class="bi-count">{taskCount(b.id)}</span>
-					</button>
+					</div>
 				{/each}
 				{#if boards.length === 0}<div class="side-empty">No boards yet</div>{/if}
 				<button class="add-board" onclick={addBoard} disabled={busy}>+ New board</button>
@@ -459,10 +526,11 @@
 		<main class="board-area">
 			{#if isView}
 				<header class="board-head">
+					<span class="board-ico">{@render bicon(panel === 'created' ? 'pen' : 'list', 20)}</span>
 					<div class="board-title static">{panel === 'created' ? 'Created by me' : 'My tasks'}</div>
 					<div class="board-meta">{overviewCount} {overviewCount === 1 ? 'task' : 'tasks'}</div>
 					<div class="spacer"></div>
-					{@render headerActions()}
+					<div class="head-group">{@render headerActions()}</div>
 				</header>
 				<div class="table-wrap">
 					{@render otable(overviewGroups)}
@@ -474,18 +542,24 @@
 				</div>
 			{:else}
 				<header class="board-head">
-					<input class="board-title" value={selectedBoard.name}
-						onblur={(e) => { const v = e.currentTarget.value.trim(); if (v) renameBoard(selectedBoard, v); else e.currentTarget.value = selectedBoard.name; }}
-						onkeydown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
+					<span class="board-ico">{@render bicon(selectedBoard.icon ?? 'board', 20)}</span>
+					<div class="board-title static">{selectedBoard.name}</div>
 					<div class="board-meta">{boardTasks.length} {boardTasks.length === 1 ? 'task' : 'tasks'}</div>
-					<div class="viewseg">
-						<button class:active={view === 'table'} onclick={() => setView('table')}>Table</button>
-						<button class:active={view === 'board'} onclick={() => setView('board')}>Board</button>
-						<button class:active={view === 'calendar'} onclick={() => setView('calendar')}>Calendar</button>
-					</div>
 					<div class="spacer"></div>
-					{@render headerActions()}
-					<button class="btn ghost danger" onclick={() => removeBoard(selectedBoard)} title="Delete board">Delete board</button>
+					<div class="head-group">
+						<div class="viewseg">
+							<button class:active={view === 'table'} onclick={() => setView('table')}>
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="3" y1="15" x2="21" y2="15"/></svg>Table
+							</button>
+							<button class:active={view === 'board'} onclick={() => setView('board')}>
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>Board
+							</button>
+							<button class:active={view === 'calendar'} onclick={() => setView('calendar')}>
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Calendar
+							</button>
+						</div>
+						{@render headerActions()}
+					</div>
 				</header>
 
 				{#if view === 'table'}
@@ -780,6 +854,29 @@
 	</div>
 {/if}
 
+<!-- ── Board settings modal ──────────────────────────────────────────── -->
+{#if boardCfg}
+	<div class="overlay high" onclick={closeBoardCfg} role="presentation"></div>
+	<div class="pick-modal bcfg" role="dialog" aria-modal="true">
+		<div class="pm-head"><strong>Board settings</strong><button class="pm-close" onclick={closeBoardCfg} aria-label="Close">×</button></div>
+		<label class="cfg-label" for="cfg-name">Name</label>
+		<input id="cfg-name" class="pm-search" bind:value={cfgName} onkeydown={(e) => { if (e.key === 'Enter') saveBoardCfg(); }} />
+		<div class="cfg-label">Icon</div>
+		<div class="icon-grid">
+			{#each ICON_KEYS as k (k)}
+				<button class="icon-opt" class:sel={cfgIcon === k} onclick={() => (cfgIcon = k)} aria-label={k}>{@render bicon(k, 18)}</button>
+			{/each}
+		</div>
+		<div class="bcfg-foot">
+			<button class="btn ghost" onclick={archiveBoard}>Archive</button>
+			<button class="btn ghost danger" onclick={deleteBoardCfg}>Delete</button>
+			<div class="spacer"></div>
+			<button class="btn" onclick={closeBoardCfg}>Cancel</button>
+			<button class="btn primary" onclick={saveBoardCfg}>Save</button>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; background: #F2F2F3; }
 	.workspace { flex: 1; display: flex; min-height: 0; }
@@ -792,6 +889,11 @@
 	.board-item { width: 100%; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 0; background: none; border-radius: 8px; cursor: pointer; font-size: 14px; color: #3F3F46; text-align: left; }
 	.board-item:hover { background: #F6F3EC; }
 	.board-item.active { background: #FDEFE2; color: #18181B; font-weight: 700; }
+	.bico, .vico { color: var(--accent); display: flex; align-items: center; flex-shrink: 0; }
+	.bi-gear { display: none; border: 0; background: none; cursor: pointer; color: #A1A1AA; padding: 3px; border-radius: 6px; margin-left: auto; }
+	.bi-gear:hover { color: #18181B; background: #EBE6DA; }
+	.board-item:hover .bi-gear { display: flex; }
+	.board-item:hover .bi-count { display: none; }
 	.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 	.bi-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.bi-count { font-size: 12px; color: #A1A1AA; }
@@ -811,12 +913,17 @@
 	.board-meta { font-size: 13px; color: #A1A1AA; font-weight: 600; }
 	.spacer { flex: 1; }
 
+	.head-group { display: flex; align-items: center; gap: 10px; }
+	.board-ico { color: var(--accent); display: flex; align-items: center; flex-shrink: 0; }
+
 	.viewseg { display: inline-flex; background: #EFEDE8; border-radius: 9px; padding: 3px; }
-	.viewseg button { border: 0; background: none; border-radius: 7px; padding: 6px 13px; font-size: 13px; font-weight: 600; color: #52525B; cursor: pointer; }
+	.viewseg button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; border-radius: 7px; padding: 7px 12px; font-size: 13px; font-weight: 600; color: #52525B; cursor: pointer; }
+	.viewseg button svg { opacity: .8; }
 	.viewseg button.active { background: #fff; color: #18181B; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 
-	/* Hide-completed toggle */
+	/* Hide-completed toggle (boxed to align with the buttons) */
 	.toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 13px; font-weight: 600; color: #52525B; }
+	.toggle.ctl-box { border: 1px solid var(--border); background: #fff; border-radius: 9px; padding: 7px 12px; }
 	.toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
 	.toggle .track { width: 38px; height: 22px; border-radius: 999px; background: #D4D4D8; position: relative; transition: background .15s; flex-shrink: 0; }
 	.toggle .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
@@ -825,7 +932,7 @@
 	.toggle input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
 	.toggle .tlabel { white-space: nowrap; }
 
-	.btn { border: 1px solid var(--border); background: #fff; border-radius: 9px; padding: 8px 14px; font-size: 14px; font-weight: 600; cursor: pointer; color: #3F3F46; }
+	.btn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: #fff; border-radius: 9px; padding: 8px 14px; font-size: 14px; font-weight: 600; cursor: pointer; color: #3F3F46; }
 	.btn:hover { background: #FAF6EE; }
 	.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 	.btn.primary:hover { background: var(--accent-hover); }
@@ -1001,6 +1108,20 @@
 	.pm-l { font-size: 14px; font-weight: 600; color: #18181B; }
 	.pm-sub { font-size: 12px; color: #A1A1AA; }
 	.pm-empty { padding: 14px 10px; font-size: 13px; color: #A1A1AA; text-align: center; }
+
+	/* Board settings modal */
+	.bcfg { gap: 10px; }
+	.cfg-label { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #9A8F7B; }
+	.icon-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+	.icon-opt { display: flex; align-items: center; justify-content: center; padding: 8px; border: 1px solid #ECECEF; border-radius: 9px; background: #fff; cursor: pointer; color: #52525B; }
+	.icon-opt:hover { background: #FAF6EE; }
+	.icon-opt.sel { border-color: var(--accent); color: var(--accent); background: #FDF6EC; }
+	.bcfg-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+	.bcfg-foot .spacer { flex: 1; }
+	.btn.ghost { background: none; border-color: #ECECEF; color: #71717A; }
+	.btn.ghost:hover { background: #F4F4F5; color: #18181B; }
+	.btn.ghost.danger { color: #B91C1C; }
+	.btn.ghost.danger:hover { background: #FEF2F2; color: var(--danger); }
 
 	@media (max-width: 760px) {
 		.sidebar { width: 170px; }
