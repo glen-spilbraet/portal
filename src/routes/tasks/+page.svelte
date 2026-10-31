@@ -96,8 +96,15 @@
 		entries.sort((a, b) => (a.key === '__none' ? 1 : 0) - (b.key === '__none' ? 1 : 0) || a.label.localeCompare(b.label));
 		return entries;
 	});
-	const myTasksCount = $derived(tasks.filter((t) => t.assignee_email === userEmail).length);
-	const createdCount = $derived(tasks.filter((t) => (t.created_by ?? null) === userEmail).length);
+	// Sidebar counts: open (not done) tasks, plus overdue-open for the red badge.
+	const isOpen = (t) => t.status !== 'done';
+	const isOverdue = (t) => isOpen(t) && t.due_date && dueBucket(t.due_date) === 'overdue';
+	const boardOpen = (id) => tasks.filter((t) => t.board_id === id && isOpen(t)).length;
+	const boardOverdue = (id) => tasks.filter((t) => t.board_id === id && isOverdue(t)).length;
+	const myOpen = $derived(tasks.filter((t) => t.assignee_email === userEmail && isOpen(t)).length);
+	const myOverdue = $derived(tasks.filter((t) => t.assignee_email === userEmail && isOverdue(t)).length);
+	const createdOpen = $derived(tasks.filter((t) => (t.created_by ?? null) === userEmail && isOpen(t)).length);
+	const createdOverdue = $derived(tasks.filter((t) => (t.created_by ?? null) === userEmail && isOverdue(t)).length);
 	const overviewGroups = $derived(panel === 'created' ? createdGroups : myTasksGroups);
 	const overviewCount = $derived(overviewGroups.reduce((n, g) => n + g.tasks.length, 0));
 
@@ -509,26 +516,35 @@
 				<button class="board-item" class:active={panel === 'my'} onclick={() => (panel = 'my')}>
 					<svg class="vico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
 					<span class="bi-name">My tasks</span>
-					<span class="bi-count">{myTasksCount}</span>
+					<span class="bi-counts">
+						{#if myOverdue}<span class="bi-overdue" title="Overdue">{myOverdue}</span>{/if}
+						<span class="bi-count">{myOpen}</span>
+					</span>
 				</button>
 				<button class="board-item" class:active={panel === 'created'} onclick={() => (panel = 'created')}>
 					<svg class="vico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
 					<span class="bi-name">Created by me</span>
-					<span class="bi-count">{createdCount}</span>
+					<span class="bi-counts">
+						{#if createdOverdue}<span class="bi-overdue" title="Overdue">{createdOverdue}</span>{/if}
+						<span class="bi-count">{createdOpen}</span>
+					</span>
 				</button>
 			</div>
 
 			<div class="side-section">
 				<div class="side-label">Boards</div>
 				{#each boards as b (b.id)}
-					<div class="board-item" class:active={b.id === panel} role="button" tabindex="0"
+					<div class="board-item is-board" class:active={b.id === panel} role="button" tabindex="0"
 						onclick={() => (panel = b.id)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); panel = b.id; } }}>
 						<span class="bico">{@render bicon(b.icon ?? 'board', 15)}</span>
 						<span class="bi-name">{b.name}</span>
 						<button class="bi-gear" onclick={(e) => openBoardCfg(b, e)} aria-label="Board settings" title="Board settings">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
 						</button>
-						<span class="bi-count">{taskCount(b.id)}</span>
+						<span class="bi-counts">
+							{#if boardOverdue(b.id)}<span class="bi-overdue" title="Overdue">{boardOverdue(b.id)}</span>{/if}
+							<span class="bi-count">{boardOpen(b.id)}</span>
+						</span>
 					</div>
 				{/each}
 				{#if boards.length === 0}<div class="side-empty">No boards yet</div>{/if}
@@ -906,8 +922,10 @@
 	.bico, .vico { color: var(--accent); display: flex; align-items: center; flex-shrink: 0; }
 	.bi-gear { display: none; border: 0; background: none; cursor: pointer; color: #A1A1AA; padding: 3px; border-radius: 6px; margin-left: auto; }
 	.bi-gear:hover { color: #18181B; background: #EBE6DA; }
-	.board-item:hover .bi-gear { display: flex; }
-	.board-item:hover .bi-count { display: none; }
+	.is-board:hover .bi-gear { display: flex; }
+	.is-board:hover .bi-counts { display: none; }
+	.bi-counts { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+	.bi-overdue { font-size: 11px; font-weight: 800; color: #fff; background: var(--danger); border-radius: 999px; padding: 1px 7px; min-width: 18px; text-align: center; }
 	.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 	.bi-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.bi-count { font-size: 12px; color: #A1A1AA; }
