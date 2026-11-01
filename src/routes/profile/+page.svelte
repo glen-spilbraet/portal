@@ -80,7 +80,6 @@
 <AppNav user={data.user} />
 <main class="wrap">
 	<h1>{data.own ? 'My profile' : displayName}</h1>
-	<p class="sub">Shown to your customers in the B2B shop as their sales contact ("Din sælger"), when you are their "Vores reference" in Rackbeat.</p>
 
 	<section class="card">
 		<div class="photo-row">
@@ -112,8 +111,7 @@
 
 <style>
 	.wrap { max-width: 640px; margin: 0 auto; padding: 32px 28px 80px; }
-	h1 { font-size: 20px; font-weight: 800; margin: 0 0 3px; }
-	.sub { font-size: 13px; color: #A1A1AA; margin: 0 0 18px; }
+	h1 { font-size: 20px; font-weight: 800; margin: 0 0 18px; }
 	.card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 20px; display: grid; gap: 20px; }
 	.photo-row { display: flex; gap: 18px; align-items: center; }
 	.avatar { flex: none; width: 96px; height: 96px; border-radius: 50%; overflow: hidden; background: #F4F4F5; display: grid; place-items: center; }
@@ -121,7 +119,7 @@
 	.avatar span { font-size: 36px; font-weight: 800; color: #A1A1AA; }
 	.photo-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 	.photo-actions small { flex-basis: 100%; color: #A1A1AA; font-size: 12px; }
-	.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+	.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 	label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; color: #52525B; }
 	.opt { font-weight: 500; color: #A1A1AA; }
 	.in { font-family: inherit; font-size: 14px; border: 1px solid var(--border); border-radius: 9px; padding: 9px 12px; background: #fff; }
