@@ -185,6 +185,7 @@
 				});
 				saveStatus = 'Saved';
 				setTimeout(() => { saveStatus = ''; }, 1500);
+				uploadThumbnail(); // best-effort, fire-and-forget
 			} catch { saveStatus = ''; }
 		}, 800);
 	}
@@ -1078,6 +1079,45 @@
 		await new Promise((res, rej) => { const img = new Image(); img.onload = () => { ctx.drawImage(img, EP, EP, sW, sH); res(); }; img.onerror = rej; img.src = svgUrl; });
 		URL.revokeObjectURL(svgUrl);
 		const a = document.createElement('a'); a.href = canvas.toDataURL('image/jpeg', 0.95); a.download = exportFilename('jpg'); a.click();
+	}
+
+	// Small landscape JPG of the shelf (top band) for the project card thumbnail.
+	async function makeThumbnail() {
+		if (!svgEl) return null;
+		const clone = svgEl.cloneNode(true);
+		clone.querySelectorAll('.shelf-hit, .placed-hit, .product-controls').forEach(el => el.remove());
+		await Promise.all([...clone.querySelectorAll('image')].map(async img => {
+			const href = img.getAttribute('href');
+			if (href) img.setAttribute('href', await urlToBase64(href));
+		}));
+		clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+		const sW = parseFloat(clone.getAttribute('width')), sH = parseFloat(clone.getAttribute('height'));
+		if (!sW || !sH) return null;
+		const svgStr = new XMLSerializer().serializeToString(clone);
+		const svgUrl = URL.createObjectURL(new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' }));
+		let blob = null;
+		try {
+			const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = svgUrl; });
+			const TW = 640, TH = 400; // 16:10 landscape, matches the card preview
+			const cropH = Math.min(sH, sW * (TH / TW)); // top band of the (tall) shelf
+			const destH = Math.round(TW * (cropH / sW));
+			const canvas = document.createElement('canvas');
+			canvas.width = TW; canvas.height = TH;
+			const ctx = canvas.getContext('2d');
+			ctx.fillStyle = (PALETTE[selectedCanvasBg] ?? PALETTE_BASE['white']).color;
+			ctx.fillRect(0, 0, TW, TH);
+			ctx.drawImage(img, 0, 0, sW, cropH, 0, 0, TW, Math.min(destH, TH));
+			blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.82));
+		} catch { /* non-critical */ }
+		URL.revokeObjectURL(svgUrl);
+		return blob;
+	}
+
+	async function uploadThumbnail() {
+		try {
+			const blob = await makeThumbnail();
+			if (blob) await fetch(`/api/planograms/${projectId}/thumbnail`, { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+		} catch { /* thumbnail is best-effort */ }
 	}
 
 	// ── Boot ───────────────────────────────────────────────────────────────────

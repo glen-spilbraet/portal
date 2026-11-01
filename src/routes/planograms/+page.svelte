@@ -507,15 +507,19 @@
 						<div class="card">
 							<a href="/planograms/{project.id}" class="card-main">
 								<div class="card-preview">
-									<svg width="52" height="48" viewBox="0 0 52 48" fill="none">
-										<rect x="7" y="6" width="38" height="36" fill="#e8e4da"/>
-										<rect x="2" y="2" width="5" height="44" rx="1.5" fill="#c9a96e"/>
-										<rect x="45" y="2" width="5" height="44" rx="1.5" fill="#c9a96e"/>
-										<rect x="2" y="2" width="48" height="5" rx="1.5" fill="#c9a96e"/>
-										<rect x="2" y="41" width="48" height="5" rx="1.5" fill="#c9a96e"/>
-										<rect x="7" y="17" width="38" height="3.5" rx="1" fill="#c9a96e"/>
-										<rect x="7" y="30" width="38" height="3.5" rx="1" fill="#c9a96e"/>
-									</svg>
+									{#if project.thumbnail_key}
+										<img class="thumb" src="/api/planograms/{project.id}/thumbnail?v={project.updated_at}" alt="" loading="lazy" />
+									{:else}
+										<svg width="52" height="48" viewBox="0 0 52 48" fill="none">
+											<rect x="7" y="6" width="38" height="36" fill="#e8e4da"/>
+											<rect x="2" y="2" width="5" height="44" rx="1.5" fill="#c9a96e"/>
+											<rect x="45" y="2" width="5" height="44" rx="1.5" fill="#c9a96e"/>
+											<rect x="2" y="2" width="48" height="5" rx="1.5" fill="#c9a96e"/>
+											<rect x="2" y="41" width="48" height="5" rx="1.5" fill="#c9a96e"/>
+											<rect x="7" y="17" width="38" height="3.5" rx="1" fill="#c9a96e"/>
+											<rect x="7" y="30" width="38" height="3.5" rx="1" fill="#c9a96e"/>
+										</svg>
+									{/if}
 								</div>
 								<div class="card-info">
 									<div class="card-name">
@@ -1111,8 +1115,16 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 24px;
+		aspect-ratio: 16 / 10;
+		overflow: hidden;
 		border-bottom: 1px solid #EDE9E3;
+	}
+	.card-preview .thumb {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		object-position: top;
+		display: block;
 	}
 
 	.card-info { padding: 14px 16px 10px; }
