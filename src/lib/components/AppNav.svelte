@@ -304,7 +304,6 @@
 	.nav {
 		background: white;
 		border-bottom: 1px solid var(--border);
-		padding: 0 28px;
 		position: relative;
 		z-index: 100;
 	}
@@ -312,6 +311,7 @@
 	.nav-inner {
 		max-width: 1200px;
 		margin: 0 auto;
+		padding: 0 28px;
 		height: 54px;
 		display: flex;
 		align-items: center;
