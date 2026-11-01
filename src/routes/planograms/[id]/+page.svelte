@@ -316,6 +316,7 @@
 		html += svgRect(x0, y0, W, H, 'none', mat.stroke, 1.5);
 
 		if (showDims) {
+			let dimHtml = ''; // grouped so the card thumbnail can strip it (.dims)
 			if (isLast) {
 				const lineX = x0 + W + 10, arrowX = lineX + 8, textX = arrowX + 5;
 				getCompartments().forEach(({ yCm, hCm: gapH }) => {
@@ -323,12 +324,12 @@
 					const label = gapH.toFixed(1) + ' cm';
 					if (gH < 4) return;
 					if (gH >= 22) {
-						html += svgLine(lineX, gY, arrowX, gY, annColor, 1);
-						html += svgLine(lineX, gY + gH, arrowX, gY + gH, annColor, 1);
-						html += svgLine(lineX + 4, gY, lineX + 4, gY + gH, annColor, 1);
-						html += `<text x="${textX}" y="${f(midY)}" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="11" fill="${annText}">${label}</text>`;
+						dimHtml += svgLine(lineX, gY, arrowX, gY, annColor, 1);
+						dimHtml += svgLine(lineX, gY + gH, arrowX, gY + gH, annColor, 1);
+						dimHtml += svgLine(lineX + 4, gY, lineX + 4, gY + gH, annColor, 1);
+						dimHtml += `<text x="${textX}" y="${f(midY)}" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="11" fill="${annText}">${label}</text>`;
 					} else {
-						html += `<text x="${textX}" y="${f(midY)}" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="9" fill="${annText}">${label}</text>`;
+						dimHtml += `<text x="${textX}" y="${f(midY)}" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="9" fill="${annText}">${label}</text>`;
 					}
 				});
 			}
@@ -336,11 +337,12 @@
 				const gY = y0 + framePx + yCm * scale, gH = gapH * scale;
 				if (gH < 22) return;
 				const midY = gY + gH / 2;
-				html += `<text x="${f(x0 + framePx + (W - framePx * 2) / 2)}" y="${f(midY)}"
+				dimHtml += `<text x="${f(x0 + framePx + (W - framePx * 2) / 2)}" y="${f(midY)}"
 					text-anchor="middle" dominant-baseline="middle"
 					font-family="system-ui,sans-serif" font-size="12"
 					fill="${insideColor}" pointer-events="none">${gapH.toFixed(1)} cm</text>`;
 			});
+			if (dimHtml) html += `<g class="dims">${dimHtml}</g>`;
 		}
 		return html;
 	}
@@ -1085,7 +1087,8 @@
 	async function makeThumbnail() {
 		if (!svgEl) return null;
 		const clone = svgEl.cloneNode(true);
-		clone.querySelectorAll('.shelf-hit, .placed-hit, .product-controls').forEach(el => el.remove());
+		// Thumbnails never show the dimension rulers, even if they're on in the editor.
+		clone.querySelectorAll('.shelf-hit, .placed-hit, .product-controls, .dims').forEach(el => el.remove());
 		await Promise.all([...clone.querySelectorAll('image')].map(async img => {
 			const href = img.getAttribute('href');
 			if (href) img.setAttribute('href', await urlToBase64(href));
