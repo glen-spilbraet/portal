@@ -25,7 +25,7 @@ function esc(str) {
 function parseDataFields(raw) {
   try {
     const arr = JSON.parse(raw || '[]');
-    const SKIP = ['stock_date', 'colli', 'age', 'time', 'players'];
+    const SKIP = ['stock_date', 'colli', 'age', 'time', 'players', 'pieces'];
     return arr.filter(f => f.value?.trim() && !SKIP.includes(f.key));
   } catch { return []; }
 }

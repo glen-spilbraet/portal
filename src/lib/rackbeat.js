@@ -64,10 +64,15 @@ export async function fetchRackbeatProduct(sku, apiKey) {
 	};
 }
 
+// The "Quantity of Pieces (Puzzles)" custom field is matched by NAME (its slug
+// varies per Rackbeat account), so we never hard-code a slug for it.
+export const PIECES_FIELD_RE = /pieces/i;
+
 /**
  * Full fetch: standard fields + all custom fields (with dropdown label resolution).
  * Returns a flat object whose keys match RACKBEAT_STANDARD_FIELDS keys and
- * "custom:{slug}" / "custom:{slug}__label" for custom fields.
+ * "custom:{slug}" / "custom:{slug}__label" for custom fields. The pieces field is
+ * additionally exposed under the stable key "custom:__pieces".
  */
 export async function fetchRackbeatProductFull(sku, apiKey) {
 	if (!apiKey) return null;
@@ -123,6 +128,7 @@ export async function fetchRackbeatProductFull(sku, apiKey) {
 					);
 					custom[`custom:${slug}__label`] = match?.label ?? '';
 				}
+				if (PIECES_FIELD_RE.test(field.name ?? '')) custom['custom:__pieces'] = custom[`custom:${slug}`];
 			}
 		}
 
@@ -170,6 +176,48 @@ export async function updateRackbeatCustomFieldsBySlug(sku, apiKey, slugValues) 
 		`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}`,
 		headers,
 		{ method: 'PUT', body: JSON.stringify({ custom_fields }) }
+	);
+	if (!res.ok) {
+		let detail = '';
+		try { detail = await res.text(); } catch { /* ignore */ }
+		return { ok: false, status: res.status, error: detail.slice(0, 300) };
+	}
+	return { ok: true, status: res.status };
+}
+
+/**
+ * Finds one custom field on a product by matching its NAME against `re`.
+ * Returns { slug, id, name, value } (dropdown values resolved to their label), or null.
+ * Used for fields whose slug isn't known ahead of time (e.g. pieces).
+ */
+export async function fetchRackbeatCustomFieldByName(sku, apiKey, re) {
+	if (!apiKey || !sku) return null;
+	const headers = RB_HEADERS(apiKey);
+	const res = await rackbeatFetch(`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}/fields`, headers);
+	if (!res.ok) return null;
+	const data = await res.json();
+	for (const fv of (data.field_values ?? [])) {
+		const f = fv.field ?? {};
+		if (re.test(f.name ?? '')) {
+			let value = fv.value;
+			if (f.type === 'dropdown' && f.options?.length) {
+				const m = f.options.find(o => String(o.value) === String(value) || String(o.id) === String(value));
+				value = m?.label ?? value;
+			}
+			return { slug: f.slug, id: f.id, name: f.name, value: (value == null ? '' : value) };
+		}
+	}
+	return null;
+}
+
+/** Writes a single custom field value back to a Rackbeat product by its numeric field id. */
+export async function updateRackbeatCustomFieldById(sku, apiKey, id, value) {
+	if (!apiKey || !sku || id == null) return { ok: false, status: 0, error: 'bad args' };
+	const headers = RB_HEADERS(apiKey);
+	const res = await rackbeatFetch(
+		`${RACKBEAT_BASE}/products/${encodeURIComponent(sku)}`,
+		headers,
+		{ method: 'PUT', body: JSON.stringify({ custom_fields: [{ id, value: String(value ?? '') }] }) }
 	);
 	if (!res.ok) {
 		let detail = '';

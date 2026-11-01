@@ -118,12 +118,13 @@
 	// Identity/dimension fields are read-only here: correct them in Rackbeat and
 	// re-sync. Age / Time / Players stay editable and push back to Rackbeat.
 	const RO_KEYS = ['sku', 'ean', 'weight', 'height', 'width', 'depth'];
-	const GAME_KEYS = ['age', 'time', 'players'];
+	const GAME_KEYS = ['age', 'time', 'players', 'pieces'];
 	const digits = (s) => (String(s ?? '').match(/\d+/g) ?? []);
 
 	let ageVal   = $state('');
 	let timeFrom = $state(''); let timeTo = $state('');
 	let playFrom = $state(''); let playTo = $state('');
+	let piecesVal = $state('');
 	let rbMsg = $state(''); let rbErr = $state('');
 
 	function initGameAttrs() {
@@ -131,6 +132,7 @@
 		ageVal = digits(get('age'))[0] ?? '';
 		const tn = digits(get('time'));   timeFrom = tn[0] ?? ''; timeTo = tn[1] ?? '';
 		const pn = digits(get('players')); playFrom = pn[0] ?? ''; playTo = pn[1] ?? '';
+		piecesVal = digits(get('pieces'))[0] ?? '';
 	}
 	initGameAttrs();
 
@@ -183,6 +185,13 @@
 		setDataField('players', combineRange(playFrom, playTo));
 		await saveDataFields();
 		await pushRackbeat({ 'player-count-minimum': (playFrom ?? '').trim(), 'player-count-maximum': (playTo ?? '').trim() });
+	}
+	async function savePieces() {
+		rbErr = '';
+		const v = onlyDigits(piecesVal); piecesVal = v;
+		setDataField('pieces', v);
+		await saveDataFields();
+		await pushRackbeat({ pieces: v });
 	}
 	function gLabel(key, fallback) {
 		const f = dataFields.find((x) => x.key === key);
@@ -501,6 +510,13 @@
 								oninput={(e) => (playTo = onlyDigits(e.currentTarget.value))}
 								onblur={savePlayers} />
 						</div>
+					</div>
+					<div class="ga-row">
+						<span class="k">{gLabel('pieces', 'Pieces')}</span>
+						<input class="num solo" inputmode="numeric" placeholder="—"
+							bind:value={piecesVal}
+							oninput={(e) => (piecesVal = onlyDigits(e.currentTarget.value))}
+							onblur={savePieces} />
 					</div>
 					{#if rbErr}<div class="ga-note err">{rbErr}</div>{/if}
 					{#if rbMsg}<div class="ga-note">{rbMsg}</div>{/if}

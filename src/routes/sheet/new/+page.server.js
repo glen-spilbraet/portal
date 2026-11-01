@@ -57,6 +57,7 @@ export const actions = {
 				{ key: 'age',     label: 'age',     value: ageVal },
 				{ key: 'time',    label: 'time',    value: timeVal },
 				{ key: 'players', label: 'players', value: playersVal },
+				{ key: 'pieces',  label: 'pieces',  value: rb['custom:__pieces'] ?? '' },
 			];
 
 			await updateSheet(db, id, { data_fields: JSON.stringify(fields) });

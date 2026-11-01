@@ -51,6 +51,7 @@ export async function POST({ params, cookies, platform }) {
 		age:     ageVal,
 		time:    timeVal,
 		players: playersVal,
+		pieces:  rb['custom:__pieces'] ?? '',
 	};
 
 	// Update value on existing fields where key matches.

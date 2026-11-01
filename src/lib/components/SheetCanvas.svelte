@@ -102,7 +102,7 @@
 		if (!dataFields.find(f => f.key === bk)) dataFields.push({ key: bk, label: bk, value: '' });
 	}
 
-	let dataColLeft  = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => f.key !== 'stock_date' && f.key !== 'colli' && !RIGHT_KEYS.includes(f.key) && !BADGE_KEYS.includes(f.key) && f.column !== 'right'));
+	let dataColLeft  = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => f.key !== 'stock_date' && f.key !== 'colli' && f.key !== 'pieces' && !RIGHT_KEYS.includes(f.key) && !BADGE_KEYS.includes(f.key) && f.column !== 'right'));
 	let dataColRight = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => RIGHT_KEYS.includes(f.key) || f.column === 'right'));
 
 	let ageIdx     = $derived(dataFields.findIndex(f => f.key === 'age'));
