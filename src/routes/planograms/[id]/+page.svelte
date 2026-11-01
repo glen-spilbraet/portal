@@ -1175,6 +1175,9 @@
 
 			computeShelf(s.shelfPositions ?? null);
 			renderSvg();
+
+			// Backfill a thumbnail for projects that predate the feature (once, no edit needed).
+			if (!project.thumbnail_key) setTimeout(uploadThumbnail, 1500);
 		} catch {
 			alert('Project not found. Redirecting…');
 			location.href = '/planograms';
