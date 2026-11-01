@@ -52,7 +52,7 @@
 </main>
 
 <style>
-	.wrap { max-width: 1040px; margin: 0 auto; padding: 32px 28px 80px; }
+	.wrap { max-width: 1200px; margin: 0 auto; padding: 32px 28px 80px; }
 	.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 	h1 { font-size: 20px; font-weight: 800; margin: 0 0 3px; }
 	.sub { font-size: 13px; color: #A1A1AA; margin: 0; }

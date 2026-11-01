@@ -178,7 +178,7 @@
 </main>
 
 <style>
-	.wrap { max-width: 1140px; margin: 0 auto; padding: 22px 28px 60px; }
+	.wrap { max-width: 1200px; margin: 0 auto; padding: 22px 28px 60px; }
 	.head h1 { font-size: 20px; font-weight: 800; color: #18181B; margin: 0 0 6px; letter-spacing: -0.3px; }
 	.sub { font-size: 13px; color: #6b5e4e; line-height: 1.55; margin: 0 0 18px; max-width: 760px; }
 	code { background: #F5F0E6; padding: 1px 5px; border-radius: 5px; font-size: 12px; }

@@ -149,7 +149,7 @@
 
 <style>
 	.page-wrap {
-		max-width: 960px;
+		max-width: 1200px;
 		margin: 0 auto;
 		padding: 32px 20px 60px;
 	}

@@ -433,7 +433,7 @@
 {/if}
 
 <style>
-	.wrap { max-width: 1140px; margin: 0 auto; padding: 28px; }
+	.wrap { max-width: 1200px; margin: 0 auto; padding: 28px; }
 	.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
 	h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.4px; margin: 0; }
 	.sub { font-size: 14px; color: #8A7550; margin: 4px 0 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

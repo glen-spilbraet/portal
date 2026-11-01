@@ -200,7 +200,7 @@
 </main>
 
 <style>
-	.page { max-width: 1120px; margin: 0 auto; padding: 32px 24px 80px; }
+	.page { max-width: 1200px; margin: 0 auto; padding: 32px 24px 80px; }
 	.head h1 { font-size: 22px; font-weight: 800; color: #18181B; margin: 0 0 6px; }
 	.head p { font-size: 13px; color: #71717A; margin: 0 0 20px; line-height: 1.6; max-width: 820px; }
 	.card { background: #fff; border: 1px solid var(--border, #E4E4E7); border-radius: 14px; padding: 16px 18px; }

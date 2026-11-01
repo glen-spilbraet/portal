@@ -208,7 +208,7 @@
 
 	main {
 		flex: 1;
-		max-width: 1000px;
+		max-width: 1200px;
 		margin: 0 auto;
 		width: 100%;
 		padding: 32px 28px 80px;

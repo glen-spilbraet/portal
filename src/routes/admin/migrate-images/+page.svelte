@@ -308,7 +308,7 @@
 
 <style>
 	.page { display: flex; flex-direction: column; min-height: 100vh; background: #f8f8f6; }
-	main  { max-width: 900px; margin: 0 auto; padding: 40px 24px; width: 100%; }
+	main  { max-width: 1200px; margin: 0 auto; padding: 40px 24px; width: 100%; }
 
 	.page-header { margin-bottom: 28px; }
 	.page-title  { font-size: 24px; font-weight: 800; color: #111827; margin-bottom: 6px; }

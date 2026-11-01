@@ -167,7 +167,7 @@
 </main>
 
 <style>
-	.wrap { max-width: 1140px; margin: 0 auto; padding: 20px 28px 64px; }
+	.wrap { max-width: 1200px; margin: 0 auto; padding: 20px 28px 64px; }
 	.head { margin-bottom: 16px; }
 	.head h1 { font-size: 20px; font-weight: 800; color: #18181B; margin: 0 0 3px; letter-spacing: -0.3px; }
 	.sub { font-size: 13px; color: #98876e; margin: 0; }

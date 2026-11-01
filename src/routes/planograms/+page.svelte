@@ -788,7 +788,7 @@
 	.body {
 		flex: 1;
 		display: flex;
-		max-width: 1240px;
+		max-width: 1200px;
 		margin: 0 auto;
 		width: 100%;
 		padding: 0 20px 80px;

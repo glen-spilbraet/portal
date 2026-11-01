@@ -235,7 +235,7 @@
   .page { min-height: 100vh; background: #FAFAF9; }
 
   main {
-    max-width: 1140px;
+    max-width: 1200px;
     margin: 0 auto;
     padding: 32px 28px 80px;
   }

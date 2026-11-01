@@ -635,7 +635,7 @@
 	.body {
 		flex: 1;
 		display: flex;
-		max-width: 1140px;
+		max-width: 1200px;
 		margin: 0 auto;
 		width: 100%;
 		padding: 0 28px 80px;

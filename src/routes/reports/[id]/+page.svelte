@@ -184,7 +184,7 @@
 
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
-	main { flex: 1; max-width: 1180px; margin: 0 auto; width: 100%; padding: 24px 28px 80px; }
+	main { flex: 1; max-width: 1200px; margin: 0 auto; width: 100%; padding: 24px 28px 80px; }
 	.crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 16px; }
 	.crumbs a { color: #6D5BD0; text-decoration: none; font-weight: 600; }
 	.crumbs a:hover { text-decoration: underline; }

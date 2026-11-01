@@ -192,7 +192,7 @@
 {/if}
 
 <style>
-	.wrap { max-width: 1040px; margin: 0 auto; padding: 22px 28px 64px; }
+	.wrap { max-width: 1200px; margin: 0 auto; padding: 22px 28px 64px; }
 	.head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
 	.head h1 { font-size: 18px; font-weight: 800; color: #18181B; margin: 0; display: flex; align-items: center; }
 	.crumb { color: #B15A12; text-decoration: none; } .crumb:hover { text-decoration: underline; }

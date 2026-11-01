@@ -287,7 +287,7 @@
 </div>
 
 <style>
-	.page { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+	.page { max-width: 1200px; margin: 0 auto; padding: 28px 24px 60px; }
 	.head { margin-bottom: 22px; }
 	.crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
 	.crumbs a { color: #6D5BD0; text-decoration: none; font-weight: 600; }

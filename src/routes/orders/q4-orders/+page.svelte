@@ -361,7 +361,7 @@
 {/if}
 
 <style>
-	.wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 120px; }
+	.wrap { max-width: 1200px; margin: 0 auto; padding: 24px 20px 120px; }
 	.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 	h1 { font-size: 1.6rem; font-weight: 800; color: #18181B; }
 	.sub { color: #6B6456; font-size: .9rem; max-width: 640px; margin-top: 4px; line-height: 1.45; }

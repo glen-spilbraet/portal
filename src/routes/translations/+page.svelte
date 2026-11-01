@@ -213,7 +213,7 @@
 
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
-	main { flex: 1; max-width: 1140px; margin: 0 auto; width: 100%; padding: 32px 28px 80px; }
+	main { flex: 1; max-width: 1200px; margin: 0 auto; width: 100%; padding: 32px 28px 80px; }
 	.page-header { margin-bottom: 24px; }
 	.page-title { font-size: 18px; font-weight: 700; color: #18181B; letter-spacing: -0.3px; margin-bottom: 4px; }
 	.page-sub { font-size: 13px; color: #71717A; }

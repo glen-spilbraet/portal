@@ -168,7 +168,7 @@
 {/if}
 
 <style>
-	.page { max-width: 940px; margin: 0 auto; padding: 40px 28px 80px; }
+	.page { max-width: 1200px; margin: 0 auto; padding: 40px 28px 80px; }
 	.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 	.page-title { font-size: 26px; font-weight: 800; color: #18181B; letter-spacing: -0.5px; margin: 0 0 4px; }
 	.page-sub { font-size: 14px; color: #A89060; font-weight: 500; margin: 0; }
