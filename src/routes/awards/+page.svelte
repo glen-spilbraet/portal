@@ -75,6 +75,9 @@
 		);
 	});
 	function clearFilters() { fCountry = ''; fMedia = ''; fText = ''; fMissing = false; fOpen = false; }
+	// Per-criterion counts across all instances (independent of the current filters).
+	const openCount = $derived(data.instances.filter(isOpenStatus).length);
+	const missingCount = $derived(data.instances.filter(hasMissingSheet).length);
 
 	// ── Group: year → (media + date), newest first ─────────────────────────────
 	const years = $derived.by(() => {
@@ -340,15 +343,11 @@
 			</select>
 			<input class="f-search" type="search" bind:value={fText} placeholder="Search SKU or product name…" />
 			<label class="f-check" class:on={fOpen} title="Still open — no status yet, Sent or Submitted">
-				<input type="checkbox" bind:checked={fOpen} /> Open
+				<input type="checkbox" bind:checked={fOpen} /> Open <span class="f-n">{openCount}</span>
 			</label>
 			<label class="f-check" class:on={fMissing} title="Only instances where a SKU has no sales sheet">
-				<input type="checkbox" bind:checked={fMissing} /> Missing sheet
+				<input type="checkbox" bind:checked={fMissing} /> Missing sheet <span class="f-n">{missingCount}</span>
 			</label>
-			{#if anyFilter}
-				<span class="f-count">{filteredInstances.length} match{filteredInstances.length === 1 ? '' : 'es'}</span>
-				<button class="btn sm" onclick={clearFilters}>Clear</button>
-			{/if}
 		</div>
 	{/if}
 
@@ -689,6 +688,7 @@
 	.link-btn { background: none; border: none; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; padding: 0; text-decoration: underline; }
 
 	.filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+	.f-n { font-weight: 800; opacity: .5; font-size: 12px; margin-left: 2px; }
 	.f-sel, .f-search { font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; background: #fff; }
 	.f-sel { appearance: none; -webkit-appearance: none; padding-right: 34px;
 		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239a8a6a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
@@ -698,7 +698,6 @@
 	.f-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #6b5e4e; border: 1px solid var(--border); border-radius: 9px; padding: 7px 11px; background: #fff; cursor: pointer; white-space: nowrap; }
 	.f-check input { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 	.f-check.on { border-color: var(--accent); background: #FFF5E9; color: #8a5a1a; }
-	.f-count { font-size: 12px; font-weight: 700; color: #98876e; }
 
 	.year { font-size: 22px; font-weight: 800; color: #18181B; margin: 22px 0 10px; letter-spacing: -0.4px; }
 	.grp { background: #fff; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 8px; overflow: hidden; }
