@@ -88,8 +88,10 @@
 	}
 
 	const myTasksGroups = $derived.by(() => groupByDue(tasks.filter((t) => t.assignee_email === userEmail && notHidden(t))));
+	// "Created by me" shows only tasks the user delegated to others — not self-assigned ones.
+	const createdByMe = (t) => (t.created_by ?? null) === userEmail && t.assignee_email !== userEmail;
 	const createdGroups = $derived.by(() => {
-		const mine = tasks.filter((t) => (t.created_by ?? null) === userEmail && notHidden(t));
+		const mine = tasks.filter((t) => createdByMe(t) && notHidden(t));
 		const map = new Map();
 		for (const t of mine) { const k = t.assignee_email ?? '__none'; if (!map.has(k)) map.set(k, []); map.get(k).push(t); }
 		const entries = [...map.entries()].map(([k, arr]) => ({ key: k, label: k === '__none' ? 'Unassigned' : userName(k), tasks: arr.sort(byDue) }));
@@ -103,8 +105,8 @@
 	const boardOverdue = (id) => tasks.filter((t) => t.board_id === id && isOverdue(t)).length;
 	const myOpen = $derived(tasks.filter((t) => t.assignee_email === userEmail && isOpen(t)).length);
 	const myOverdue = $derived(tasks.filter((t) => t.assignee_email === userEmail && isOverdue(t)).length);
-	const createdOpen = $derived(tasks.filter((t) => (t.created_by ?? null) === userEmail && isOpen(t)).length);
-	const createdOverdue = $derived(tasks.filter((t) => (t.created_by ?? null) === userEmail && isOverdue(t)).length);
+	const createdOpen = $derived(tasks.filter((t) => createdByMe(t) && isOpen(t)).length);
+	const createdOverdue = $derived(tasks.filter((t) => createdByMe(t) && isOverdue(t)).length);
 	const overviewGroups = $derived(panel === 'created' ? createdGroups : myTasksGroups);
 	const overviewCount = $derived(overviewGroups.reduce((n, g) => n + g.tasks.length, 0));
 
