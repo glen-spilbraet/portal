@@ -120,9 +120,9 @@
 	.photo-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 	.photo-actions small { flex-basis: 100%; color: #A1A1AA; font-size: 12px; }
 	.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
-	label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; color: #52525B; }
-	.opt { font-weight: 500; color: #A1A1AA; }
-	.in { font-family: inherit; font-size: 14px; border: 1px solid var(--border); border-radius: 9px; padding: 9px 12px; background: #fff; }
+	label { display: block; font-size: 12px; font-weight: 700; color: #52525B; }
+	.opt { font-weight: 500; color: #A1A1AA; margin-left: 4px; }
+	.in { width: 100%; margin-top: 5px; font-family: inherit; font-size: 14px; border: 1px solid var(--border); border-radius: 9px; padding: 9px 12px; background: #fff; }
 	.in:disabled { background: #FAFAFA; color: #71717A; }
 	.btn { padding: 8px 14px; border: 1px solid var(--border); border-radius: 9px; background: #fff; font-size: 13px; font-weight: 600; color: #18181B; cursor: pointer; font-family: inherit; }
 	.btn.primary { background: #F57832; color: #fff; border-color: #F57832; }
