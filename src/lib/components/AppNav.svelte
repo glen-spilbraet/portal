@@ -201,6 +201,11 @@
 				</button>
 				<div class="dropdown dropdown-right">
 					<div class="dropdown-inner">
+						<a href="/profile" class="dropdown-item">
+							<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.2-4 4.2-6 8-6s6.8 2 8 6"/></svg>
+							My profile
+						</a>
+						<div class="dropdown-divider"></div>
 						{#if showKnowledge}
 							<a href="/knowledge" class="dropdown-item" class:active={active === 'knowledge'}>{@html ICONS.knowledge}Knowledge</a>
 						{/if}
