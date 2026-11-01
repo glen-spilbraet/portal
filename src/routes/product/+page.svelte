@@ -78,7 +78,7 @@
 </main>
 
 <style>
-	.wrap { max-width: 1140px; margin: 0 auto; padding: 20px 28px 60px; }
+	.wrap { max-width: 1200px; margin: 0 auto; padding: 20px 28px 60px; }
 	.section-head { display: flex; align-items: center; gap: 14px; margin: 4px 0 14px; }
 	.section-head h2 { font-size: 15px; font-weight: 800; letter-spacing: -0.2px; color: #18181B; margin: 0; white-space: nowrap; order: 0; }
 	.section-head::after { content: ''; flex: 1; height: 1px; background: var(--border); order: 1; }
