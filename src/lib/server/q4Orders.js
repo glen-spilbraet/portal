@@ -124,6 +124,13 @@ function lineSku(line) {
  * @param {string[]} skus
  * @returns {Promise<Map<string, {colli: number|null, name: string}>>}
  */
+// The colli size is Rackbeat's "Carton Quantity" product field (a custom field,
+// so matched by name). Must NOT match "Master Carton Quantity".
+const isCartonQty = (name) => {
+	const n = (name ?? '').toLowerCase();
+	return n.includes('carton quantity') && !n.includes('master');
+};
+
 async function fetchColliMap(apiKey, skus) {
 	const unique = [...new Set(skus.filter(Boolean))];
 	const map = new Map();
@@ -131,20 +138,36 @@ async function fetchColliMap(apiKey, skus) {
 	for (let i = 0; i < unique.length; i += CHUNK) {
 		const batch = unique.slice(i, i + CHUNK);
 		await Promise.all(batch.map(async (sku) => {
+			let colli = null, name = '';
 			try {
-				const res = await rbFetch(apiKey, `/products/${encodeURIComponent(sku)}`);
-				if (!res.ok) { map.set(sku, { colli: null, name: '' }); return; }
-				const data = await res.json();
-				const item = data.product ?? data.item ?? data;
-				const raw = item.colli ?? item.colli_size ?? item.min_sales ?? null;
-				const colli = Number(raw);
-				map.set(sku, {
-					colli: Number.isFinite(colli) && colli > 0 ? colli : null,
-					name: item.name ?? ''
-				});
-			} catch {
-				map.set(sku, { colli: null, name: '' });
-			}
+				const [prodRes, fieldsRes] = await Promise.all([
+					rbFetch(apiKey, `/products/${encodeURIComponent(sku)}`),
+					rbFetch(apiKey, `/products/${encodeURIComponent(sku)}/fields`)
+				]);
+				if (prodRes.ok) {
+					const data = await prodRes.json();
+					const item = data.product ?? data.item ?? data;
+					name = item.name ?? '';
+					const raw = Number(item.colli ?? item.colli_size ?? item.min_sales);
+					if (Number.isFinite(raw) && raw > 1) colli = raw; // standard fallback
+				}
+				if (fieldsRes.ok || fieldsRes.status === 206) {
+					const b = await fieldsRes.json();
+					for (const fv of (b.field_values ?? [])) {
+						const f = fv.field ?? {};
+						if (!isCartonQty(f.name)) continue;
+						let v = fv.value;
+						if (f.type === 'dropdown' && f.options?.length) {
+							const m = f.options.find((o) => String(o.value) === String(v) || String(o.id) === String(v));
+							v = m?.label ?? v;
+						}
+						const n = Number(v);
+						if (Number.isFinite(n) && n > 0) colli = n; // Carton Quantity is the source of truth
+						break;
+					}
+				}
+			} catch { /* leave colli null */ }
+			map.set(sku, { colli: (Number.isFinite(colli) && colli > 1) ? colli : null, name });
 		}));
 	}
 	return map;
