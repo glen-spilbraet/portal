@@ -38,13 +38,14 @@
 			drafts = body.drafts ?? [];
 			generatedAt = body.generatedAt ?? '';
 
-			// Default: leave everything as-is — the user opts in to changes.
+			// Defaults: full-colli lines apply the 7% automatically; not-full-colli
+			// lines are left as-is (the user opts in to rounding).
 			const seed = {};
 			for (const d of drafts) {
 				for (const l of d.lines) {
 					if (l.lineId == null) continue;
 					const k = keyOf(d.number, l.lineId);
-					if (l.status === 'colli_discount') seed[k] = { accepted: false };
+					if (l.status === 'colli_discount') seed[k] = { accepted: true };
 					else if (l.status === 'not_colli') seed[k] = { choice: 'leave' };
 				}
 			}
