@@ -38,14 +38,14 @@
 			drafts = body.drafts ?? [];
 			generatedAt = body.generatedAt ?? '';
 
-			// Seed default decisions: accept every colli discount, round non-colli up.
+			// Default: leave everything as-is — the user opts in to changes.
 			const seed = {};
 			for (const d of drafts) {
 				for (const l of d.lines) {
 					if (l.lineId == null) continue;
 					const k = keyOf(d.number, l.lineId);
-					if (l.status === 'colli_discount') seed[k] = { accepted: true };
-					else if (l.status === 'not_colli') seed[k] = { choice: 'up' };
+					if (l.status === 'colli_discount') seed[k] = { accepted: false };
+					else if (l.status === 'not_colli') seed[k] = { choice: 'leave' };
 				}
 			}
 			decisions = seed;
@@ -78,7 +78,7 @@
 		}
 
 		if (line.status === 'not_colli') {
-			const choice = dec?.choice ?? 'up';
+			const choice = dec?.choice ?? 'leave';
 			if (choice === 'leave') return null;
 			const newQty = choice === 'up' ? line.up : line.down;
 			const remove = newQty === 0;
@@ -267,36 +267,44 @@
 									<td class="c-num">{l.discount ? pct(l.discount) : '—'}</td>
 									<td class="c-action">
 										{#if l.status === 'colli_discount'}
-											<label class="accept">
-												<input type="checkbox" checked={dec?.accepted ?? true}
-													onchange={(e) => toggleAccept(d.number, l.lineId, e.currentTarget.checked)} />
-												<span class="tag tag-colli">Full colli</span>
-												apply 7%
-												{#if dec?.accepted ?? true}<span class="res">{pct(l.discount)} → 7%</span>{/if}
-											</label>
-										{:else if l.status === 'not_colli'}
-											<div class="choice-row">
-												<span class="tag tag-warn">Not full colli</span>
-												<div class="seg">
-													<button class:on={(dec?.choice ?? 'up') === 'up'}
-														onclick={() => setChoice(d.number, l.lineId, 'up')}>↑ {l.up}</button>
-													<button class:on={(dec?.choice ?? 'up') === 'down'}
-														onclick={() => setChoice(d.number, l.lineId, 'down')}>
-														{l.down === 0 ? 'Remove' : `↓ ${l.down}`}</button>
-													<button class:on={(dec?.choice ?? 'up') === 'leave'}
-														onclick={() => setChoice(d.number, l.lineId, 'leave')}>Leave</button>
+											<div class="asm">
+												<span class="asm-note">
+													<span class="tag tag-colli">Full colli</span>
+													{#if dec?.accepted}<span class="res">{pct(l.discount)} → 7%</span>{:else}<span class="muted">Changes nothing</span>{/if}
+												</span>
+												<div class="asm-actions">
+													<div class="seg">
+														<button class:on={dec?.accepted} onclick={() => toggleAccept(d.number, l.lineId, true)}>Apply 7%</button>
+														<button class:on={!dec?.accepted} onclick={() => toggleAccept(d.number, l.lineId, false)}>Leave</button>
+													</div>
 												</div>
-												{#if (dec?.choice ?? 'up') !== 'leave'}
-													{@const c = lineChange(d.number, l)}
-													{#if c}<span class="res">{c.reason}</span>{/if}
-												{/if}
+											</div>
+										{:else if l.status === 'not_colli'}
+											{@const choice = dec?.choice ?? 'leave'}
+											<div class="asm">
+												<span class="asm-note">
+													<span class="tag tag-warn">Not full colli</span>
+													{#if choice === 'leave'}
+														<span class="muted">Changes nothing</span>
+													{:else}
+														{@const c = lineChange(d.number, l)}
+														{#if c}<span class="res">{c.reason}</span>{/if}
+													{/if}
+												</span>
+												<div class="asm-actions">
+													<div class="seg">
+														<button class:on={choice === 'up'} onclick={() => setChoice(d.number, l.lineId, 'up')}>↑ {l.up}</button>
+														<button class:on={choice === 'down'} onclick={() => setChoice(d.number, l.lineId, 'down')}>{l.down === 0 ? 'Remove' : `↓ ${l.down}`}</button>
+														<button class:on={choice === 'leave'} onclick={() => setChoice(d.number, l.lineId, 'leave')}>Leave</button>
+													</div>
+												</div>
 											</div>
 										{:else if l.status === 'ok_discounted'}
-											<span class="muted">Full colli · keeps {pct(l.discount)}</span>
+											<div class="asm"><span class="asm-note"><span class="muted">Full colli · keeps {pct(l.discount)}</span></span></div>
 										{:else if l.status === 'no_colli'}
-											<span class="tag tag-grey">No colli defined</span>
+											<div class="asm"><span class="asm-note"><span class="tag tag-grey">No colli defined</span></span></div>
 										{:else}
-											<span class="muted">—</span>
+											<div class="asm"><span class="asm-note"><span class="muted">—</span></span></div>
 										{/if}
 									</td>
 								</tr>
@@ -396,7 +404,7 @@
 	.c-num { text-align: right; white-space: nowrap; }
 	.c-sku { white-space: nowrap; }
 	.c-name { min-width: 180px; }
-	.c-action { min-width: 260px; }
+	.c-action { min-width: 360px; }
 	.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; }
 	.muted { color: #B6A684; }
 	tr.st-no_colli td { background: #FBFAF6; }
@@ -406,11 +414,12 @@
 	.tag-warn  { background: #FEE9D6; color: #C2560F; }
 	.tag-grey  { background: #EFEADF; color: #8A7E66; }
 
-	.accept { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
-	.accept input { width: 15px; height: 15px; accent-color: var(--accent); }
 	.res { color: #16A34A; font-weight: 700; font-size: .82rem; }
 
-	.choice-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+	/* Note on the left (flexible), action buttons pinned to a fixed right column. */
+	.asm { display: flex; align-items: center; gap: 12px; }
+	.asm-note { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+	.asm-actions { flex: 0 0 auto; margin-left: auto; display: flex; justify-content: flex-end; }
 	.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 	.seg button { background: #fff; border: none; padding: 5px 10px; font-size: .82rem; font-weight: 700; color: #6B6456; border-right: 1px solid var(--border); white-space: nowrap; }
 	.seg button:last-child { border-right: none; }
