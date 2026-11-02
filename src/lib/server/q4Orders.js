@@ -62,7 +62,10 @@ async function rbFetch(apiKey, path, method = 'GET', body) {
  * @returns {Promise<any[]>}
  */
 async function fetchDrafts(apiKey) {
-	const page1 = await rbFetch(apiKey, `/orders?is_booked=false&is_archived=false&limit=${PAGE_LIMIT}&page=1`);
+	// Rackbeat's /orders endpoint doesn't support an is_booked filter param, so we
+	// fetch every non-archived order and keep the unbooked ones (drafts) in JS —
+	// the same approach the main Orders page uses (draft === !o.is_booked).
+	const page1 = await rbFetch(apiKey, `/orders?is_archived=false&limit=${PAGE_LIMIT}&page=1`);
 	if (!page1.ok && page1.status !== 206) {
 		let detail = '';
 		try { detail = (await page1.text()).slice(0, 200); } catch { /* ignore */ }
@@ -75,7 +78,7 @@ async function fetchDrafts(apiKey) {
 	const rest = [];
 	for (let p = 2; p <= totalPages; p++) rest.push(p);
 	const extra = await Promise.all(rest.map(async (p) => {
-		const res = await rbFetch(apiKey, `/orders?is_booked=false&is_archived=false&limit=${PAGE_LIMIT}&page=${p}`);
+		const res = await rbFetch(apiKey, `/orders?is_archived=false&limit=${PAGE_LIMIT}&page=${p}`);
 		if (!res.ok && res.status !== 206) return [];
 		const b = await res.json();
 		return Array.isArray(b) ? b : (b.orders ?? b.data ?? []);
@@ -84,6 +87,7 @@ async function fetchDrafts(apiKey) {
 	const seen = new Set();
 	const out = [];
 	for (const o of [first, ...extra].flat()) {
+		if (o.is_booked) continue; // drafts only
 		const key = o.number ?? JSON.stringify(o);
 		if (seen.has(key)) continue;
 		seen.add(key);
