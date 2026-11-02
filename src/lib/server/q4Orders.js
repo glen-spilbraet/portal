@@ -108,7 +108,8 @@ async function fetchOrderLines(apiKey, number) {
 	const res = await rbFetch(apiKey, `/orders/${encodeURIComponent(String(number))}/lines`);
 	if (!res.ok && res.status !== 206) return [];
 	const b = await res.json();
-	return Array.isArray(b) ? b : (b.lines ?? b.data ?? []);
+	// Rackbeat's /orders/{n}/lines envelope key is `order_lines` (not `lines`).
+	return Array.isArray(b) ? b : (b.order_lines ?? b.lines ?? b.data ?? []);
 }
 
 /** Pull the SKU / item number off a line, however Rackbeat shaped it. */
