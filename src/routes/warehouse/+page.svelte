@@ -198,6 +198,116 @@
 		URL.revokeObjectURL(url);
 	}
 
+	// ── Weekly scorecard ────────────────────────────────────────────────────────
+	const SC_ROWS = [
+		{ key: 'received', label: 'Orders received', kind: 'n', better: null },
+		{ key: 'handled', label: 'Orders handled', kind: 'n', better: 'up' },
+		{ key: 'units', label: 'Units handled', kind: 'n', better: 'up' },
+		{ key: 'median', label: 'Median handling time', kind: 'days', better: 'down' },
+		{ key: 'within1', label: 'Handled within 1 day', kind: 'pct', better: 'up' },
+		{ key: 'backlog', label: 'Open orders at week end', kind: 'n', better: 'down' },
+		{ key: 'fill', label: 'Fill rate (units shipped ÷ ordered)', kind: 'pct', better: 'up' },
+	];
+	const scWeeks = $derived(data.scorecard?.weeks ?? []);
+	const scCur = $derived(scWeeks.at(-1));
+	const scPrev = $derived(scWeeks.at(-2));
+	const scLy = $derived(data.scorecard?.lyWeeks?.at(-1));
+	function scVal(v, kind) {
+		if (v == null) return '—';
+		if (kind === 'pct') return `${v.toFixed(1)}%`;
+		if (kind === 'days') return v === 0 ? 'same day' : `${v} ${v === 1 ? 'day' : 'days'}`;
+		return fmt(v);
+	}
+	function scDelta(cur, prev, row) {
+		if (cur == null || prev == null) return null;
+		const diff = cur - prev;
+		let text;
+		if (row.kind === 'pct') text = `${diff >= 0 ? '+' : ''}${diff.toFixed(1)} pp`;
+		else if (row.kind === 'days') text = `${diff >= 0 ? '+' : ''}${diff} d`;
+		else if (!prev) text = diff ? 'new' : '±0';
+		else { const p = (diff / prev) * 100; text = `${p >= 0 ? '+' : ''}${p.toFixed(0)}%`; }
+		const cls = row.better && diff !== 0 ? ((diff > 0) === (row.better === 'up') ? 'good' : 'bad') : '';
+		return { text, cls };
+	}
+	const SP_W = 110, SP_H = 28;
+	function sparkPoints(key) {
+		const vals = scWeeks.map((w) => w[key]);
+		const nums = vals.filter((v) => v != null);
+		if (nums.length < 2) return '';
+		const lo = Math.min(...nums), hi = Math.max(...nums), span = hi - lo || 1;
+		return vals
+			.map((v, i) => (v == null ? null : `${((i / (vals.length - 1)) * SP_W).toFixed(1)},${(SP_H - 3 - ((v - lo) / span) * (SP_H - 6)).toFixed(1)}`))
+			.filter(Boolean).join(' ');
+	}
+	const shortDate = (s) => { if (!s) return ''; const d = new Date(s + 'T00:00:00Z'); return `${d.getUTCDate()}. ${MON_SHORT[d.getUTCMonth()]}`; };
+
+	// ── Order arrivals heatmap ──────────────────────────────────────────────────
+	const HM_DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
+	const HOURS = Array.from({ length: 24 }, (_, h) => h);
+	const hm = $derived.by(() => {
+		const cells = new Map();
+		let max = 0;
+		const dc = data.heatmap?.dayCount ?? [];
+		for (const r of data.heatmap?.rows ?? []) {
+			const v = (Number(r[grain]) || 0) / Math.max(1, dc[r.wd] || 0);
+			cells.set(`${r.wd}-${r.hr}`, v);
+			if (v > max) max = v;
+		}
+		return { cells, max };
+	});
+	const hmVal = (wd, hr) => hm.cells.get(`${wd}-${hr}`) ?? 0;
+	const hmFmt = (v) => (v >= 10 ? Math.round(v).toString() : v >= 1 ? v.toFixed(1) : v > 0 ? v.toFixed(1) : '');
+	const hmBg = (v) => (v > 0 ? `rgba(245,120,50,${(0.07 + 0.93 * (v / (hm.max || 1))).toFixed(3)})` : 'transparent');
+	const hmRowAvg = (wd) => HOURS.reduce((s, h) => s + hmVal(wd, h), 0);
+
+	// ── Slow & dead stock ───────────────────────────────────────────────────────
+	const DS_MODES = [
+		{ key: '60', label: 'No shipments 60d' },
+		{ key: '90', label: 'No shipments 90d' },
+		{ key: '180', label: 'No shipments 180d' },
+		{ key: 'slow', label: 'Slow (> 12 mo cover)' },
+	];
+	let dsMode = $state('90');
+	let dsSearch = $state('');
+	let dsSortKey = $state('stock');
+	let dsSortDir = $state('desc');
+	function dsSetSort(k) {
+		if (dsSortKey === k) dsSortDir = dsSortDir === 'asc' ? 'desc' : 'asc';
+		else { dsSortKey = k; dsSortDir = ['sku', 'name', 'vendor'].includes(k) ? 'asc' : 'desc'; }
+	}
+	const todayMs = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+	const dsAll = $derived((data.deadStock?.rows ?? []).map((r) => {
+		const since = r.last_done ? Math.round((todayMs - Date.parse(r.last_done + 'T00:00:00Z')) / 86400000) : Infinity;
+		const u90 = Number(r.units90) || 0;
+		const stock = Number(r.stock) || 0;
+		return { sku: r.sku, name: r.name || r.title || r.sku, vendor: r.vendor || '', category: r.category || '', stock, last: r.last_done, since, units90: u90, cover: u90 > 0 ? stock / (u90 / 90) : Infinity };
+	}));
+	const dsRows = $derived.by(() => {
+		const q = dsSearch.trim().toLowerCase();
+		let out = dsAll.filter((r) => (dsMode === 'slow' ? r.units90 > 0 && r.cover > 365 : r.since >= Number(dsMode)));
+		if (q) out = out.filter((r) => [r.sku, r.name, r.vendor, r.category].some((s) => String(s).toLowerCase().includes(q)));
+		const dir = dsSortDir === 'asc' ? 1 : -1;
+		const key = dsSortKey === 'last' ? 'since' : dsSortKey;
+		out.sort((a, b) => {
+			const av = a[key], bv = b[key];
+			if (typeof av === 'string') return av.toLowerCase() < bv.toLowerCase() ? -dir : av.toLowerCase() > bv.toLowerCase() ? dir : 0;
+			if (av === bv) return 0;
+			return (av > bv ? 1 : -1) * dir; // Infinity-safe
+		});
+		return out;
+	});
+	const dsUnits = $derived(dsRows.reduce((s, r) => s + r.stock, 0));
+	const coverLabel = (c) => (!Number.isFinite(c) ? '—' : c >= 60 ? `${Math.round(c / 30.4)} mo` : `${Math.round(c)} d`);
+	function dsExport() {
+		const esc = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+		const lines = ['SKU,Product Name,Supplier,Category,Stock,Last shipped,Days since,Shipped 90d,Cover (days)'];
+		for (const r of dsRows) lines.push([esc(r.sku), esc(r.name), esc(r.vendor), esc(r.category), r.stock, r.last ?? '', Number.isFinite(r.since) ? r.since : '', r.units90, Number.isFinite(r.cover) ? Math.round(r.cover) : ''].join(','));
+		const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+		const a = document.createElement('a');
+		a.href = url; a.download = `slow-dead-stock-${dsMode}.csv`; a.click();
+		URL.revokeObjectURL(url);
+	}
+
 	const nf = new Intl.NumberFormat('en-US');
 	const fmt = (n) => nf.format(Math.round(n || 0));
 
@@ -434,6 +544,82 @@
 			</div>
 		</section>
 
+		<!-- Weekly scorecard -->
+		{#if scCur}
+			<section class="card">
+				<div class="section-head">
+					<h2>Weekly scorecard</h2>
+					<span class="sc-cap">Week {scCur.week} · {shortDate(scCur.monday)} – {shortDate(scCur.sunday)}</span>
+				</div>
+				<div class="sc-scroll">
+					<table class="sc">
+						<thead>
+							<tr>
+								<th class="sc-k">KPI</th>
+								<th class="sc-tr">Last 8 weeks</th>
+								<th class="num">Week {scCur.week}</th>
+								<th class="num">Week {scPrev?.week ?? '—'}</th>
+								<th class="num">vs prev.</th>
+								<th class="num">Week {scLy?.week ?? '—'} LY</th>
+								<th class="num">vs LY</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each SC_ROWS as row}
+								{@const cur = scCur[row.key]}
+								{@const pd = scDelta(cur, scPrev?.[row.key], row)}
+								{@const lyV = scLy?.covered ? scLy[row.key] : null}
+								{@const ld = scDelta(cur, lyV, row)}
+								<tr>
+									<td class="sc-k">{row.label}</td>
+									<td class="sc-tr">
+										{#if sparkPoints(row.key)}
+											<svg width={SP_W} height={SP_H} viewBox={`0 0 ${SP_W} ${SP_H}`} class="spark" aria-hidden="true">
+												<polyline points={sparkPoints(row.key)} />
+											</svg>
+										{/if}
+									</td>
+									<td class="num strong">{scVal(cur, row.kind)}</td>
+									<td class="num">{scVal(scPrev?.[row.key], row.kind)}</td>
+									<td class="num"><span class="dl {pd?.cls ?? ''}">{pd?.text ?? '—'}</span></td>
+									<td class="num">{scLy?.covered ? scVal(lyV, row.kind) : '—'}</td>
+									<td class="num"><span class="dl {ld?.cls ?? ''}">{ld?.text ?? '—'}</span></td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+				{#if scLy && !scLy.covered}
+					<p class="sc-note">Last-year comparison starts once the same week has data (history begins {shortDate(data.scorecard.trackingStart)} {data.scorecard.trackingStart?.slice(0, 4)}).</p>
+				{/if}
+			</section>
+		{/if}
+
+		<!-- Order arrivals heatmap -->
+		{#if data.heatmap}
+			<section class="card">
+				<div class="section-head">
+					<h2>When orders arrive</h2>
+					<span class="sc-cap">avg {grain} received per day · by hour</span>
+				</div>
+				<div class="hm-scroll">
+					<div class="hm">
+						<div class="hm-corner"></div>
+						{#each HOURS as h}<div class="hm-h">{h % 3 === 0 ? String(h).padStart(2, '0') : ''}</div>{/each}
+						<div class="hm-h hm-tot">Day</div>
+						{#each HM_DAYS as [wd, lbl]}
+							<div class="hm-d">{lbl}</div>
+							{#each HOURS as h}
+								{@const v = hmVal(wd, h)}
+								<div class="hm-c" style:background={hmBg(v)} class:hot={v > hm.max * 0.55} title={`${lbl} ${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59 · avg ${v.toFixed(1)} ${grain}/day`}>{hmFmt(v)}</div>
+							{/each}
+							<div class="hm-c hm-tot" title={`${lbl}: avg ${hmRowAvg(wd).toFixed(1)} ${grain} per day`}>{hmFmt(hmRowAvg(wd))}</div>
+						{/each}
+					</div>
+				</div>
+			</section>
+		{/if}
+
 		<!-- Breakdown table -->
 		<section class="table-wrap">
 			<div class="table-head">
@@ -498,6 +684,80 @@
 				</table>
 			</div>
 		</section>
+
+		<!-- Slow & dead stock (as of today, independent of the date range) -->
+		{#if data.deadStock}
+			<div class="section-head ds-head">
+				<h2>Slow &amp; dead stock</h2>
+				<span class="sc-cap">
+					as of today{#if data.deadStock.updated} · stock synced {relTime(data.deadStock.updated.replace(' ', 'T') + 'Z')}{/if}
+					· {fmt(dsRows.length)} SKUs · {fmt(dsUnits)} units
+				</span>
+			</div>
+			<section class="table-wrap ds-wrap">
+				<div class="table-head">
+					<div class="dim-tabs" role="tablist">
+						{#each DS_MODES as m}
+							<button class="dim-tab" class:on={dsMode === m.key} role="tab" aria-selected={dsMode === m.key} onclick={() => (dsMode = m.key)}>{m.label}</button>
+						{/each}
+					</div>
+					<span class="count">{fmt(dsRows.length)}</span>
+					<button class="export-btn" onclick={dsExport} type="button" title="Export the current view to CSV">
+						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+						</svg>
+						Export CSV
+					</button>
+				</div>
+				<div class="dim-filter">
+					<div class="dim-search">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+						</svg>
+						<input type="text" bind:value={dsSearch} placeholder="Search SKU, product, supplier…" aria-label="Filter slow and dead stock" />
+						{#if dsSearch}
+							<button class="dim-search-clear" onclick={() => (dsSearch = '')} aria-label="Clear search" title="Clear">×</button>
+						{/if}
+					</div>
+				</div>
+				<div class="table-scroll">
+					<table>
+						<colgroup>
+							<col style="width:120px" /><col /><col style="width:190px" />
+							<col style="width:90px" /><col style="width:150px" /><col style="width:104px" /><col style="width:84px" />
+						</colgroup>
+						<thead>
+							<tr>
+								{#each [['sku', 'SKU', false], ['name', 'Product Name', false], ['vendor', 'Supplier', false], ['stock', 'Stock', true], ['last', 'Last shipped', true], ['units90', 'Shipped 90d', true], ['cover', 'Cover', true]] as [k, lbl, isNum]}
+									<th class="th-sort" class:num={isNum} class:sorted={dsSortKey === k} onclick={() => dsSetSort(k)}>{lbl}{#if dsSortKey === k}<span class="caret">{dsSortDir === 'asc' ? '▲' : '▼'}</span>{/if}</th>
+								{/each}
+							</tr>
+						</thead>
+						<tbody>
+							{#each dsRows as r (r.sku)}
+								<tr>
+									<td class="sku">{r.sku}</td>
+									<td class="name">{r.name}{#if r.category}<span class="ds-cat">{r.category}</span>{/if}</td>
+									<td class="ds-ven">{r.vendor || '—'}</td>
+									<td class="num">{fmt(r.stock)}</td>
+									<td class="num">
+										{#if r.last}{shortDate(r.last)} {r.last.slice(0, 4)}<span class="ds-ago">{r.since} d ago</span>
+										{:else}<span class="ds-never">Not since {shortDate(data.deadStock.trackingStart)} {data.deadStock.trackingStart?.slice(0, 4)}</span>{/if}
+									</td>
+									<td class="num">{fmt(r.units90)}</td>
+									<td class="num">{coverLabel(r.cover)}</td>
+								</tr>
+							{/each}
+							{#if dsRows.length === 0}
+								<tr><td colspan="7" class="empty-row">
+									{data.deadStock.products ? 'Nothing matches this filter.' : 'No stock snapshot yet — it arrives with the next sync.'}
+								</td></tr>
+							{/if}
+						</tbody>
+					</table>
+				</div>
+			</section>
+		{/if}
 	{/if}
 </main>
 
@@ -626,7 +886,45 @@
 	td.sku { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: #8A7A5C; }
 	.empty-row { text-align: center; color: #9A8A6A; padding: 28px; }
 
+	/* Section caption (sits between the title and the border line) */
+	.sc-cap { order: 1; font-size: 12px; font-weight: 600; color: #9A8A6A; white-space: nowrap; }
+
+	/* Weekly scorecard */
+	.sc-scroll { overflow-x: auto; }
+	table.sc { font-size: 13px; }
+	table.sc thead th { position: static; background: transparent; color: #9A8A6A; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; padding: 6px 14px 8px; border-bottom: 1px solid var(--border); }
+	table.sc tbody td { padding: 9px 14px; background: transparent !important; }
+	table.sc tbody tr:hover td { background: #FFFBEF !important; }
+	.sc-k { font-weight: 700; color: #27272A; white-space: nowrap; }
+	.sc-tr { width: 130px; }
+	td.strong { font-weight: 800; color: #18181B; }
+	.spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+	.dl { font-size: 12px; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: #F4F1EA; color: #71717A; }
+	.dl.good { background: #EAF7EF; color: #16794C; }
+	.dl.bad { background: #FDECEC; color: #C4381B; }
+	.sc-note { font-size: 12px; color: #9A8A6A; margin: 10px 14px 0; }
+
+	/* Arrivals heatmap */
+	.hm-scroll { overflow-x: auto; }
+	.hm { display: grid; grid-template-columns: 38px repeat(24, minmax(30px, 1fr)) 48px; gap: 3px; min-width: 900px; }
+	.hm-corner { }
+	.hm-h { font-size: 10.5px; font-weight: 700; color: #A89C84; text-align: left; padding: 0 0 2px 2px; }
+	.hm-d { font-size: 12px; font-weight: 700; color: #6B6355; display: flex; align-items: center; }
+	.hm-c { height: 30px; border-radius: 5px; font-size: 10.5px; font-weight: 700; color: #8A5A20; display: flex; align-items: center; justify-content: center; background: #FBF7EE; font-variant-numeric: tabular-nums; cursor: default; }
+	.hm-c.hot { color: #fff; }
+	.hm-c.hm-tot { background: #FBEFCB !important; color: #7B3803; }
+	.hm-h.hm-tot { text-align: center; padding-left: 0; }
+
+	/* Slow & dead stock */
+	.ds-head { margin-top: 30px; }
+	.ds-wrap { margin-top: 0; }
+	.ds-cat { display: block; font-size: 11.5px; font-weight: 500; color: #A89C84; margin-top: 1px; }
+	.ds-ven { color: #6b5e4e; font-size: 12.5px; }
+	.ds-ago { display: block; font-size: 11.5px; font-weight: 500; color: #A89C84; }
+	.ds-never { font-size: 12px; font-weight: 600; color: #C4381B; }
+
 	@media (max-width: 720px) {
 		.kpis { grid-template-columns: 1fr; }
+		.sc-cap { display: none; }
 	}
 </style>

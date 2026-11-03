@@ -65,6 +65,7 @@ export default {
 
 		const opts = {};
 		if (url.searchParams.get('full') === '1') opts.full = true;
+		if (url.searchParams.get('stock') === '1') opts.stock = true; // force a stock snapshot
 		const days = Number(url.searchParams.get('days'));
 		if (Number.isFinite(days) && days > 0) opts.days = days;
 		try {
@@ -99,17 +100,31 @@ async function lagerGet(env, path) {
 	return { status: res.status, body };
 }
 
+async function lagerPost(env, path, payload) {
+	const res = await fetch(BASE + path, {
+		method: 'POST',
+		headers: { 'X-APIKEY': env.LAGERSYSTEM_API_KEY, Accept: 'application/json', 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
+	});
+	const text = await res.text();
+	let body;
+	try { body = JSON.parse(text); } catch { body = null; }
+	return { status: res.status, body };
+}
+
 /**
- * Fetch one page of a status list. Returns { orders, page, maxPages } or an
- * empty page. Lagersystem signals "no orders in this status" as HTTP 200 with
- * { code: 204, error: true, ... } — treated as empty, not an error.
+ * Fetch one page of a status list. Returns { orders, page, maxPages, failed }.
+ * Lagersystem signals "no orders in this status" as HTTP 200 with
+ * { code: 204, error: true, ... } — treated as empty, not a failure. Anything
+ * else unexpected sets `failed` so callers don't treat a glitch as "empty".
  */
 async function fetchStatusPage(env, status, page) {
-	const { body } = await lagerGet(env, `/api/order/list/status/${status}?page=${page}&pagesize=${PAGESIZE}`);
-	if (!body || body.error) return { orders: [], page, maxPages: 0 };
+	const { status: http, body } = await lagerGet(env, `/api/order/list/status/${status}?page=${page}&pagesize=${PAGESIZE}`);
+	if (body && body.error && Number(body.code) === 204) return { orders: [], page, maxPages: 0, failed: false };
+	if (!body || body.error || http >= 400) return { orders: [], page, maxPages: 0, failed: true };
 	const res = body.res || {};
 	const data = Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
-	return { orders: data, page: res.page ?? page, maxPages: res.maxPages ?? 1 };
+	return { orders: data, page: res.page ?? page, maxPages: res.maxPages ?? 1, failed: false };
 }
 
 function toInt(v) {
@@ -246,17 +261,33 @@ async function run(env, opts) {
 	}
 
 	// --- Active queues (inbound / in-progress), full each run ---
+	// Note the DB clock first: every active order we see gets synced_at bumped,
+	// so anything still open with an older synced_at has left the queues.
+	const activeStart = (await env.DB.prepare("SELECT datetime('now') AS t").first()).t;
+	let activeOk = true;
 	for (const status of ACTIVE_STATUSES) {
 		const head = await fetchStatusPage(env, status, 1);
+		if (head.failed) { activeOk = false; continue; }
 		const pages = head.maxPages || 1;
 		for (let page = 1; page <= pages; page++) {
 			const p = page === 1 ? head : await fetchStatusPage(env, status, page);
+			if (p.failed) { activeOk = false; break; }
 			if (!p.orders.length) break;
 			const mapped = p.orders.map(mapOrder);
 			await writeOrders(env, mapped);
 			seen += mapped.length;
 		}
 	}
+
+	// Orders that dropped out of the active queues: look up what happened
+	// (handled vs cancelled/deleted). Skipped if any active fetch failed, so a
+	// glitch can't mark live orders as gone.
+	const vanished = activeOk ? await resolveVanished(env, activeStart) : { skipped: true };
+
+	// Stock snapshot (slow & dead stock), refreshed when older than 3 h.
+	let stock = null;
+	try { stock = await syncStockIfStale(env, opts.stock === true); }
+	catch (e) { stock = { error: e instanceof Error ? e.message : String(e) }; }
 
 	const lastDoneMax = newestDone || meta?.last_done_max || null;
 	await env.DB.prepare(
@@ -266,7 +297,93 @@ async function run(env, opts) {
 		   orders_seen=excluded.orders_seen, status='ok', message=excluded.message`
 	).bind(started, lastDoneMax, seen, `cutoff ${cutoff}`).run();
 
-	return { seen, cutoff, last_done_max: lastDoneMax };
+	return { seen, cutoff, last_done_max: lastDoneMax, vanished, stock };
+}
+
+/**
+ * Open orders (no done/gone date) not seen in this run's active queues. Look
+ * each up via POST /api/order/search and record the outcome: SENT/FINISHED →
+ * done_date today (the FINISHED scan later overwrites with the real date);
+ * cancelled/rejected/etc → gone_date; not found → deleted (gone). Bounded per
+ * run; the rest are picked up next hour.
+ */
+async function resolveVanished(env, activeStart) {
+	const rows = (await env.DB.prepare(
+		`SELECT order_id FROM wms_orders
+		 WHERE done_date IS NULL AND gone_date IS NULL AND synced_at < ? LIMIT 60`
+	).bind(activeStart).all()).results ?? [];
+	const today = new Date().toISOString().slice(0, 10);
+	const out = { checked: rows.length, done: 0, gone: 0, still_active: 0, unknown: 0 };
+	for (const { order_id } of rows) {
+		const { body } = await lagerPost(env, '/api/order/search', { order_id: Number(order_id), page: 1, limit: 1 });
+		const list = Array.isArray(body?.data) ? body.data : Array.isArray(body?.res?.data) ? body.res.data : null;
+		const hit = list?.find((o) => String(o.id ?? o.orderID) === String(order_id)) ?? null;
+		const st = hit?.status ? String(hit.status).toUpperCase() : null;
+		if (st && ACTIVE_STATUSES.includes(st)) {
+			await env.DB.prepare(`UPDATE wms_orders SET status = ?, synced_at = datetime('now') WHERE order_id = ?`).bind(st, order_id).run();
+			out.still_active++;
+		} else if (st === 'FINISHED' || st === 'SENT') {
+			await env.DB.prepare(`UPDATE wms_orders SET status = ?, done_date = COALESCE(done_date, ?), synced_at = datetime('now') WHERE order_id = ?`).bind(st, today, order_id).run();
+			out.done++;
+		} else if (st) {
+			await env.DB.prepare(`UPDATE wms_orders SET status = ?, gone_date = ?, synced_at = datetime('now') WHERE order_id = ?`).bind(st, today, order_id).run();
+			out.gone++;
+		} else if ((list && list.length === 0) || (body?.error && Number(body.code) === 204)) {
+			await env.DB.prepare(`UPDATE wms_orders SET status = 'DELETED', gone_date = ?, synced_at = datetime('now') WHERE order_id = ?`).bind(today, order_id).run();
+			out.gone++;
+		} else {
+			out.unknown++; // lookup failed — leave it for the next run
+		}
+	}
+	return out;
+}
+
+/** Snapshot every product's stock (+ category, supplier, colli, min level) into wms_stock. */
+async function syncStockIfStale(env, force) {
+	if (!force) {
+		const last = await env.DB.prepare(`SELECT MAX(updated_at) AS t FROM wms_stock`).first().catch(() => null);
+		if (last?.t && Date.now() - Date.parse(last.t.replace(' ', 'T') + 'Z') < 3 * 3600 * 1000) return { skipped: 'fresh' };
+	}
+	const stockStart = (await env.DB.prepare("SELECT datetime('now') AS t").first()).t;
+
+	// Stock + title + category: POST /api/products, zero-indexed pages of ≤1000.
+	const items = new Map();
+	for (let page = 0; page < 50; page++) {
+		const { body } = await lagerPost(env, '/api/products', { pagesize: 1000, page });
+		const rows = Array.isArray(body?.res) ? body.res : [];
+		for (const r of rows) {
+			if (!r.itemnumber) continue;
+			items.set(String(r.itemnumber), { title: r.title || null, category: r.category || null, stock: toInt(r.stock), vendor: null, colli: null, min: null });
+		}
+		if (rows.length < 1000) break;
+	}
+	if (items.size < 50) return { error: `only ${items.size} products returned — snapshot not saved` };
+
+	// Supplier / colli / min stock: GET /api/product/list (1-indexed, paged).
+	for (let page = 1; page <= 100; page++) {
+		const { body } = await lagerGet(env, `/api/product/list?page=${page}&pagesize=500`);
+		const res = body?.res;
+		const data = Array.isArray(res?.data) ? res.data : [];
+		for (const r of data) {
+			const e = items.get(String(r.itemNumber));
+			if (!e) continue;
+			e.vendor = r.vendor || null;
+			e.colli = toInt(r.colliSize) || null;
+			e.min = toInt(r.minStockLevel) || null;
+		}
+		if (!data.length || page >= Number(res?.maxPages ?? page)) break;
+	}
+
+	const sql = `INSERT INTO wms_stock (item_number, title, category, vendor, colli_size, min_stock_level, stock, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		ON CONFLICT(item_number) DO UPDATE SET title=excluded.title, category=excluded.category, vendor=excluded.vendor,
+		  colli_size=excluded.colli_size, min_stock_level=excluded.min_stock_level, stock=excluded.stock, updated_at=excluded.updated_at`;
+	const stmts = [];
+	for (const [sku, e] of items) stmts.push(env.DB.prepare(sql).bind(sku, e.title, e.category, e.vendor, e.colli, e.min, e.stock));
+	for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
+	// Drop SKUs that no longer exist in Lagersystem.
+	await env.DB.prepare(`DELETE FROM wms_stock WHERE updated_at < ?`).bind(stockStart).run();
+	return { products: items.size };
 }
 
 function json(obj, status = 200, compact = false) {

@@ -126,8 +126,161 @@ export async function load({ url, platform }) {
 			}
 		} catch { handling = null; }
 
-		return { from, to, presets, selected, ready: true, inbound, handled, dims: { products, customers, countries }, handling, syncMeta: meta };
+		// Each block below has its own guard so one missing table/column (e.g.
+		// migration 0102 not applied yet) hides just that section.
+		const heatmap = await loadHeatmap(db, from, to).catch(() => null);
+		const scorecard = await loadScorecard(db, to).catch(() => null);
+		const deadStock = await loadDeadStock(db).catch(() => null);
+
+		return {
+			from, to, presets, selected, ready: true, inbound, handled,
+			dims: { products, customers, countries }, handling, heatmap, scorecard, deadStock, syncMeta: meta,
+		};
 	} catch (e) {
 		return { from, to, presets, selected, ready: false, reason: 'no-table', message: e instanceof Error ? e.message : String(e) };
 	}
+}
+
+// ── Order arrivals heatmap (weekday × hour of receipt) ──────────────────────
+async function loadHeatmap(db, from, to) {
+	const rows = (await db.prepare(
+		`SELECT CAST(strftime('%w', received_date) AS INTEGER) AS wd, CAST(strftime('%H', received_date) AS INTEGER) AS hr,
+		        COUNT(*) AS orders, COALESCE(SUM(line_count),0) AS lines, COALESCE(SUM(unit_count),0) AS units
+		 FROM wms_orders
+		 WHERE received_date IS NOT NULL AND substr(received_date,1,10) BETWEEN ? AND ?
+		 GROUP BY wd, hr`
+	).bind(from, to).all()).results ?? [];
+	// How many of each weekday the range spans, so cells can show a per-day average.
+	const dayCount = [0, 0, 0, 0, 0, 0, 0];
+	const d = new Date(from + 'T00:00:00Z');
+	const end = new Date(to + 'T00:00:00Z');
+	for (let guard = 0; d <= end && guard < 5000; guard++) { dayCount[d.getUTCDay()]++; d.setUTCDate(d.getUTCDate() + 1); }
+	return { rows, dayCount };
+}
+
+// ── Weekly scorecard ─────────────────────────────────────────────────────────
+const addDays = (ymdStr, n) => { const x = new Date(ymdStr + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return ymd(x); };
+function isoWeek(ymdStr) {
+	const d = new Date(ymdStr + 'T00:00:00Z');
+	d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7));
+	const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+	return 1 + Math.round(((d - jan4) / 86400000 - 3 + ((jan4.getUTCDay() + 6) % 7)) / 7);
+}
+// Monday of the week containing a YYYY-MM-DD column value.
+const WK = (col) => `date(${col}, '-' || ((CAST(strftime('%w', ${col}) AS INTEGER) + 6) % 7) || ' days')`;
+
+async function scoreSpan(db, start, end, weekEnds) {
+	const recv = (await db.prepare(
+		`SELECT ${WK('substr(received_date,1,10)')} AS w, COUNT(*) AS c FROM wms_orders
+		 WHERE received_date IS NOT NULL AND substr(received_date,1,10) BETWEEN ? AND ? GROUP BY w`
+	).bind(start, end).all()).results ?? [];
+	const hand = (await db.prepare(
+		`SELECT ${WK('done_date')} AS w, COUNT(*) AS orders, COALESCE(SUM(line_count),0) AS lines, COALESCE(SUM(unit_count),0) AS units
+		 FROM wms_orders WHERE done_date BETWEEN ? AND ? GROUP BY w`
+	).bind(start, end).all()).results ?? [];
+	// Handling-time histogram (whole days), excluding Date Orders.
+	const hist = (await db.prepare(
+		`SELECT ${WK('done_date')} AS w, CAST(julianday(done_date) - julianday(date(received_date)) AS INTEGER) AS d, COUNT(*) AS c
+		 FROM wms_orders WHERE done_date BETWEEN ? AND ? AND received_date IS NOT NULL AND delivery_date IS NULL
+		 GROUP BY w, d`
+	).bind(start, end).all()).results ?? [];
+	const fill = (await db.prepare(
+		`SELECT ${WK('o.done_date')} AS w, COALESCE(SUM(l.amount_delivered),0) AS dl, COALESCE(SUM(l.amount),0) AS am
+		 FROM wms_order_lines l JOIN wms_orders o ON o.order_id = l.order_id
+		 WHERE o.done_date BETWEEN ? AND ? GROUP BY w`
+	).bind(start, end).all()).results ?? [];
+	// Open orders at each week end (received by then, not yet handled or gone).
+	const ph = weekEnds.map(() => '(?)').join(',');
+	const backlog = (await db.prepare(
+		`WITH ends(e) AS (VALUES ${ph})
+		 SELECT e, (SELECT COUNT(*) FROM wms_orders o
+		            WHERE o.received_date IS NOT NULL AND substr(o.received_date,1,10) <= e
+		              AND (o.done_date IS NULL OR o.done_date > e)
+		              AND (o.gone_date IS NULL OR o.gone_date > e)) AS open
+		 FROM ends`
+	).bind(...weekEnds).all()).results ?? [];
+
+	const by = (rows, k = 'w') => new Map(rows.map((r) => [r[k], r]));
+	const recvM = by(recv), handM = by(hand), fillM = by(fill), backM = by(backlog, 'e');
+	const histM = new Map();
+	for (const r of hist) {
+		if (r.d == null || r.d < 0) continue;
+		(histM.get(r.w) ?? histM.set(r.w, []).get(r.w)).push([Number(r.d), Number(r.c)]);
+	}
+	return { recvM, handM, fillM, backM, histM };
+}
+
+function weekStats(span, monday) {
+	const sunday = addDays(monday, 6);
+	const h = span.handM.get(monday);
+	const hist = (span.histM.get(monday) ?? []).sort((a, b) => a[0] - b[0]);
+	const n = hist.reduce((s, [, c]) => s + c, 0);
+	let median = null, within1 = null;
+	if (n) {
+		let cum = 0;
+		for (const [d, c] of hist) { cum += c; if (cum >= n / 2) { median = d; break; } }
+		within1 = (hist.filter(([d]) => d <= 1).reduce((s, [, c]) => s + c, 0) / n) * 100;
+	}
+	const f = span.fillM.get(monday);
+	const b = span.backM.get(sunday);
+	return {
+		monday, sunday, week: isoWeek(monday),
+		received: span.recvM.get(monday)?.c ?? 0,
+		handled: h?.orders ?? 0,
+		units: h?.units ?? 0,
+		lines: h?.lines ?? 0,
+		median, within1,
+		fill: f && f.am > 0 ? (f.dl / f.am) * 100 : null,
+		backlog: b ? b.open : null,
+	};
+}
+
+async function loadScorecard(db, to) {
+	// Anchor on the last COMPLETE Mon–Sun week on/before `to` (and before today).
+	const today = ymd(new Date());
+	let anchor = to < today ? to : addDays(today, -1);
+	const dow = new Date(anchor + 'T00:00:00Z').getUTCDay(); // 0 = Sunday
+	const lastSunday = dow === 0 ? anchor : addDays(anchor, -dow);
+	const N = 8;
+	const mondays = Array.from({ length: N }, (_, i) => addDays(lastSunday, -6 - 7 * (N - 1 - i)));
+	const lyMondays = mondays.map((m) => addDays(m, -364)); // same ISO week, previous year
+
+	const cur = await scoreSpan(db, mondays[0], lastSunday, mondays.map((m) => addDays(m, 6)));
+	const ly = await scoreSpan(db, lyMondays[0], addDays(lyMondays[N - 1], 6), lyMondays.map((m) => addDays(m, 6)));
+	const first = (await db.prepare(`SELECT MIN(done_date) AS d FROM wms_orders`).first())?.d ?? null;
+
+	return {
+		weeks: mondays.map((m) => weekStats(cur, m)),
+		lyWeeks: lyMondays.map((m) => ({ ...weekStats(ly, m), covered: !!first && m >= first })),
+		trackingStart: first,
+	};
+}
+
+// ── Slow & dead stock ────────────────────────────────────────────────────────
+// SKUs with stock that haven't shipped in ≥ 60 days (or ever since tracking
+// began), or that would take > 12 months to sell at the last-90-day pace.
+async function loadDeadStock(db) {
+	const rows = (await db.prepare(
+		`SELECT x.*,
+		        COALESCE((SELECT tr.value FROM sales_sheets s2 JOIN translations tr ON tr.sheet_id = s2.id
+		                  WHERE lower(s2.sku) = lower(x.sku) AND tr.key = 'product_name' AND COALESCE(tr.value,'') != ''
+		                  ORDER BY (tr.language = s2.primary_language) DESC LIMIT 1), x.title) AS name
+		 FROM (
+		   SELECT s.item_number AS sku, s.title, s.category, s.vendor, s.stock, s.colli_size,
+		          ls.last_done, COALESCE(u.units, 0) AS units90
+		   FROM wms_stock s
+		   LEFT JOIN (SELECT l.item_number, MAX(o.done_date) AS last_done
+		              FROM wms_order_lines l JOIN wms_orders o ON o.order_id = l.order_id
+		              WHERE o.done_date IS NOT NULL GROUP BY l.item_number) ls ON ls.item_number = s.item_number
+		   LEFT JOIN (SELECT l.item_number, SUM(l.amount_delivered) AS units
+		              FROM wms_order_lines l JOIN wms_orders o ON o.order_id = l.order_id
+		              WHERE o.done_date >= date('now','-90 day') GROUP BY l.item_number) u ON u.item_number = s.item_number
+		   WHERE s.stock > 0
+		     AND (ls.last_done IS NULL OR ls.last_done < date('now','-60 day') OR COALESCE(u.units,0) * 365.0 / 90 < s.stock)
+		   ORDER BY s.stock DESC LIMIT 3000
+		 ) x`
+	).all()).results ?? [];
+	const meta = await db.prepare(`SELECT MAX(updated_at) AS updated, COUNT(*) AS n FROM wms_stock`).first();
+	const first = (await db.prepare(`SELECT MIN(done_date) AS d FROM wms_orders`).first())?.d ?? null;
+	return { rows, updated: meta?.updated ?? null, products: meta?.n ?? 0, trackingStart: first };
 }
