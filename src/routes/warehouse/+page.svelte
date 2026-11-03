@@ -101,18 +101,35 @@
 		d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
 		return d.toISOString().slice(0, 10);
 	}
+	// Long tooltip date, e.g. "Monday 2. nov. 2026".
+	const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+	const MON_SHORT = ['jan.', 'feb.', 'mar.', 'apr.', 'may', 'jun.', 'jul.', 'aug.', 'sep.', 'oct.', 'nov.', 'dec.'];
+	const MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+	function longDay(ymdStr) {
+		const d = new Date(ymdStr + 'T00:00:00Z');
+		return `${WEEKDAY[d.getUTCDay()]} ${d.getUTCDate()}. ${MON_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+	}
+	function isoWeek(ymdStr) {
+		const d = new Date(ymdStr + 'T00:00:00Z');
+		d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7)); // Thursday of this week
+		const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+		return 1 + Math.round(((d - jan4) / 86400000 - 3 + ((jan4.getUTCDay() + 6) % 7)) / 7);
+	}
 	function bucketOf(ymdStr, mode) {
 		const [Y, M, D] = ymdStr.split('-');
-		if (mode === 'week') { const mon = mondayOf(ymdStr); const [, mm, dd] = mon.split('-'); return { key: mon, label: `${mm}/${dd}` }; }
-		if (mode === 'month') return { key: `${Y}-${M}`, label: `${MON[+M - 1]} ${Y.slice(2)}` };
-		if (mode === 'quarter') { const q = Math.floor((+M - 1) / 3) + 1; return { key: `${Y}-Q${q}`, label: `Q${q} ${Y.slice(2)}` }; }
-		return { key: ymdStr, label: `${M}/${D}` };
+		if (mode === 'week') {
+			const mon = mondayOf(ymdStr); const [, mm, dd] = mon.split('-');
+			return { key: mon, label: `${mm}/${dd}`, tip: `Week ${isoWeek(mon)} · ${longDay(mon)}` };
+		}
+		if (mode === 'month') return { key: `${Y}-${M}`, label: `${MON[+M - 1]} ${Y.slice(2)}`, tip: `${MON_LONG[+M - 1]} ${Y}` };
+		if (mode === 'quarter') { const q = Math.floor((+M - 1) / 3) + 1; return { key: `${Y}-Q${q}`, label: `Q${q} ${Y.slice(2)}`, tip: `Q${q} ${Y}` }; }
+		return { key: ymdStr, label: `${M}/${D}`, tip: longDay(ymdStr) };
 	}
 	const buckets = $derived.by(() => {
 		const m = new Map();
 		for (const p of series) {
 			const b = bucketOf(p.d, bucketBy);
-			const cur = m.get(b.key) || { key: b.key, label: b.label, inbound: 0, handled: 0 };
+			const cur = m.get(b.key) || { key: b.key, label: b.label, tip: b.tip, inbound: 0, handled: 0 };
 			cur.inbound += p.inbound; cur.handled += p.handled;
 			m.set(b.key, cur);
 		}
@@ -409,7 +426,7 @@
 				{#if hoverI !== null && buckets[hoverI]}
 					{@const b = buckets[hoverI]}
 					<div class="tip" style={`left:${Math.min(92, Math.max(8, (xAt(hoverI) / VB_W) * 100))}%`}>
-						<div class="tip-d">{b.label}</div>
+						<div class="tip-d">{b.tip}</div>
 						<div class="tip-r"><i class="sw in"></i><span>Inbound</span><b>{fmt(b.inbound)}</b></div>
 						<div class="tip-r"><i class="sw hd"></i><span>Handled</span><b>{fmt(b.handled)}</b></div>
 						<div class="tip-r idx"><span>Index</span><b class={idxClass(b)}>{idxLabel(b)}</b></div>
