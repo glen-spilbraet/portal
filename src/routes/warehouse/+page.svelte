@@ -188,6 +188,29 @@
 		if (out[out.length - 1] !== n - 1) out.push(n - 1);
 		return out;
 	});
+
+	// ── Hover crosshair + combined tooltip ──────────────────────────────────────
+	let hoverI = $state(null);
+	function onMove(e) {
+		const n = buckets.length;
+		if (!n) { hoverI = null; return; }
+		const rect = e.currentTarget.getBoundingClientRect();
+		const vbX = ((e.clientX - rect.left) / rect.width) * VB_W;
+		const dataRatio = n <= 1 ? 0 : (vbX - PAD_L) / innerW;
+		hoverI = Math.max(0, Math.min(n - 1, Math.round(dataRatio * (n - 1))));
+	}
+	// Index = handled / inbound × 100 (100 = handled exactly matches inbound).
+	function idxLabel(b) {
+		if (!b.inbound) return b.handled ? '∞' : '—';
+		return `${Math.round((b.handled / b.inbound) * 100)}`;
+	}
+	function idxClass(b) {
+		if (!b.inbound) return '';
+		const v = (b.handled / b.inbound) * 100;
+		if (v >= 100) return 'green';
+		if (v >= 90) return 'orange';
+		return 'red';
+	}
 </script>
 
 <svelte:head><title>Warehouse — Stats</title></svelte:head>
@@ -220,14 +243,14 @@
 </div>
 
 <main>
-	<header class="head">
-		<h1>Warehouse</h1>
+	<div class="section-head page">
+		<h2>Warehouse</h2>
 		<div class="pub-toggle" role="group" aria-label="Metric">
 			{#each GRAINS as g}
 				<button type="button" class:active={grain === g.key} onclick={() => (grain = g.key)}>{g.label}</button>
 			{/each}
 		</div>
-	</header>
+	</div>
 
 	{#if !data.ready}
 		<div class="empty">
@@ -260,7 +283,8 @@
 
 		<!-- Time series -->
 		<section class="card">
-			<div class="chart-head">
+			<div class="section-head">
+				<h2>Inbound vs handled</h2>
 				<div class="legend">
 					<span class="lg"><i class="sw in"></i> Inbound</span>
 					<span class="lg"><i class="sw hd"></i> Handled</span>
@@ -271,43 +295,60 @@
 					{/each}
 				</div>
 			</div>
-			<svg class="chart" viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="none" role="img" aria-label="Inbound vs handled over time">
-				<defs>
-					<linearGradient id="inFill" x1="0" y1="0" x2="0" y2="1">
-						<stop offset="0%" stop-color="#3B82F6" stop-opacity="0.18" />
-						<stop offset="100%" stop-color="#3B82F6" stop-opacity="0.01" />
-					</linearGradient>
-					<linearGradient id="hdFill" x1="0" y1="0" x2="0" y2="1">
-						<stop offset="0%" stop-color="#F57832" stop-opacity="0.20" />
-						<stop offset="100%" stop-color="#F57832" stop-opacity="0.01" />
-					</linearGradient>
-					<clipPath id="plot"><rect x={PAD_L} y={PAD_T - 4} width={innerW} height={innerH + 4} /></clipPath>
-				</defs>
+			<div class="chart-wrap" onpointermove={onMove} onpointerleave={() => (hoverI = null)}>
+				<svg class="chart" viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="none" role="img" aria-label="Inbound vs handled over time">
+					<defs>
+						<linearGradient id="inFill" x1="0" y1="0" x2="0" y2="1">
+							<stop offset="0%" stop-color="#E7D3A6" stop-opacity="0.55" />
+							<stop offset="100%" stop-color="#E7D3A6" stop-opacity="0.04" />
+						</linearGradient>
+						<linearGradient id="hdFill" x1="0" y1="0" x2="0" y2="1">
+							<stop offset="0%" stop-color="#F57832" stop-opacity="0.20" />
+							<stop offset="100%" stop-color="#F57832" stop-opacity="0.01" />
+						</linearGradient>
+						<clipPath id="plot"><rect x={PAD_L} y={PAD_T - 4} width={innerW} height={innerH + 4} /></clipPath>
+					</defs>
 
-				<!-- y gridlines + labels -->
-				{#each yTicks as t}
-					<line x1={PAD_L} y1={yAt(t)} x2={VB_W - PAD_R} y2={yAt(t)} class="grid" />
-					<text x={PAD_L - 8} y={yAt(t) + 4} class="ylab" text-anchor="end">{fmt(t)}</text>
-				{/each}
+					<!-- y gridlines + labels -->
+					{#each yTicks as t}
+						<line x1={PAD_L} y1={yAt(t)} x2={VB_W - PAD_R} y2={yAt(t)} class="grid" />
+						<text x={PAD_L - 8} y={yAt(t) + 4} class="ylab" text-anchor="end">{fmt(t)}</text>
+					{/each}
 
-				<g clip-path="url(#plot)">
-					<path d={inArea} fill="url(#inFill)" />
-					<path d={hdArea} fill="url(#hdFill)" />
-					<path d={inLine} class="line in" />
-					<path d={hdLine} class="line hd" />
-					{#if showDots}
-						{#each buckets as p, i}
-							<circle cx={xAt(i)} cy={yAt(p.inbound)} r="3" class="dot in"><title>{p.label} · inbound {fmt(p.inbound)}</title></circle>
-							<circle cx={xAt(i)} cy={yAt(p.handled)} r="3" class="dot hd"><title>{p.label} · handled {fmt(p.handled)}</title></circle>
-						{/each}
-					{/if}
-				</g>
+					<g clip-path="url(#plot)">
+						<path d={inArea} fill="url(#inFill)" />
+						<path d={hdArea} fill="url(#hdFill)" />
+						<path d={inLine} class="line in" />
+						<path d={hdLine} class="line hd" />
+						{#if showDots}
+							{#each buckets as p, i}
+								<circle cx={xAt(i)} cy={yAt(p.inbound)} r="3" class="dot in" />
+								<circle cx={xAt(i)} cy={yAt(p.handled)} r="3" class="dot hd" />
+							{/each}
+						{/if}
+						{#if hoverI !== null && buckets[hoverI]}
+							<line class="crosshair" x1={xAt(hoverI)} y1={PAD_T} x2={xAt(hoverI)} y2={PAD_T + innerH} />
+							<circle cx={xAt(hoverI)} cy={yAt(buckets[hoverI].inbound)} r="5" class="dot in hov" />
+							<circle cx={xAt(hoverI)} cy={yAt(buckets[hoverI].handled)} r="5" class="dot hd hov" />
+						{/if}
+					</g>
 
-				<!-- x labels -->
-				{#each xTicks as i}
-					<text x={xAt(i)} y={VB_H - 10} class="xlab" text-anchor="middle">{buckets[i]?.label}</text>
-				{/each}
-			</svg>
+					<!-- x labels -->
+					{#each xTicks as i}
+						<text x={xAt(i)} y={VB_H - 10} class="xlab" text-anchor="middle">{buckets[i]?.label}</text>
+					{/each}
+				</svg>
+
+				{#if hoverI !== null && buckets[hoverI]}
+					{@const b = buckets[hoverI]}
+					<div class="tip" style={`left:${Math.min(92, Math.max(8, (xAt(hoverI) / VB_W) * 100))}%`}>
+						<div class="tip-d">{b.label}</div>
+						<div class="tip-r"><i class="sw in"></i><span>Inbound</span><b>{fmt(b.inbound)}</b></div>
+						<div class="tip-r"><i class="sw hd"></i><span>Handled</span><b>{fmt(b.handled)}</b></div>
+						<div class="tip-r idx"><span>Index</span><b class={idxClass(b)}>{idxLabel(b)}</b></div>
+					</div>
+				{/if}
+			</div>
 		</section>
 
 		<!-- Top customers -->
@@ -357,8 +398,14 @@
 	@keyframes db-spin { to { transform: rotate(360deg); } }
 
 	main { max-width: 1200px; margin: 0 auto; width: 100%; padding: 28px 28px 80px; box-sizing: border-box; }
-	.head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-	h1 { font-size: 22px; font-weight: 800; color: #18181B; margin: 0; }
+
+	/* Section header: title — border line — toggle (mirrors Product/Publishers). */
+	.section-head { display: flex; align-items: center; gap: 14px; margin: 4px 0 14px; }
+	.section-head h2 { font-size: 15px; font-weight: 800; letter-spacing: -0.2px; color: #18181B; margin: 0; white-space: nowrap; order: 0; }
+	.section-head .legend { order: 1; }
+	.section-head::after { content: ''; flex: 1; height: 1px; background: var(--border); order: 2; }
+	.section-head .pub-toggle { order: 3; }
+	.section-head.page { margin-bottom: 18px; }
 
 	.empty { border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 40px; text-align: center; background: #FBFAF7; }
 	.empty .muted { font-size: 13px; }
@@ -366,37 +413,49 @@
 
 	.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
 	.kpi { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 18px; background: #fff; display: flex; flex-direction: column; gap: 4px; }
-	.kpi.inbound { border-left: 4px solid #3B82F6; }
+	.kpi.inbound { border-left: 4px solid #D4B977; }
 	.kpi.handled { border-left: 4px solid var(--accent); }
 	.kpi.net { border-left: 4px solid #D4CBB8; }
 	.k-label { font-size: 12px; font-weight: 700; color: #9A8A6A; text-transform: uppercase; letter-spacing: .04em; }
 	.k-val { font-size: 30px; font-weight: 800; color: #18181B; line-height: 1.1; }
-	.k-val.pos { color: #2563EB; }
+	.k-val.pos { color: #B4611A; }
 	.k-sites { font-size: 12px; color: #8A8276; }
 
 	.card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; background: #fff; margin-bottom: 18px; }
 	.card h2 { font-size: 14px; font-weight: 800; color: #18181B; margin: 0 0 14px; }
 	.muted { color: #9A8A6A; font-weight: 500; }
 
-	.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
 	.pub-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 100px; overflow: hidden; }
 	.pub-toggle button { border: none; background: #fff; color: #71717A; font-size: 12px; font-weight: 700; font-family: inherit; padding: 6px 14px; cursor: pointer; white-space: nowrap; }
 	.pub-toggle button.active { background: var(--accent); color: #fff; }
-	.legend { display: flex; gap: 18px; }
-	.lg { font-size: 12px; font-weight: 700; color: #6B6355; display: inline-flex; align-items: center; gap: 6px; }
-	.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
-	.sw.in { background: #3B82F6; }
+	.legend { display: flex; gap: 14px; }
+	.lg { font-size: 12px; font-weight: 700; color: #6B6355; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+	.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+	.sw.in { background: #D4B977; }
 	.sw.hd { background: var(--accent); }
 
+	.chart-wrap { position: relative; }
 	.chart { width: 100%; height: 300px; display: block; }
 	.chart .grid { stroke: #F0E9D4; stroke-width: 1; }
 	.chart .ylab, .chart .xlab { font-size: 11px; fill: #A89C84; }
 	.chart .line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-	.chart .line.in { stroke: #3B82F6; }
+	.chart .line.in { stroke: #D4B977; }
 	.chart .line.hd { stroke: var(--accent); }
-	.chart .dot.in { fill: #fff; stroke: #3B82F6; stroke-width: 2; }
+	.chart .dot.in { fill: #fff; stroke: #D4B977; stroke-width: 2; }
 	.chart .dot.hd { fill: #fff; stroke: var(--accent); stroke-width: 2; }
-	.chart .dot:hover { r: 4.5; }
+	.chart .dot.hov.in { fill: #D4B977; stroke: #fff; }
+	.chart .dot.hov.hd { fill: var(--accent); stroke: #fff; }
+	.chart .crosshair { stroke: #C9B690; stroke-width: 1; stroke-dasharray: 3 3; }
+
+	/* Hover tooltip */
+	.tip { position: absolute; top: 10px; transform: translateX(-50%); background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-lg); padding: 9px 11px; font-size: 12px; pointer-events: none; min-width: 148px; z-index: 5; }
+	.tip-d { font-weight: 800; color: #18181B; margin-bottom: 6px; }
+	.tip-r { display: flex; align-items: center; gap: 7px; margin-top: 3px; color: #52525B; }
+	.tip-r span { flex: 1; }
+	.tip-r b { color: #18181B; font-weight: 800; }
+	.tip-r.idx { margin-top: 6px; padding-top: 6px; border-top: 1px solid #F0E9D4; }
+	.tip-r.idx span { font-weight: 700; color: #6B6355; }
+	.tip-r b.green { color: #16794C; } .tip-r b.orange { color: #B4611A; } .tip-r b.red { color: #C4381B; }
 
 	.bars { display: flex; flex-direction: column; gap: 8px; }
 	.row { display: grid; grid-template-columns: minmax(120px, 1.6fr) 34px 1fr 64px; align-items: center; gap: 10px; }
