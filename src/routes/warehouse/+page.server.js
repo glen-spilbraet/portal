@@ -105,7 +105,29 @@ export async function load({ url, platform }) {
 
 		const meta = await db.prepare('SELECT last_run, last_done_max, orders_seen, status FROM wms_sync_meta WHERE id = 1').first().catch(() => null);
 
-		return { from, to, presets, selected, ready: true, inbound, handled, dims: { customers, products }, syncMeta: meta };
+		// Estimated handling time: whole-day gap received → done over the last 7
+		// days of handled orders, EXCLUDING Date Orders (those with a delivery_date).
+		// done_date is date-only, so resolution is days. Separate try so a missing
+		// delivery_date column (migration 0101 not applied) doesn't blank the page.
+		let handling = null;
+		try {
+			const ht = (await db.prepare(
+				`SELECT CAST(julianday(done_date) - julianday(date(received_date)) AS REAL) AS days
+				 FROM wms_orders
+				 WHERE done_date IS NOT NULL AND received_date IS NOT NULL AND delivery_date IS NULL
+				   AND done_date >= date('now','-7 day')`
+			).all()).results ?? [];
+			const diffs = ht.map((r) => Number(r.days)).filter((d) => Number.isFinite(d) && d >= 0).sort((a, b) => a - b);
+			if (diffs.length) {
+				const median = diffs.length % 2 ? diffs[(diffs.length - 1) / 2] : (diffs[diffs.length / 2 - 1] + diffs[diffs.length / 2]) / 2;
+				const avg = diffs.reduce((s, d) => s + d, 0) / diffs.length;
+				handling = { median, avg, n: diffs.length };
+			} else {
+				handling = { median: null, avg: null, n: 0 };
+			}
+		} catch { handling = null; }
+
+		return { from, to, presets, selected, ready: true, inbound, handled, dims: { customers, products }, handling, syncMeta: meta };
 	} catch (e) {
 		return { from, to, presets, selected, ready: false, reason: 'no-table', message: e instanceof Error ? e.message : String(e) };
 	}

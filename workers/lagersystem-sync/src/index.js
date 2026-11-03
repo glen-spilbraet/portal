@@ -137,6 +137,7 @@ function mapOrder(o) {
 			status: o.status || null,
 			received_date: o.receivedDate || null,
 			done_date: o.doneDate || null,
+			delivery_date: o.deliveryDate || null,
 			country: o.address?.country != null ? String(o.address.country) : null,
 			customer_group_id: ex['customer group id'] != null ? toInt(ex['customer group id']) : null,
 			customer_group_name: ex['customer group name'] || null,
@@ -150,7 +151,7 @@ function mapOrder(o) {
 
 const ORDER_COLS = [
 	'order_id', 'order_number', 'sub_site', 'currency', 'status', 'received_date',
-	'done_date', 'country', 'customer_group_id', 'customer_group_name',
+	'done_date', 'delivery_date', 'country', 'customer_group_id', 'customer_group_name',
 	'total_no_tax', 'line_count', 'unit_count',
 ];
 

@@ -321,6 +321,19 @@
 			</div>
 		</div>
 
+		<!-- Estimated handling time -->
+		{#if data.handling}
+			<div class="ht-banner">
+				<span class="ht-ico" aria-hidden="true">⏱</span>
+				{#if data.handling.n}
+					<span class="ht-main">Est. handling time <b>{data.handling.median === 0 ? 'same day' : `~${data.handling.median % 1 ? data.handling.median.toFixed(1) : data.handling.median} ${data.handling.median === 1 ? 'day' : 'days'}`}</b></span>
+					<span class="ht-sub">median · avg {data.handling.avg.toFixed(1)}d · {data.handling.n} orders handled in last 7 days · excludes scheduled date-orders</span>
+				{:else}
+					<span class="ht-sub">No non-scheduled orders handled in the last 7 days to estimate from.</span>
+				{/if}
+			</div>
+		{/if}
+
 		<!-- Time series -->
 		<section class="card">
 			<div class="section-head">
@@ -485,6 +498,12 @@
 	.k-val { font-size: 30px; font-weight: 800; color: #18181B; line-height: 1.1; }
 	.k-val.pos { color: #B4611A; }
 	.k-sites { font-size: 12px; color: #8A8276; }
+
+	.ht-banner { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; background: #FBF4E2; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 13px 18px; margin-bottom: 18px; }
+	.ht-ico { font-size: 15px; }
+	.ht-main { font-size: 14px; color: #52525B; }
+	.ht-main b { font-size: 16px; font-weight: 800; color: #8A5A20; }
+	.ht-sub { font-size: 12px; color: #9A8A6A; }
 
 	.card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; background: #fff; margin-bottom: 18px; }
 	.card h2 { font-size: 14px; font-weight: 800; color: #18181B; margin: 0 0 14px; }
