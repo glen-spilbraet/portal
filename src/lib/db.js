@@ -903,8 +903,8 @@ export async function getPermissionSet(db, id) {
 
 export async function createPermissionSet(db, id, name, access) {
 	await db.prepare(`
-		INSERT INTO permission_sets (id, name, access_sheets, access_sheets_edit, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_stats_all, access_mail, access_product, access_forecast, access_awards, access_rest_check, access_price_sync, access_events, access_order_conf, access_reports, access_knowledge, access_credit_notes, access_q4_orders)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO permission_sets (id, name, access_sheets, access_sheets_edit, access_catalogues, access_planograms, access_data, access_price_lists, access_orders, access_stats, access_stats_all, access_mail, access_product, access_forecast, access_awards, access_rest_check, access_price_sync, access_events, access_order_conf, access_reports, access_knowledge, access_credit_notes, access_q4_orders, access_warehouse)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`).bind(id, name,
 		access.sheets       ? 1 : 0,
 		access.sheets_edit  ? 1 : 0,
@@ -926,7 +926,8 @@ export async function createPermissionSet(db, id, name, access) {
 		access.reports      ? 1 : 0,
 		access.knowledge    ? 1 : 0,
 		access.credit_notes ? 1 : 0,
-		access.q4_orders    ? 1 : 0
+		access.q4_orders    ? 1 : 0,
+		access.warehouse    ? 1 : 0
 	).run();
 }
 
@@ -1003,10 +1004,10 @@ export async function deletePermissionSet(db, id) {
  */
 export async function getUserPermissions(db, user) {
 	if (user.role === 'admin' || !user.permission_set_id) {
-		return { sheets: true, sheetsEdit: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, statsAll: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true, credit_notes: true, q4_orders: true };
+		return { sheets: true, sheetsEdit: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, statsAll: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true, credit_notes: true, q4_orders: true, warehouse: true };
 	}
 	const ps = await getPermissionSet(db, user.permission_set_id);
-	if (!ps) return { sheets: true, sheetsEdit: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, statsAll: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true, credit_notes: true, q4_orders: true };
+	if (!ps) return { sheets: true, sheetsEdit: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, statsAll: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true, credit_notes: true, q4_orders: true, warehouse: true };
 	const statsAll = !!ps.access_stats_all;
 	const sheetsEdit = !!ps.access_sheets_edit;
 	return {
@@ -1031,6 +1032,7 @@ export async function getUserPermissions(db, user) {
 		knowledge:    !!ps.access_knowledge,
 		credit_notes: !!ps.access_credit_notes,
 		q4_orders:    !!ps.access_q4_orders,
+		warehouse:    !!ps.access_warehouse,
 	};
 }
 
