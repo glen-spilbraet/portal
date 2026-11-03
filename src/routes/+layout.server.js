@@ -39,11 +39,11 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/orders/price-sync'))           return 'price_sync';
 	if (pathname.startsWith('/orders/order-confirmations'))  return 'order_conf';
 	if (pathname.startsWith('/orders/q4-orders'))            return 'q4_orders';
-	if (pathname.startsWith('/orders/warehouse'))            return 'warehouse';
 	if (pathname.startsWith('/orders'))                      return 'orders';
 	if (pathname.startsWith('/product'))                     return 'product';
 	if (pathname.startsWith('/forecast'))                    return 'forecast';
 	if (pathname.startsWith('/reports'))                     return 'reports';
+	if (pathname.startsWith('/warehouse'))                   return 'warehouse';
 	if (pathname.startsWith('/credit-notes'))                return 'credit_notes';
 	if (pathname.startsWith('/knowledge'))                   return 'knowledge';
 	if (pathname.startsWith('/awards'))                      return 'awards';
@@ -139,9 +139,9 @@ export async function load({ cookies, url, platform }) {
 			['catalogues', '/catalogues'],
 			['planograms', '/planograms'],
 			['price_lists', '/price-lists'],
+			['warehouse', '/warehouse'],
 			['orders', '/orders'],
 			['q4_orders', '/orders/q4-orders'],
-			['warehouse', '/orders/warehouse'],
 			['data', '/data'],
 			['mail', '/mail/accounts'],
 		].find(([perm]) => effectivePermissions[perm]);

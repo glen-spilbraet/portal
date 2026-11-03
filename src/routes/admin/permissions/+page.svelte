@@ -44,9 +44,9 @@
 	// Grouped by the app's nav structure, for an easier overview.
 	const LABEL = Object.fromEntries(SECTIONS.map((s) => [s.key, s.label]));
 	const GROUPS = [
-		{ label: 'Stats',  keys: ['stats', 'stats_all', 'product', 'forecast', 'reports', 'credit_notes'] },
+		{ label: 'Stats',  keys: ['stats', 'stats_all', 'product', 'forecast', 'reports', 'credit_notes', 'warehouse'] },
 		{ label: 'Sales',  keys: ['sheets', 'sheets_edit', 'catalogues', 'planograms', 'awards', 'price_lists', 'mail'] },
-		{ label: 'Orders', keys: ['orders', 'warehouse', 'q4_orders', 'order_conf', 'rest_check', 'price_sync'] },
+		{ label: 'Orders', keys: ['orders', 'q4_orders', 'order_conf', 'rest_check', 'price_sync'] },
 		{ label: 'Events', keys: ['events'] },
 		{ label: 'Data',   keys: ['data'] },
 		{ label: 'Knowledge', keys: ['knowledge'] },

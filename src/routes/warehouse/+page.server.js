@@ -1,6 +1,7 @@
-// Warehouse dashboard — Inbound (orders received) vs Handled (orders done) over
-// a date range, from the wms_orders mirror (populated by the lagersystem-sync
-// worker). Access is enforced by the root layout (`warehouse` permission).
+// Warehouse dashboard (under Stats) — Inbound (orders received) vs Handled
+// (orders done) over a date range, from the wms_orders mirror (populated by the
+// lagersystem-sync worker). Access is enforced by the root layout (`warehouse`
+// permission); route lives at /warehouse.
 
 function ymdDaysAgo(n) {
 	const d = new Date();

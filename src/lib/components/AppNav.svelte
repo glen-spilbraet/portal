@@ -33,17 +33,17 @@
 		p.forecast && { href: '/forecast', label: 'Forecast', key: 'forecast' },
 		p.reports  && { href: '/reports',  label: 'Reports',  key: 'reports' },
 		p.credit_notes && { href: '/credit-notes', label: 'Credit Notes', key: 'credit_notes' },
+		p.warehouse && { href: '/warehouse', label: 'Warehouse', key: 'warehouse' },
 	].filter(Boolean));
 	const showStats = $derived(statsItems.length > 0);
-	const statsActive = $derived(active === 'stats' || active === 'product' || active === 'forecast' || active === 'reports' || active === 'credit_notes');
+	const statsActive = $derived(active === 'stats' || active === 'product' || active === 'forecast' || active === 'reports' || active === 'credit_notes' || active === 'warehouse');
 	const showData  = $derived(p.data);
 	const showKnowledge = $derived(!!p.knowledge);
-	const showOrders = $derived(!!p.orders || !!p.rest_check || !!p.price_sync || !!p.order_conf || !!p.q4_orders || !!p.warehouse);
+	const showOrders = $derived(!!p.orders || !!p.rest_check || !!p.price_sync || !!p.order_conf || !!p.q4_orders);
 
 	const orderItems = $derived([
 		p.orders     && { href: '/orders',                 label: 'Orders',        key: 'orders' },
 		p.orders     && { href: '/orders/rackbeat-drafts', label: 'Create Orders', key: 'create-orders' },
-		p.warehouse  && { href: '/orders/warehouse',       label: 'Warehouse',     key: 'warehouse' },
 		p.q4_orders  && { href: '/orders/q4-orders',       label: 'Q4 Orders',     key: 'q4-orders' },
 		p.order_conf && { href: '/orders/order-confirmations', label: 'Order Confirmations', key: 'order-confirmations' },
 		p.rest_check && { href: '/orders/rest-check',      label: 'Rest Check',    key: 'rest-check' },
