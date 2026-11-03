@@ -10,13 +10,14 @@ enabled = true
 [triggers]
 crons = ["15 * * * *"]
 
-# DEV build: writes into portal-db-dev so the dev portal's Warehouse dashboard
-# sees the data. BEFORE PROD: switch this to portal-db (id 2dca2f5d-21fd-4515-
-# ba49-d5970c249571) and set the prod LAGERSYSTEM_API_KEY secret.
+# Writes into the shared PRODUCTION portal-db. The portal reads these tables
+# through its SALES_DB binding (always prod portal-db), so dev and prod share
+# one copy — same pattern as hubspot-sales-sync. Read-only mirror of
+# Lagersystem; the portal never edits it.
 [[d1_databases]]
 binding = "DB"
-database_name = "portal-db-dev"
-database_id = "57e39bf4-7c9e-4f12-a109-48c5cd8dd2e3"
+database_name = "portal-db"
+database_id = "2dca2f5d-21fd-4515-ba49-d5970c249571"
 
 [vars]
 # Oldest FINISHED order to pull on a cold start (no prior sync), in days back.

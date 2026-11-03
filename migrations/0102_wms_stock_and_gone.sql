@@ -1,5 +1,5 @@
--- Warehouse dashboard additions. DB binding — apply to BOTH portal-db and
--- portal-db-dev (apply SQL directly, not `d1 migrations apply`).
+-- Warehouse dashboard additions. SALES_DB — apply to portal-db ONLY (shared by
+-- every environment; apply SQL directly, not `d1 migrations apply`).
 
 -- Orders that left the active queues WITHOUT being handled (cancelled,
 -- rejected, deleted). Lets the backlog drop them instead of counting them open

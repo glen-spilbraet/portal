@@ -1,7 +1,7 @@
 -- Lagersystem (warehouse) order mirror, for the Orders → Warehouse dashboard
 -- (Inbound vs Handled over time). Populated by the lagersystem-sync worker,
--- which pages the Lagersystem status lists. DB binding — apply to BOTH
--- portal-db and portal-db-dev (apply SQL directly, do NOT use d1 migrations apply).
+-- which pages the Lagersystem status lists. SALES_DB — apply to portal-db
+-- ONLY (shared by every environment; apply SQL directly, NOT d1 migrations apply).
 
 CREATE TABLE IF NOT EXISTS wms_orders (
   order_id            TEXT PRIMARY KEY,   -- Lagersystem orderID

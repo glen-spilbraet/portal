@@ -54,7 +54,12 @@ export async function load({ url, platform }) {
 	const to = url.searchParams.get('to') || def.to;
 	const selected = presets.find((p) => p.from === from && p.to === to)?.key ?? 'custom';
 
-	const db = platform?.env?.DB;
+	// Warehouse data lives in SALES_DB — always the prod portal-db, shared by
+	// every environment (like the sales stats): one sync, one copy. Sheets
+	// (product names) are app data in DB, so names are looked up there and
+	// merged in JS — D1 can't join across databases.
+	const db = platform?.env?.SALES_DB;
+	const appDb = platform?.env?.DB;
 	if (!db) return { from, to, presets, selected, ready: false, reason: 'no-db' };
 
 	try {
@@ -80,18 +85,14 @@ export async function load({ url, platform }) {
 		// Product name: canonical sheet name (sales_sheets + translations, primary
 		// language first) — same rule as the other reports — falling back to the
 		// Lagersystem line title only when the SKU has no sheet.
-		const products = await rows(
-			`SELECT g.key, g.orders, g.lines, g.units,
-			        COALESCE((SELECT tr.value FROM sales_sheets s2 JOIN translations tr ON tr.sheet_id = s2.id
-			                  WHERE lower(s2.sku) = lower(g.key) AND tr.key = 'product_name' AND COALESCE(tr.value,'') != ''
-			                  ORDER BY (tr.language = s2.primary_language) DESC LIMIT 1), g.label) AS label
-			 FROM (
-			   SELECT l.item_number AS key, MAX(l.title) AS label, COUNT(DISTINCT l.order_id) AS orders,
-			          COUNT(*) AS lines, COALESCE(SUM(l.amount_delivered),0) AS units
-			   FROM wms_order_lines l JOIN wms_orders ord ON ord.order_id = l.order_id
-			   WHERE l.item_number IS NOT NULL AND ord.done_date IS NOT NULL AND ord.done_date BETWEEN ? AND ?
-			   GROUP BY l.item_number ORDER BY units DESC LIMIT 500
-			 ) g`);
+		const names = await catalogNames(appDb);
+		const products = (await rows(
+			`SELECT l.item_number AS key, MAX(l.title) AS label, COUNT(DISTINCT l.order_id) AS orders,
+			        COUNT(*) AS lines, COALESCE(SUM(l.amount_delivered),0) AS units
+			 FROM wms_order_lines l JOIN wms_orders ord ON ord.order_id = l.order_id
+			 WHERE l.item_number IS NOT NULL AND ord.done_date IS NOT NULL AND ord.done_date BETWEEN ? AND ?
+			 GROUP BY l.item_number ORDER BY units DESC LIMIT 500`
+		)).map((r) => ({ ...r, label: names.get(String(r.key).toLowerCase()) ?? r.label }));
 		const customers = await rows(
 			`SELECT customer_group_name AS key, customer_group_name AS label, COUNT(*) AS orders,
 			        COALESCE(SUM(line_count),0) AS lines, COALESCE(SUM(unit_count),0) AS units
@@ -130,7 +131,7 @@ export async function load({ url, platform }) {
 		// migration 0102 not applied yet) hides just that section.
 		const heatmap = await loadHeatmap(db, from, to).catch(() => null);
 		const scorecard = await loadScorecard(db, to).catch(() => null);
-		const deadStock = await loadDeadStock(db).catch(() => null);
+		const deadStock = await loadDeadStock(db, names).catch(() => null);
 
 		return {
 			from, to, presets, selected, ready: true, inbound, handled,
@@ -259,14 +260,9 @@ async function loadScorecard(db, to) {
 // ── Slow & dead stock ────────────────────────────────────────────────────────
 // SKUs with stock that haven't shipped in ≥ 60 days (or ever since tracking
 // began), or that would take > 12 months to sell at the last-90-day pace.
-async function loadDeadStock(db) {
+async function loadDeadStock(db, names) {
 	const rows = (await db.prepare(
-		`SELECT x.*,
-		        COALESCE((SELECT tr.value FROM sales_sheets s2 JOIN translations tr ON tr.sheet_id = s2.id
-		                  WHERE lower(s2.sku) = lower(x.sku) AND tr.key = 'product_name' AND COALESCE(tr.value,'') != ''
-		                  ORDER BY (tr.language = s2.primary_language) DESC LIMIT 1), x.title) AS name
-		 FROM (
-		   SELECT s.item_number AS sku, s.title, s.category, s.vendor, s.stock, s.colli_size,
+		`SELECT s.item_number AS sku, s.title, s.category, s.vendor, s.stock, s.colli_size,
 		          ls.last_done, COALESCE(u.units, 0) AS units90
 		   FROM wms_stock s
 		   LEFT JOIN (SELECT l.item_number, MAX(o.done_date) AS last_done
@@ -277,10 +273,29 @@ async function loadDeadStock(db) {
 		              WHERE o.done_date >= date('now','-90 day') GROUP BY l.item_number) u ON u.item_number = s.item_number
 		   WHERE s.stock > 0
 		     AND (ls.last_done IS NULL OR ls.last_done < date('now','-60 day') OR COALESCE(u.units,0) * 365.0 / 90 < s.stock)
-		   ORDER BY s.stock DESC LIMIT 3000
-		 ) x`
+		   ORDER BY s.stock DESC LIMIT 3000`
 	).all()).results ?? [];
+	for (const r of rows) r.name = names.get(String(r.sku).toLowerCase()) ?? r.title;
 	const meta = await db.prepare(`SELECT MAX(updated_at) AS updated, COUNT(*) AS n FROM wms_stock`).first();
 	const first = (await db.prepare(`SELECT MIN(done_date) AS d FROM wms_orders`).first())?.d ?? null;
 	return { rows, updated: meta?.updated ?? null, products: meta?.n ?? 0, trackingStart: first };
+}
+
+// ── Product names from Sheets (app DB) ──────────────────────────────────────
+// lower(sku) → product_name, preferring the sheet's primary language. Read once
+// per page load; an empty map (e.g. DB unavailable) just falls back to the
+// Lagersystem title.
+async function catalogNames(appDb) {
+	const m = new Map();
+	if (!appDb) return m;
+	try {
+		const rows = (await appDb.prepare(
+			`SELECT lower(s.sku) AS sku, tr.value AS name
+			 FROM sales_sheets s JOIN translations tr ON tr.sheet_id = s.id
+			 WHERE tr.key = 'product_name' AND COALESCE(tr.value,'') != '' AND COALESCE(s.sku,'') != ''
+			 ORDER BY (tr.language = s.primary_language) ASC`
+		).all()).results ?? [];
+		for (const r of rows) m.set(r.sku, r.name); // primary language sorts last → wins
+	} catch { /* fall back to Lagersystem titles */ }
+	return m;
 }
