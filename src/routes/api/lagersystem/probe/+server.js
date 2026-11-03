@@ -2,10 +2,10 @@ import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
 import { getAllowedUser } from '$lib/db.js';
 
-// Exploratory, admin-only proxy to the Lagersystem REST API. Forwards a GET to
-// api.lagersystem.dk with the X-API-Key header (key stays server-side), and
-// returns the raw response so we can learn the real schema. GET + /api/ only.
-const BASE = 'https://api.lagersystem.dk';
+// Exploratory, admin-only proxy to the company's own Lagersystem instance (NOT
+// the public demo api.lagersystem.dk). The key stays server-side; we forward a
+// GET or POST and return the raw response so we can learn the real schema.
+const BASE = 'https://spilbraetdk.lagersystem.dk';
 
 async function requireAdmin(cookies, platform) {
 	const token  = cookies.get('session');
@@ -18,32 +18,41 @@ async function requireAdmin(cookies, platform) {
 	if (!user || user.role !== 'admin') error(403, 'Admins only');
 }
 
-export async function GET({ url, cookies, platform }) {
+export async function POST({ request, cookies, platform }) {
 	await requireAdmin(cookies, platform);
 
 	const apiKey = platform?.env?.LAGERSYSTEM_API_KEY;
 	if (!apiKey) error(500, 'LAGERSYSTEM_API_KEY is not configured on this environment');
 
-	let path = url.searchParams.get('path') || '/api/v1/orders';
+	const input = await request.json().catch(() => ({}));
+	let path = String(input.path || '/api/login');
 	if (!path.startsWith('/')) path = '/' + path;
-	// Any path is fine — the host is hardcoded, admin-only, GET-only (no SSRF).
+	const method = String(input.method || 'GET').toUpperCase();
+	if (!['GET', 'POST'].includes(method)) error(400, 'Only GET or POST');
 
 	const target = BASE + path;
+	const headers = { 'X-APIKEY': apiKey, Accept: 'application/json' };
+	let fetchBody;
+	if (method === 'POST' && input.body != null && input.body !== '') {
+		headers['Content-Type'] = 'application/json';
+		fetchBody = typeof input.body === 'string' ? input.body : JSON.stringify(input.body);
+	}
+
 	const started = Date.now();
 	let res;
 	try {
-		res = await fetch(target, { headers: { 'X-API-Key': apiKey, Accept: 'application/json' } });
+		res = await fetch(target, { method, headers, body: fetchBody });
 	} catch (e) {
-		return json({ ok: false, target, error: `fetch failed: ${e instanceof Error ? e.message : String(e)}` });
+		return json({ ok: false, target, method, error: `fetch failed: ${e instanceof Error ? e.message : String(e)}` });
 	}
 	const ms = Date.now() - started;
 	const contentType = res.headers.get('content-type') || '';
 	const raw = await res.text();
 	let body;
 	if (contentType.includes('application/json')) {
-		try { body = JSON.parse(raw); } catch { body = raw.slice(0, 20000); }
+		try { body = JSON.parse(raw); } catch { body = raw.slice(0, 40000); }
 	} else {
-		body = raw.slice(0, 20000);
+		body = raw.slice(0, 40000);
 	}
-	return json({ ok: res.ok, status: res.status, contentType, ms, target, body });
+	return json({ ok: res.ok, status: res.status, contentType, ms, target, method, body });
 }

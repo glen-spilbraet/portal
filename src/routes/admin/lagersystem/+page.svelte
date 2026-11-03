@@ -3,28 +3,38 @@
 
 	let { data } = $props();
 
-	// A few things worth trying first to learn the schema. Edit the path freely.
+	// Real endpoints from the OpenAPI spec. Edit freely.
 	const PRESETS = [
-		{ label: 'List orders', path: '/api/v1/orders' },
-		{ label: 'Orders · limit 5', path: '/api/v1/orders?limit=5' },
-		{ label: 'Orders · page 1', path: '/api/v1/orders?page=1&limit=25' },
-		{ label: 'Orders · pageSize', path: '/api/v1/orders?pageSize=5' },
-		{ label: 'Orders · perPage', path: '/api/v1/orders?per_page=5' },
-		{ label: 'Stock (needs SKU)', path: '/api/v1/stock?itemNumber=' },
-		{ label: 'Users', path: '/api/v1/users' },
-		{ label: 'Webhooks', path: '/api/webhooks' },
+		{ label: 'Login (key test)',      method: 'GET',  path: '/api/login', body: '' },
+		{ label: 'Orders · current',      method: 'GET',  path: '/api/order/list', body: '' },
+		{ label: 'Received · 5',          method: 'GET',  path: '/api/order/list/status/RECEIVED?page=1&pagesize=5', body: '' },
+		{ label: 'Sent · 5',              method: 'GET',  path: '/api/order/list/status/SENT?page=1&pagesize=5', body: '' },
+		{ label: 'Finished · 5',          method: 'GET',  path: '/api/order/list/status/FINISHED?page=1&pagesize=5', body: '' },
+		{ label: 'Goods-in list',         method: 'GET',  path: '/api/goodsin/list', body: '' },
+		{ label: 'Report: last month (received)', method: 'POST', path: '/api/reports/orders', body: '{\n  "orderPeriod": "lastMonth",\n  "orderCustomperiodType": "date_recived"\n}' },
+		{ label: 'Report: last month (done)',     method: 'POST', path: '/api/reports/orders', body: '{\n  "orderPeriod": "lastMonth",\n  "orderCustomperiodType": "date_done"\n}' },
 	];
 
-	let path = $state('/api/v1/orders?limit=5');
+	let method = $state('GET');
+	let path = $state('/api/login');
+	let bodyText = $state('');
 	let loading = $state(false);
 	let result = $state(null);
 	let errText = $state('');
 
-	async function run(p) {
-		if (p) path = p;
+	function applyPreset(pr) {
+		method = pr.method; path = pr.path; bodyText = pr.body;
+		run();
+	}
+
+	async function run() {
 		loading = true; errText = ''; result = null;
 		try {
-			const res = await fetch(`/api/lagersystem/probe?path=${encodeURIComponent(path)}`);
+			const res = await fetch('/api/lagersystem/probe', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ method, path, body: method === 'POST' ? bodyText : '' })
+			});
 			const body = await res.json().catch(() => ({}));
 			if (!res.ok) { errText = body?.message || `Probe failed (${res.status})`; return; }
 			result = body;
@@ -48,8 +58,8 @@
 <div class="wrap">
 	<h1>Lagersystem API probe</h1>
 	<p class="sub">
-		Admin-only exploration of the Lagersystem REST API. Calls are made server-side with
-		<code>LAGERSYSTEM_API_KEY</code> (the key never reaches the browser). GET and <code>/api/…</code> paths only.
+		Admin-only exploration of our Lagersystem instance. Calls are made server-side with
+		<code>LAGERSYSTEM_API_KEY</code> (<code>X-APIKEY</code> header; key never reaches the browser).
 	</p>
 
 	<div class="keychip" class:on={data.hasKey}>
@@ -58,15 +68,23 @@
 
 	<div class="presets">
 		{#each PRESETS as pr}
-			<button class="chip" onclick={() => run(pr.path)} disabled={loading}>{pr.label}</button>
+			<button class="chip" onclick={() => applyPreset(pr)} disabled={loading || !data.hasKey}>{pr.label}</button>
 		{/each}
 	</div>
 
 	<form class="runner" onsubmit={(e) => { e.preventDefault(); run(); }}>
-		<span class="base">https://api.lagersystem.dk</span>
-		<input class="path" bind:value={path} placeholder="/api/v1/orders?limit=5" spellcheck="false" />
+		<select class="method" bind:value={method}>
+			<option>GET</option>
+			<option>POST</option>
+		</select>
+		<span class="base">spilbraetdk.lagersystem.dk</span>
+		<input class="path" bind:value={path} placeholder="/api/order/list" spellcheck="false" />
 		<button class="btn primary" type="submit" disabled={loading || !data.hasKey}>{loading ? 'Calling…' : 'Send'}</button>
 	</form>
+
+	{#if method === 'POST'}
+		<textarea class="bodybox" bind:value={bodyText} rows="4" spellcheck="false" placeholder="JSON request body (for POST)"></textarea>
+	{/if}
 
 	{#if errText}<div class="banner err">{errText}</div>{/if}
 
@@ -75,7 +93,7 @@
 			<span class="pill" class:ok={result.ok} class:bad={!result.ok}>HTTP {result.status ?? '—'}</span>
 			{#if result.ms != null}<span class="muted">{result.ms} ms</span>{/if}
 			{#if result.contentType}<span class="muted">{result.contentType}</span>{/if}
-			<span class="muted tgt">{result.target}</span>
+			<span class="muted tgt">{result.method} {result.target}</span>
 		</div>
 		{#if result.error}<div class="banner err">{result.error}</div>{/if}
 		<pre class="out">{pretty(result.body)}</pre>
@@ -96,16 +114,19 @@
 	.chip:hover:not(:disabled) { background: #FAF6EE; }
 	.chip:disabled { opacity: .5; cursor: default; }
 
-	.runner { display: flex; align-items: stretch; gap: 8px; margin-bottom: 16px; }
+	.runner { display: flex; align-items: stretch; gap: 8px; margin-bottom: 10px; }
+	.method { border: 1px solid var(--border); border-radius: 9px; padding: 0 8px; font-weight: 700; font-size: 13px; background: #fff; }
 	.base { display: flex; align-items: center; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: #9A8A6A; background: #FBFAF7; border: 1px solid var(--border); border-radius: 9px; padding: 0 10px; white-space: nowrap; }
 	.path { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; }
 	.path:focus { outline: none; border-color: var(--accent); }
+	.bodybox { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; margin-bottom: 16px; resize: vertical; }
+	.bodybox:focus { outline: none; border-color: var(--accent); }
 	.btn { border: 0; border-radius: 9px; padding: 9px 16px; font-weight: 700; font-size: 14px; cursor: pointer; }
 	.btn.primary { background: var(--accent); color: #fff; }
 	.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
 	.btn:disabled { opacity: .5; cursor: default; }
 
-	.meta-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; font-size: 13px; }
+	.meta-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 8px; font-size: 13px; }
 	.pill { font-weight: 800; font-size: 12px; padding: 3px 9px; border-radius: 999px; }
 	.pill.ok { background: #DCFCE7; color: #15803D; }
 	.pill.bad { background: #FEE2E2; color: #B91C1C; }
