@@ -11,6 +11,13 @@
 		{ key: 'units', label: 'Units' },
 	];
 	let grain = $state('orders');
+	let bucketBy = $state('day');
+	const BUCKETS = [
+		{ key: 'day', label: 'Days' },
+		{ key: 'week', label: 'Weeks' },
+		{ key: 'month', label: 'Months' },
+		{ key: 'quarter', label: 'Quarters' },
+	];
 	let busy = $state(false);
 
 	// ── Date control (DateBar-style, independent state) ─────────────────────────
@@ -76,6 +83,31 @@
 	const handledByDay = $derived(byDay(data.handled));
 	const series = $derived(days.map((d) => ({ d, inbound: inboundByDay.get(d) ?? 0, handled: handledByDay.get(d) ?? 0 })));
 
+	// ── Time bucketing (day / week / month / quarter) ───────────────────────────
+	const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+	function mondayOf(ymdStr) {
+		const d = new Date(ymdStr + 'T00:00:00Z');
+		d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+		return d.toISOString().slice(0, 10);
+	}
+	function bucketOf(ymdStr, mode) {
+		const [Y, M, D] = ymdStr.split('-');
+		if (mode === 'week') { const mon = mondayOf(ymdStr); const [, mm, dd] = mon.split('-'); return { key: mon, label: `${mm}/${dd}` }; }
+		if (mode === 'month') return { key: `${Y}-${M}`, label: `${MON[+M - 1]} ${Y.slice(2)}` };
+		if (mode === 'quarter') { const q = Math.floor((+M - 1) / 3) + 1; return { key: `${Y}-Q${q}`, label: `Q${q} ${Y.slice(2)}` }; }
+		return { key: ymdStr, label: `${M}/${D}` };
+	}
+	const buckets = $derived.by(() => {
+		const m = new Map();
+		for (const p of series) {
+			const b = bucketOf(p.d, bucketBy);
+			const cur = m.get(b.key) || { key: b.key, label: b.label, inbound: 0, handled: 0 };
+			cur.inbound += p.inbound; cur.handled += p.handled;
+			m.set(b.key, cur);
+		}
+		return [...m.values()];
+	});
+
 	function sum(rows) { return (rows ?? []).reduce((s, r) => s + (Number(r[grain]) || 0), 0); }
 	function bySite(rows) {
 		const m = { 1: 0, 2: 0, 3: 0 };
@@ -110,10 +142,10 @@
 		const nice = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
 		return nice * p;
 	}
-	const yMax = $derived(niceMax(Math.max(1, ...series.map((p) => Math.max(p.inbound, p.handled)))));
+	const yMax = $derived(niceMax(Math.max(1, ...buckets.map((p) => Math.max(p.inbound, p.handled)))));
 	const yTicks = $derived([0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(f * yMax)));
 
-	const xAt = (i) => PAD_L + (series.length <= 1 ? innerW / 2 : (i / (series.length - 1)) * innerW);
+	const xAt = (i) => PAD_L + (buckets.length <= 1 ? innerW / 2 : (i / (buckets.length - 1)) * innerW);
 	const yAt = (v) => PAD_T + innerH - (v / yMax) * innerH;
 
 	// Catmull-Rom → cubic bézier smooth path through the points.
@@ -141,22 +173,21 @@
 		const x0 = xAt(0), xN = xAt(vals.length - 1), base = yAt(0);
 		return `${line} L ${xN} ${base} L ${x0} ${base} Z`;
 	}
-	const inLine = $derived(smoothLine(series.map((p) => p.inbound)));
-	const inArea = $derived(smoothArea(series.map((p) => p.inbound)));
-	const hdLine = $derived(smoothLine(series.map((p) => p.handled)));
-	const hdArea = $derived(smoothArea(series.map((p) => p.handled)));
-	const showDots = $derived(series.length <= 45);
+	const inLine = $derived(smoothLine(buckets.map((p) => p.inbound)));
+	const inArea = $derived(smoothArea(buckets.map((p) => p.inbound)));
+	const hdLine = $derived(smoothLine(buckets.map((p) => p.handled)));
+	const hdArea = $derived(smoothArea(buckets.map((p) => p.handled)));
+	const showDots = $derived(buckets.length <= 45);
 
 	const xTicks = $derived.by(() => {
-		const n = series.length;
+		const n = buckets.length;
 		if (!n) return [];
-		const step = Math.max(1, Math.round(n / 7));
+		const step = Math.max(1, Math.round(n / 8));
 		const out = [];
 		for (let i = 0; i < n; i += step) out.push(i);
 		if (out[out.length - 1] !== n - 1) out.push(n - 1);
 		return out;
 	});
-	const shortDay = (d) => d?.slice(5).replace('-', '/'); // MM/DD
 </script>
 
 <svelte:head><title>Warehouse — Stats</title></svelte:head>
@@ -232,9 +263,16 @@
 
 		<!-- Time series -->
 		<section class="card">
-			<div class="legend">
-				<span class="lg"><i class="sw in"></i> Inbound</span>
-				<span class="lg"><i class="sw hd"></i> Handled</span>
+			<div class="chart-head">
+				<div class="legend">
+					<span class="lg"><i class="sw in"></i> Inbound</span>
+					<span class="lg"><i class="sw hd"></i> Handled</span>
+				</div>
+				<div class="pub-toggle" role="group" aria-label="Break down by">
+					{#each BUCKETS as b}
+						<button type="button" class:active={bucketBy === b.key} onclick={() => (bucketBy = b.key)}>{b.label}</button>
+					{/each}
+				</div>
 			</div>
 			<svg class="chart" viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="none" role="img" aria-label="Inbound vs handled over time">
 				<defs>
@@ -261,16 +299,16 @@
 					<path d={inLine} class="line in" />
 					<path d={hdLine} class="line hd" />
 					{#if showDots}
-						{#each series as p, i}
-							<circle cx={xAt(i)} cy={yAt(p.inbound)} r="3" class="dot in"><title>{p.d} · inbound {fmt(p.inbound)}</title></circle>
-							<circle cx={xAt(i)} cy={yAt(p.handled)} r="3" class="dot hd"><title>{p.d} · handled {fmt(p.handled)}</title></circle>
+						{#each buckets as p, i}
+							<circle cx={xAt(i)} cy={yAt(p.inbound)} r="3" class="dot in"><title>{p.label} · inbound {fmt(p.inbound)}</title></circle>
+							<circle cx={xAt(i)} cy={yAt(p.handled)} r="3" class="dot hd"><title>{p.label} · handled {fmt(p.handled)}</title></circle>
 						{/each}
 					{/if}
 				</g>
 
 				<!-- x labels -->
 				{#each xTicks as i}
-					<text x={xAt(i)} y={VB_H - 10} class="xlab" text-anchor="middle">{shortDay(series[i]?.d)}</text>
+					<text x={xAt(i)} y={VB_H - 10} class="xlab" text-anchor="middle">{buckets[i]?.label}</text>
 				{/each}
 			</svg>
 		</section>
@@ -348,7 +386,11 @@
 	.card h2 { font-size: 14px; font-weight: 800; color: #18181B; margin: 0 0 14px; }
 	.muted { color: #9A8A6A; font-weight: 500; }
 
-	.legend { display: flex; gap: 18px; margin-bottom: 4px; }
+	.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+	.pub-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 100px; overflow: hidden; }
+	.pub-toggle button { border: none; background: #fff; color: #71717A; font-size: 12px; font-weight: 700; font-family: inherit; padding: 6px 14px; cursor: pointer; white-space: nowrap; }
+	.pub-toggle button.active { background: var(--accent); color: #fff; }
+	.legend { display: flex; gap: 18px; }
 	.lg { font-size: 12px; font-weight: 700; color: #6B6355; display: inline-flex; align-items: center; gap: 6px; }
 	.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
 	.sw.in { background: #3B82F6; }
