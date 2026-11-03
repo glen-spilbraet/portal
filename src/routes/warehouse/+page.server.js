@@ -138,7 +138,8 @@ export async function load({ url, platform }) {
 			dims: { products, customers, countries }, handling, heatmap, scorecard, deadStock, syncMeta: meta,
 		};
 	} catch (e) {
-		return { from, to, presets, selected, ready: false, reason: 'no-table', message: e instanceof Error ? e.message : String(e) };
+		const message = e instanceof Error ? e.message : String(e);
+		return { from, to, presets, selected, ready: false, reason: /no such table/i.test(message) ? 'no-table' : 'error', message };
 	}
 }
 
@@ -276,9 +277,11 @@ async function loadDeadStock(db, names) {
 		   ORDER BY s.stock DESC LIMIT 3000`
 	).all()).results ?? [];
 	for (const r of rows) r.name = names.get(String(r.sku).toLowerCase()) ?? r.title;
-	const meta = await db.prepare(`SELECT MAX(updated_at) AS updated, COUNT(*) AS n FROM wms_stock`).first();
+	const meta = await db.prepare(`SELECT COUNT(*) AS n FROM wms_stock`).first();
+	// Snapshot time is kept in wms_sync_meta row id = 2 by the worker (ISO string).
+	const snap = await db.prepare(`SELECT last_run FROM wms_sync_meta WHERE id = 2`).first().catch(() => null);
 	const first = (await db.prepare(`SELECT MIN(done_date) AS d FROM wms_orders`).first())?.d ?? null;
-	return { rows, updated: meta?.updated ?? null, products: meta?.n ?? 0, trackingStart: first };
+	return { rows, updated: snap?.last_run ?? null, products: meta?.n ?? 0, trackingStart: first };
 }
 
 // ── Product names from Sheets (app DB) ──────────────────────────────────────

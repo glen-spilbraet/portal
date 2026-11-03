@@ -437,7 +437,10 @@
 		<div class="empty">
 			<p><strong>No warehouse data yet.</strong></p>
 			{#if data.reason === 'no-table'}
-				<p class="muted">The <code>wms_orders</code> tables aren’t created on this environment yet — apply migration <code>0099_wms_orders.sql</code>, then run the <code>lagersystem-sync</code> worker.</p>
+				<p class="muted">The <code>wms_orders</code> tables don’t exist in <code>portal-db</code> yet — apply migration <code>0099_wms_orders.sql</code>, then run the <code>lagersystem-sync</code> worker.</p>
+			{:else if data.reason === 'error'}
+				<p class="muted">The warehouse data couldn’t be loaded right now — try reloading in a moment.</p>
+				<p class="muted err-detail">{data.message}</p>
 			{:else}
 				<p class="muted">Database unavailable.</p>
 			{/if}
@@ -690,7 +693,7 @@
 			<div class="section-head ds-head">
 				<h2>Slow &amp; dead stock</h2>
 				<span class="sc-cap">
-					as of today{#if data.deadStock.updated} · stock synced {relTime(data.deadStock.updated.replace(' ', 'T') + 'Z')}{/if}
+					as of today{#if data.deadStock.updated} · stock synced {relTime(data.deadStock.updated)}{/if}
 					· {fmt(dsRows.length)} SKUs · {fmt(dsUnits)} units
 				</span>
 			</div>
@@ -798,6 +801,7 @@
 
 	.empty { border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 40px; text-align: center; background: #FBFAF7; }
 	.empty .muted { font-size: 13px; }
+	.err-detail { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; margin-top: 6px; }
 	code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: #F4F1EA; padding: 1px 5px; border-radius: 5px; }
 
 	.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }

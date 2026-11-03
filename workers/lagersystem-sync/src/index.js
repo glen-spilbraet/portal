@@ -171,14 +171,54 @@ const ORDER_COLS = [
 ];
 
 /** Upsert a batch of mapped orders (+ their lines) into D1. */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Run statements in batches of 50 against portal-db — the SHARED prod DB that
+ * also serves the sales stats, so be gentle: a short pause between batches and
+ * a wait-and-retry when D1 reports it's overloaded/busy.
+ */
+async function batchSafe(env, stmts) {
+	for (let i = 0; i < stmts.length; i += 50) {
+		const chunk = stmts.slice(i, i + 50);
+		for (let attempt = 0; ; attempt++) {
+			try { await env.DB.batch(chunk); break; }
+			catch (e) {
+				const msg = String(e?.message ?? e);
+				if (attempt < 4 && /overload|too many|busy|reset|timeout/i.test(msg)) { await sleep(1500 * (attempt + 1)); continue; }
+				throw e;
+			}
+		}
+		if (stmts.length > 50) await sleep(40);
+	}
+}
+
 async function writeOrders(env, mapped) {
+	if (!mapped.length) return;
+	// Skip orders whose stored row already matches (status, dates, counts): only
+	// bump synced_at so the vanished-order check still sees them as active.
+	const ids = mapped.map((m) => m.order.order_id);
+	const existing = new Map();
+	for (let i = 0; i < ids.length; i += 90) {
+		const part = ids.slice(i, i + 90);
+		const rows = (await env.DB.prepare(
+			`SELECT order_id, status, done_date, delivery_date, line_count, unit_count FROM wms_orders WHERE order_id IN (${part.map(() => '?').join(',')})`
+		).bind(...part).all()).results ?? [];
+		for (const r of rows) existing.set(r.order_id, r);
+	}
+	const same = (o, e) => !!e && e.status === o.status && (e.done_date ?? null) === (o.done_date ?? null)
+		&& (e.delivery_date ?? null) === (o.delivery_date ?? null)
+		&& Number(e.line_count) === o.line_count && Number(e.unit_count) === o.unit_count;
+
 	const stmts = [];
+	const touch = [];
 	const upsertSql = `INSERT INTO wms_orders (${ORDER_COLS.join(', ')}, synced_at)
 		VALUES (${ORDER_COLS.map(() => '?').join(', ')}, datetime('now'))
 		ON CONFLICT(order_id) DO UPDATE SET
 			${ORDER_COLS.slice(1).map((c) => `${c}=excluded.${c}`).join(', ')},
 			synced_at=datetime('now')`;
 	for (const { order, lines } of mapped) {
+		if (same(order, existing.get(order.order_id))) { touch.push(order.order_id); continue; }
 		stmts.push(env.DB.prepare(upsertSql).bind(...ORDER_COLS.map((c) => order[c] ?? null)));
 		stmts.push(env.DB.prepare('DELETE FROM wms_order_lines WHERE order_id = ?').bind(order.order_id));
 		for (const l of lines) {
@@ -187,9 +227,11 @@ async function writeOrders(env, mapped) {
 			).bind(order.order_id, l.line_id, l.item_number, l.title, l.amount, l.amount_delivered));
 		}
 	}
-	for (let i = 0; i < stmts.length; i += 50) {
-		await env.DB.batch(stmts.slice(i, i + 50));
+	for (let i = 0; i < touch.length; i += 90) {
+		const part = touch.slice(i, i + 90);
+		stmts.push(env.DB.prepare(`UPDATE wms_orders SET synced_at = datetime('now') WHERE order_id IN (${part.map(() => '?').join(',')})`).bind(...part));
 	}
+	await batchSafe(env, stmts);
 }
 
 /**
@@ -234,10 +276,14 @@ async function run(env, opts) {
 	const meta = await env.DB.prepare('SELECT last_done_max FROM wms_sync_meta WHERE id = 1').first().catch(() => null);
 	const backfillDays = opts.days || Number(env.BACKFILL_DAYS) || 540;
 	let cutoff;
-	if (opts.full || !meta?.last_done_max) {
-		cutoff = daysAgoYmd(backfillDays);
-	} else {
-		cutoff = shiftYmd(meta.last_done_max, -OVERLAP_DAYS);
+	if (opts.full) cutoff = daysAgoYmd(backfillDays);
+	else if (opts.days) cutoff = daysAgoYmd(opts.days);
+	else if (meta?.last_done_max) cutoff = shiftYmd(meta.last_done_max, -OVERLAP_DAYS);
+	else {
+		// No sync record yet (e.g. right after a ?backfill=1 load): start from the
+		// newest handled order already stored — never re-pull 18 months by accident.
+		const mx = (await env.DB.prepare('SELECT MAX(done_date) AS d FROM wms_orders').first().catch(() => null))?.d;
+		cutoff = mx ? shiftYmd(mx, -OVERLAP_DAYS) : daysAgoYmd(backfillDays);
 	}
 
 	const first = await fetchStatusPage(env, 'FINISHED', 1);
@@ -340,11 +386,11 @@ async function resolveVanished(env, activeStart) {
 
 /** Snapshot every product's stock (+ category, supplier, colli, min level) into wms_stock. */
 async function syncStockIfStale(env, force) {
+	// Snapshot time lives in wms_sync_meta row id = 2 (row 1 is the order sync).
 	if (!force) {
-		const last = await env.DB.prepare(`SELECT MAX(updated_at) AS t FROM wms_stock`).first().catch(() => null);
-		if (last?.t && Date.now() - Date.parse(last.t.replace(' ', 'T') + 'Z') < 3 * 3600 * 1000) return { skipped: 'fresh' };
+		const last = await env.DB.prepare(`SELECT last_run FROM wms_sync_meta WHERE id = 2`).first().catch(() => null);
+		if (last?.last_run && Date.now() - Date.parse(last.last_run) < 3 * 3600 * 1000) return { skipped: 'fresh' };
 	}
-	const stockStart = (await env.DB.prepare("SELECT datetime('now') AS t").first()).t;
 
 	// Stock + title + category: POST /api/products, zero-indexed pages of ≤1000.
 	const items = new Map();
@@ -374,16 +420,33 @@ async function syncStockIfStale(env, force) {
 		if (!data.length || page >= Number(res?.maxPages ?? page)) break;
 	}
 
+	// Only write rows that actually changed — portal-db is shared with the sales stats.
+	const existing = new Map(((await env.DB.prepare(
+		`SELECT item_number, title, category, vendor, colli_size, min_stock_level, stock FROM wms_stock`
+	).all()).results ?? []).map((r) => [r.item_number, r]));
 	const sql = `INSERT INTO wms_stock (item_number, title, category, vendor, colli_size, min_stock_level, stock, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
 		ON CONFLICT(item_number) DO UPDATE SET title=excluded.title, category=excluded.category, vendor=excluded.vendor,
 		  colli_size=excluded.colli_size, min_stock_level=excluded.min_stock_level, stock=excluded.stock, updated_at=excluded.updated_at`;
 	const stmts = [];
-	for (const [sku, e] of items) stmts.push(env.DB.prepare(sql).bind(sku, e.title, e.category, e.vendor, e.colli, e.min, e.stock));
-	for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
+	for (const [sku, e] of items) {
+		const x = existing.get(sku);
+		if (x && x.title === e.title && x.category === e.category && x.vendor === e.vendor
+			&& (x.colli_size ?? null) === e.colli && (x.min_stock_level ?? null) === e.min && Number(x.stock) === e.stock) continue;
+		stmts.push(env.DB.prepare(sql).bind(sku, e.title, e.category, e.vendor, e.colli, e.min, e.stock));
+	}
 	// Drop SKUs that no longer exist in Lagersystem.
-	await env.DB.prepare(`DELETE FROM wms_stock WHERE updated_at < ?`).bind(stockStart).run();
-	return { products: items.size };
+	const gone = [...existing.keys()].filter((k) => !items.has(k));
+	for (let i = 0; i < gone.length; i += 90) {
+		const part = gone.slice(i, i + 90);
+		stmts.push(env.DB.prepare(`DELETE FROM wms_stock WHERE item_number IN (${part.map(() => '?').join(',')})`).bind(...part));
+	}
+	await batchSafe(env, stmts);
+	await env.DB.prepare(
+		`INSERT INTO wms_sync_meta (id, last_run, orders_seen, status, message) VALUES (2, ?, ?, 'ok', 'stock snapshot')
+		 ON CONFLICT(id) DO UPDATE SET last_run = excluded.last_run, orders_seen = excluded.orders_seen, status = 'ok', message = excluded.message`
+	).bind(new Date().toISOString(), items.size).run();
+	return { products: items.size, changed: stmts.length - Math.ceil(gone.length / 90), removed: gone.length };
 }
 
 function json(obj, status = 200, compact = false) {
