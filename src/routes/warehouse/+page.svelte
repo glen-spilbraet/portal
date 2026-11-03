@@ -68,7 +68,7 @@
 		let d = new Date(data.from + 'T00:00:00Z');
 		const end = new Date(data.to + 'T00:00:00Z');
 		let guard = 0;
-		while (d <= end && guard++ < 500) {
+		while (d <= end && guard++ < 5000) { // safety cap ≈ 13 years
 			out.push(d.toISOString().slice(0, 10));
 			d.setUTCDate(d.getUTCDate() + 1);
 		}
