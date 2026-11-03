@@ -20,6 +20,16 @@
  *       (default)      incremental run (same as cron)
  *       ?full=1        ignore stored cutoff, backfill BACKFILL_DAYS of FINISHED
  *       ?days=N        backfill N days of FINISHED this run
+ *       ?backfill=1    resumable historical backfill of FINISHED, bounded per
+ *                      request (FINISHED is newest-first with no server-side
+ *                      date filter, so we page by index):
+ *                        &page=N   start page (default 1)
+ *                        &pages=M  pages to process this call (default 30, max 60)
+ *                        &until=YYYY-MM-DD  stop once done_date < this (default
+ *                                           BACKFILL_DAYS back)
+ *                      Returns compact JSON; `"next":N` means call again with
+ *                      page=N, absent means finished. Does NOT touch the cron's
+ *                      incremental cursor or the active queues.
  */
 
 const BASE = 'https://spilbraetdk.lagersystem.dk';
@@ -40,6 +50,19 @@ export default {
 		}
 		if (!env.LAGERSYSTEM_API_KEY) return json({ error: 'LAGERSYSTEM_API_KEY not set' }, 500);
 		const url = new URL(request.url);
+
+		// Resumable historical backfill (bounded per request).
+		if (url.searchParams.get('backfill') === '1') {
+			const startPage = Math.max(1, Number(url.searchParams.get('page')) || 1);
+			const pages = Math.min(60, Math.max(1, Number(url.searchParams.get('pages')) || 30));
+			const until = url.searchParams.get('until') || daysAgoYmd(Number(env.BACKFILL_DAYS) || 540);
+			try {
+				return json(await backfillPages(env, startPage, pages, until), 200, true);
+			} catch (e) {
+				return json({ ok: false, error: e instanceof Error ? e.message : String(e), next: startPage }, 500, true);
+			}
+		}
+
 		const opts = {};
 		if (url.searchParams.get('full') === '1') opts.full = true;
 		const days = Number(url.searchParams.get('days'));
@@ -153,6 +176,38 @@ async function writeOrders(env, mapped) {
 	}
 }
 
+/**
+ * Process a bounded range of FINISHED pages (newest-first) into D1 and report
+ * where to resume. Stops early once a page's oldest done_date drops below
+ * `until`, or when the last page is reached.
+ */
+async function backfillPages(env, startPage, pages, until) {
+	const first = await fetchStatusPage(env, 'FINISHED', startPage);
+	const maxPages = first.maxPages || 1;
+	const endPage = Math.min(maxPages, startPage + pages - 1);
+	let seen = 0, oldest = null, reachedCutoff = false, lastPage = startPage;
+
+	for (let page = startPage; page <= endPage; page++) {
+		const p = page === startPage ? first : await fetchStatusPage(env, 'FINISHED', page);
+		lastPage = page;
+		if (!p.orders.length) break;
+		const mapped = p.orders.map(mapOrder);
+		await writeOrders(env, mapped);
+		seen += mapped.length;
+		const pageOldest = mapped.reduce((min, m) => {
+			const d = m.order.done_date || '';
+			return !min || (d && d < min) ? d : min;
+		}, null);
+		if (pageOldest && (!oldest || pageOldest < oldest)) oldest = pageOldest;
+		if (pageOldest && pageOldest < until) { reachedCutoff = true; break; }
+	}
+
+	const done = reachedCutoff || lastPage >= maxPages;
+	const out = { ok: true, from_page: startPage, to_page: lastPage, max_pages: maxPages, seen, oldest_done: oldest, until };
+	if (!done) out.next = lastPage + 1;
+	return out;
+}
+
 async function run(env, opts) {
 	if (!env.LAGERSYSTEM_API_KEY) throw new Error('LAGERSYSTEM_API_KEY not set');
 	const started = new Date().toISOString();
@@ -213,8 +268,8 @@ async function run(env, opts) {
 	return { seen, cutoff, last_done_max: lastDoneMax };
 }
 
-function json(obj, status = 200) {
-	return new Response(JSON.stringify(obj, null, 2), {
+function json(obj, status = 200, compact = false) {
+	return new Response(JSON.stringify(obj, null, compact ? 0 : 2), {
 		status,
 		headers: { 'Content-Type': 'application/json' },
 	});
