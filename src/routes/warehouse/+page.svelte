@@ -368,7 +368,6 @@
 		<!-- Time series -->
 		<section class="card">
 			<div class="section-head">
-				<h2>Inbound vs handled</h2>
 				<div class="legend">
 					<span class="lg"><i class="sw in"></i> Inbound</span>
 					<span class="lg"><i class="sw hd"></i> Handled</span>
