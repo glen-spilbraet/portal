@@ -118,47 +118,49 @@
 	const inboundSite = $derived(bySite(data.inbound));
 	const handledSite = $derived(bySite(data.handled));
 
-	// ── Dimension table (Products / Customers) ──────────────────────────────────
-	const DIMS = [{ key: 'products', label: 'Products' }, { key: 'customers', label: 'Customers' }];
+	// ── Breakdown table (handled only): Products / Customers / Countries ────────
+	const DIMS = [
+		{ key: 'products', label: 'Products', search: 'products' },
+		{ key: 'customers', label: 'Customers', search: 'customers' },
+		{ key: 'countries', label: 'Countries', search: 'countries' },
+	];
 	let dim = $state('products');
 	let tableSearch = $state('');
-	let sortKey = $state('handled');
+	let sortKey = $state('units');
 	let sortDir = $state('desc');
 	function setSort(k) {
 		if (sortKey === k) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-		else { sortKey = k; sortDir = k === 'name' ? 'asc' : 'desc'; }
+		else { sortKey = k; sortDir = k === 'key' || k === 'label' ? 'asc' : 'desc'; }
 	}
-	const caret = (k) => (sortKey === k ? (sortDir === 'asc' ? '▲' : '▼') : '');
-	function indexCls(idx) { if (idx == null) return ''; if (idx >= 100) return 'green'; if (idx >= 90) return 'orange'; return 'red'; }
+	function pickDim(k) { dim = k; tableSearch = ''; if (sortKey === 'key' && k !== 'products') sortKey = 'label'; }
+	const dimLabel = $derived(DIMS.find((d) => d.key === dim)?.label ?? '');
+	const nameHeader = $derived(dim === 'products' ? 'Product Name' : dim === 'customers' ? 'Customer Name' : 'Country');
 
 	const tableRows = $derived.by(() => {
-		const src = data.dims?.[dim] ?? [];
 		const q = tableSearch.trim().toLowerCase();
-		let out = src.map((r) => {
-			const inbound = r[`in_${grain}`] ?? 0;
-			const handled = r[`hd_${grain}`] ?? 0;
-			return { name: r.name, label: r.label ?? r.name, inbound, handled, index: inbound > 0 ? Math.round((handled / inbound) * 100) : null };
-		});
-		if (q) out = out.filter((r) => (r.label || '').toLowerCase().includes(q) || (r.name || '').toLowerCase().includes(q));
+		let out = (data.dims?.[dim] ?? []).map((r) => ({
+			key: r.key ?? '', label: r.label ?? r.key ?? '',
+			orders: Number(r.orders) || 0, lines: Number(r.lines) || 0, units: Number(r.units) || 0,
+		}));
+		if (q) out = out.filter((r) => r.label.toLowerCase().includes(q) || String(r.key).toLowerCase().includes(q));
 		const dir = sortDir === 'asc' ? 1 : -1;
 		out.sort((a, b) => {
-			if (sortKey === 'name') { const av = (a.label || '').toLowerCase(), bv = (b.label || '').toLowerCase(); return av < bv ? -dir : av > bv ? dir : 0; }
-			const av = sortKey === 'index' ? (a.index ?? -1) : a[sortKey];
-			const bv = sortKey === 'index' ? (b.index ?? -1) : b[sortKey];
-			return (av - bv) * dir;
+			if (sortKey === 'key' || sortKey === 'label') {
+				const av = String(a[sortKey]).toLowerCase(), bv = String(b[sortKey]).toLowerCase();
+				return av < bv ? -dir : av > bv ? dir : 0;
+			}
+			return (a[sortKey] - b[sortKey]) * dir;
 		});
 		return out;
 	});
 
 	function exportCsv() {
 		const esc = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-		const head = dim === 'products' ? ['SKU', 'Title', 'Inbound', 'Handled', 'Index'] : ['Customer', 'Inbound', 'Handled', 'Index'];
-		const lines = [head.join(',')];
+		const head = dim === 'products' ? ['SKU', 'Product Name'] : [nameHeader];
+		const lines = [[...head, 'Orders', 'Lines', 'Units'].join(',')];
 		for (const r of tableRows) {
-			const cells = dim === 'products'
-				? [esc(r.name), esc(r.label), r.inbound, r.handled, r.index ?? '']
-				: [esc(r.name), r.inbound, r.handled, r.index ?? ''];
-			lines.push(cells.join(','));
+			const lead = dim === 'products' ? [esc(r.key), esc(r.label)] : [esc(r.label)];
+			lines.push([...lead, r.orders, r.lines, r.units].join(','));
 		}
 		const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
 		const url = URL.createObjectURL(blob);
@@ -348,7 +350,7 @@
 					{/each}
 				</div>
 			</div>
-			<div class="chart-wrap" onpointermove={onMove} onpointerleave={() => (hoverI = null)}>
+			<div class="chart-wrap" role="presentation" onpointermove={onMove} onpointerleave={() => (hoverI = null)}>
 				<svg class="chart" viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="none" role="img" aria-label="Inbound vs handled over time">
 					<defs>
 						<linearGradient id="inFill" x1="0" y1="0" x2="0" y2="1">
@@ -405,43 +407,64 @@
 		</section>
 
 		<!-- Breakdown table -->
-		<section class="card tbl-card">
-			<div class="tbl-head">
-				<div class="pub-toggle" role="group" aria-label="Dimension">
+		<section class="table-wrap">
+			<div class="table-head">
+				<div class="dim-tabs" role="tablist">
 					{#each DIMS as d}
-						<button type="button" class:active={dim === d.key} onclick={() => (dim = d.key)}>{d.label}</button>
+						<button class="dim-tab" class:on={dim === d.key} role="tab" aria-selected={dim === d.key} onclick={() => pickDim(d.key)}>{d.label}</button>
 					{/each}
 				</div>
-				<input class="tbl-search" placeholder={`Search ${dim}…`} bind:value={tableSearch} />
-				<button class="csv-btn" onclick={exportCsv} type="button">Export CSV</button>
+				<span class="count">{fmt(tableRows.length)}</span>
+				<button class="export-btn" onclick={exportCsv} type="button" title="Export the current view to CSV">
+					<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+					</svg>
+					Export CSV
+				</button>
 			</div>
-			<div class="tbl-scroll">
-				<table class="tbl">
+			<div class="dim-filter">
+				<div class="dim-search">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+						<circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+					</svg>
+					<input type="text" bind:value={tableSearch} placeholder="Search {dimLabel}…" aria-label="Filter {dimLabel}" />
+					{#if tableSearch}
+						<button class="dim-search-clear" onclick={() => (tableSearch = '')} aria-label="Clear search" title="Clear">×</button>
+					{/if}
+				</div>
+			</div>
+			<div class="table-scroll">
+				<table>
+					<colgroup>
+						{#if dim === 'products'}<col style="width:140px" />{/if}
+						<col />
+						<col style="width:116px" />
+						<col style="width:116px" />
+						<col style="width:116px" />
+					</colgroup>
 					<thead>
 						<tr>
-							<th class="c-name" onclick={() => setSort('name')}>{dim === 'products' ? 'Product' : 'Customer'} <span class="ca">{caret('name')}</span></th>
-							<th class="num" onclick={() => setSort('inbound')}>Inbound <span class="ca">{caret('inbound')}</span></th>
-							<th class="num" onclick={() => setSort('handled')}>Handled <span class="ca">{caret('handled')}</span></th>
-							<th class="num" onclick={() => setSort('index')}>Index <span class="ca">{caret('index')}</span></th>
+							{#if dim === 'products'}
+								<th class="th-sort" class:sorted={sortKey === 'key'} onclick={() => setSort('key')}>SKU{#if sortKey === 'key'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}</th>
+							{/if}
+							<th class="th-sort" class:sorted={sortKey === 'label'} onclick={() => setSort('label')}>{nameHeader}{#if sortKey === 'label'}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}</th>
+							{#each [['orders', 'Orders'], ['lines', 'Lines'], ['units', 'Units']] as [k, lbl]}
+								<th class="th-sort num" class:sorted={sortKey === k} onclick={() => setSort(k)}>{lbl}{#if sortKey === k}<span class="caret">{sortDir === 'asc' ? '▲' : '▼'}</span>{/if}</th>
+							{/each}
 						</tr>
 					</thead>
 					<tbody>
-						{#each tableRows as r}
+						{#each tableRows as r (r.key)}
 							<tr>
-								<td class="c-name">
-									{#if dim === 'products'}
-										<span class="sku">{r.name}</span><span class="ptitle" title={r.label}>{r.label}</span>
-									{:else}
-										<span class="cname">{r.name}</span>
-									{/if}
-								</td>
-								<td class="num">{fmt(r.inbound)}</td>
-								<td class="num">{fmt(r.handled)}</td>
-								<td class="num"><span class="index-chip {indexCls(r.index)}">{r.index ?? '—'}</span></td>
+								{#if dim === 'products'}<td class="sku">{r.key}</td>{/if}
+								<td class="name">{r.label}</td>
+								<td class="num">{fmt(r.orders)}</td>
+								<td class="num">{fmt(r.lines)}</td>
+								<td class="num">{fmt(r.units)}</td>
 							</tr>
 						{/each}
 						{#if tableRows.length === 0}
-							<tr><td colspan="4" class="empty-row">No {dim} in this range.</td></tr>
+							<tr><td colspan={dim === 'products' ? 5 : 4} class="empty-row">No handled {dimLabel.toLowerCase()} in this range.</td></tr>
 						{/if}
 					</tbody>
 				</table>
@@ -541,31 +564,38 @@
 	.tip-r.idx span { font-weight: 700; color: #6B6355; }
 	.tip-r b.green { color: #16794C; } .tip-r b.orange { color: #B4611A; } .tip-r b.red { color: #C4381B; }
 
-	/* Breakdown table (mirrors the Stats breakdown tables) */
-	.tbl-card { padding: 0; overflow: hidden; }
-	.tbl-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; flex-wrap: wrap; }
-	.tbl-search { flex: 1; min-width: 160px; font-family: inherit; font-size: 13px; border: 1px solid var(--border); border-radius: 9px; padding: 8px 11px; }
-	.tbl-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(245,120,50,.15); }
-	.csv-btn { display: inline-flex; align-items: center; gap: 6px; font-family: inherit; font-size: 13px; font-weight: 700; color: #524431; background: #fff; border: 1px solid var(--border); border-radius: 9px; padding: 8px 14px; cursor: pointer; }
-	.csv-btn:hover { background: #FAF6EE; }
+	/* Breakdown table — mirrors the Stats overview table (src/routes/+page.svelte) */
+	.table-wrap { margin-top: 26px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); overflow: hidden; }
+	.table-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+	.count { font-size: 12px; font-weight: 700; color: #A88B52; background: #FFF5D2; padding: 2px 9px; border-radius: 100px; }
+	.dim-tabs { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+	.dim-tab { font-family: inherit; font-size: 13px; font-weight: 700; color: #6B7280; background: transparent; border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; transition: background .12s, color .12s; }
+	.dim-tab:hover { background: #F4F4F5; color: #18181B; }
+	.dim-tab.on { background: #18181B; color: #fff; }
+	.export-btn { display: inline-flex; align-items: center; gap: 6px; font-family: inherit; font-size: 12.5px; font-weight: 700; color: #524431; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 6px 11px; cursor: pointer; white-space: nowrap; transition: background .12s, color .12s, border-color .12s; }
+	.export-btn:hover { background: #FFF5D2; color: #7B3803; border-color: #F4CE7A; }
+	.dim-filter { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+	.dim-search { display: inline-flex; align-items: center; gap: 7px; width: 100%; max-width: 300px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; transition: border-color .12s, box-shadow .12s; }
+	.dim-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(245,120,50,.12); }
+	.dim-search svg { color: #B7A579; flex-shrink: 0; }
+	.dim-search input { flex: 1; min-width: 0; border: none; background: none; outline: none; font-family: inherit; font-size: 13px; color: #3f3a33; }
+	.dim-search-clear { flex-shrink: 0; border: none; background: none; cursor: pointer; color: #A88B52; font-size: 16px; line-height: 1; padding: 0 2px; }
+	.dim-search-clear:hover { color: #7B3803; }
 
-	.tbl-scroll { max-height: 560px; overflow: auto; }
-	.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-	.tbl thead th { position: sticky; top: 0; background: #FBF4E2; color: #8A5A20; font-weight: 800; text-align: right; padding: 11px 18px; cursor: pointer; white-space: nowrap; border-bottom: 1px solid var(--border); user-select: none; }
-	.tbl thead th.c-name { text-align: left; }
-	.tbl thead th:hover { color: #B4611A; }
-	.ca { font-size: 10px; color: #B99A5E; }
-	.tbl tbody td { padding: 10px 18px; border-bottom: 1px solid #F4EEDF; }
-	.tbl tbody tr:nth-child(even) { background: #FCFAF4; }
-	.tbl tbody tr:hover { background: #FAF6EE; }
-	.c-name { text-align: left; }
-	.num { text-align: right; font-variant-numeric: tabular-nums; color: #3F3F46; white-space: nowrap; }
-	.sku { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #9A8A6A; margin-right: 8px; }
-	.ptitle, .cname { color: #27272A; font-weight: 600; }
-	.index-chip { display: inline-block; min-width: 40px; text-align: center; font-weight: 800; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #F4F1EA; color: #71717A; }
-	.index-chip.green { background: #EAF7EF; color: #16794C; }
-	.index-chip.orange { background: #FDEBD2; color: #B4611A; }
-	.index-chip.red { background: #FDECEC; color: #C4381B; }
+	.table-scroll { max-height: 620px; overflow: auto; }
+	table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+	thead th { position: sticky; top: 0; z-index: 1; background: #FBEFCB; color: #7B3803; font-weight: 800; text-align: left; padding: 11px 20px; white-space: nowrap; border-bottom: 1px solid var(--border); user-select: none; }
+	th.num, td.num { text-align: right; white-space: nowrap; }
+	.th-sort { cursor: pointer; transition: background .12s; }
+	.th-sort:hover { background: #F8E6B0; }
+	.th-sort.sorted { color: #B15A12; }
+	.caret { font-size: 9px; margin-left: 4px; }
+	tbody td { padding: 11px 20px; border-bottom: 1px solid #F5EDD8; color: #3f3a33; vertical-align: middle; }
+	tbody tr:nth-child(even) td { background: #FFFBEF; }
+	tbody tr:hover td { background: #FFF5D2; }
+	td.name { font-weight: 700; color: #18181B; }
+	td.num { font-variant-numeric: tabular-nums; font-weight: 600; }
+	td.sku { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: #8A7A5C; }
 	.empty-row { text-align: center; color: #9A8A6A; padding: 28px; }
 
 	@media (max-width: 720px) {
