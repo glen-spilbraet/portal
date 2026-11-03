@@ -26,7 +26,7 @@ export async function GET({ url, cookies, platform }) {
 
 	let path = url.searchParams.get('path') || '/api/v1/orders';
 	if (!path.startsWith('/')) path = '/' + path;
-	if (!path.startsWith('/api/')) error(400, 'Path must start with /api/');
+	// Any path is fine — the host is hardcoded, admin-only, GET-only (no SSRF).
 
 	const target = BASE + path;
 	const started = Date.now();
