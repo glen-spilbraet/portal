@@ -4,7 +4,6 @@
 
 	let { data } = $props();
 
-	const SITES = { 1: 'DK', 2: 'SE', 3: 'NO' };
 	const GRAINS = [
 		{ key: 'orders', label: 'Orders' },
 		{ key: 'lines', label: 'Lines' },
@@ -119,13 +118,54 @@
 	const inboundSite = $derived(bySite(data.inbound));
 	const handledSite = $derived(bySite(data.handled));
 
-	const topCustomers = $derived(
-		[...(data.customers ?? [])]
-			.map((c) => ({ name: c.name, site: c.site, value: Number(c[grain]) || 0 }))
-			.sort((a, b) => b.value - a.value)
-			.slice(0, 12)
-	);
-	const customerMax = $derived(Math.max(1, ...topCustomers.map((c) => c.value)));
+	// ── Dimension table (Products / Customers) ──────────────────────────────────
+	const DIMS = [{ key: 'products', label: 'Products' }, { key: 'customers', label: 'Customers' }];
+	let dim = $state('products');
+	let tableSearch = $state('');
+	let sortKey = $state('handled');
+	let sortDir = $state('desc');
+	function setSort(k) {
+		if (sortKey === k) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+		else { sortKey = k; sortDir = k === 'name' ? 'asc' : 'desc'; }
+	}
+	const caret = (k) => (sortKey === k ? (sortDir === 'asc' ? '▲' : '▼') : '');
+	function indexCls(idx) { if (idx == null) return ''; if (idx >= 100) return 'green'; if (idx >= 90) return 'orange'; return 'red'; }
+
+	const tableRows = $derived.by(() => {
+		const src = data.dims?.[dim] ?? [];
+		const q = tableSearch.trim().toLowerCase();
+		let out = src.map((r) => {
+			const inbound = r[`in_${grain}`] ?? 0;
+			const handled = r[`hd_${grain}`] ?? 0;
+			return { name: r.name, label: r.label ?? r.name, inbound, handled, index: inbound > 0 ? Math.round((handled / inbound) * 100) : null };
+		});
+		if (q) out = out.filter((r) => (r.label || '').toLowerCase().includes(q) || (r.name || '').toLowerCase().includes(q));
+		const dir = sortDir === 'asc' ? 1 : -1;
+		out.sort((a, b) => {
+			if (sortKey === 'name') { const av = (a.label || '').toLowerCase(), bv = (b.label || '').toLowerCase(); return av < bv ? -dir : av > bv ? dir : 0; }
+			const av = sortKey === 'index' ? (a.index ?? -1) : a[sortKey];
+			const bv = sortKey === 'index' ? (b.index ?? -1) : b[sortKey];
+			return (av - bv) * dir;
+		});
+		return out;
+	});
+
+	function exportCsv() {
+		const esc = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+		const head = dim === 'products' ? ['SKU', 'Title', 'Inbound', 'Handled', 'Index'] : ['Customer', 'Inbound', 'Handled', 'Index'];
+		const lines = [head.join(',')];
+		for (const r of tableRows) {
+			const cells = dim === 'products'
+				? [esc(r.name), esc(r.label), r.inbound, r.handled, r.index ?? '']
+				: [esc(r.name), r.inbound, r.handled, r.index ?? ''];
+			lines.push(cells.join(','));
+		}
+		const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url; a.download = `warehouse-${dim}-${data.from}_${data.to}.csv`; a.click();
+		URL.revokeObjectURL(url);
+	}
 
 	const nf = new Intl.NumberFormat('en-US');
 	const fmt = (n) => nf.format(Math.round(n || 0));
@@ -351,23 +391,48 @@
 			</div>
 		</section>
 
-		<!-- Top customers -->
-		<section class="card">
-			<h2>Top customers <span class="muted">· handled · {grain}</span></h2>
-			{#if topCustomers.length === 0}
-				<p class="muted">No handled orders in this range.</p>
-			{:else}
-				<div class="bars">
-					{#each topCustomers as c}
-						<div class="row">
-							<span class="name" title={c.name}>{c.name}</span>
-							<span class="site-tag">{SITES[c.site] ?? '—'}</span>
-							<span class="track"><span class="fill" style={`width:${(c.value / customerMax) * 100}%`}></span></span>
-							<span class="val">{fmt(c.value)}</span>
-						</div>
+		<!-- Breakdown table -->
+		<section class="card tbl-card">
+			<div class="tbl-head">
+				<div class="pub-toggle" role="group" aria-label="Dimension">
+					{#each DIMS as d}
+						<button type="button" class:active={dim === d.key} onclick={() => (dim = d.key)}>{d.label}</button>
 					{/each}
 				</div>
-			{/if}
+				<input class="tbl-search" placeholder={`Search ${dim}…`} bind:value={tableSearch} />
+				<button class="csv-btn" onclick={exportCsv} type="button">Export CSV</button>
+			</div>
+			<div class="tbl-scroll">
+				<table class="tbl">
+					<thead>
+						<tr>
+							<th class="c-name" onclick={() => setSort('name')}>{dim === 'products' ? 'Product' : 'Customer'} <span class="ca">{caret('name')}</span></th>
+							<th class="num" onclick={() => setSort('inbound')}>Inbound <span class="ca">{caret('inbound')}</span></th>
+							<th class="num" onclick={() => setSort('handled')}>Handled <span class="ca">{caret('handled')}</span></th>
+							<th class="num" onclick={() => setSort('index')}>Index <span class="ca">{caret('index')}</span></th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each tableRows as r}
+							<tr>
+								<td class="c-name">
+									{#if dim === 'products'}
+										<span class="sku">{r.name}</span><span class="ptitle" title={r.label}>{r.label}</span>
+									{:else}
+										<span class="cname">{r.name}</span>
+									{/if}
+								</td>
+								<td class="num">{fmt(r.inbound)}</td>
+								<td class="num">{fmt(r.handled)}</td>
+								<td class="num"><span class="index-chip {indexCls(r.index)}">{r.index ?? '—'}</span></td>
+							</tr>
+						{/each}
+						{#if tableRows.length === 0}
+							<tr><td colspan="4" class="empty-row">No {dim} in this range.</td></tr>
+						{/if}
+					</tbody>
+				</table>
+			</div>
 		</section>
 	{/if}
 </main>
@@ -457,16 +522,34 @@
 	.tip-r.idx span { font-weight: 700; color: #6B6355; }
 	.tip-r b.green { color: #16794C; } .tip-r b.orange { color: #B4611A; } .tip-r b.red { color: #C4381B; }
 
-	.bars { display: flex; flex-direction: column; gap: 8px; }
-	.row { display: grid; grid-template-columns: minmax(120px, 1.6fr) 34px 1fr 64px; align-items: center; gap: 10px; }
-	.name { font-size: 13px; color: #3F3F46; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.site-tag { font-size: 11px; font-weight: 700; color: #6B6355; background: #F4F1EA; border-radius: 6px; padding: 2px 0; text-align: center; }
-	.track { background: #F4F1EA; border-radius: 6px; height: 14px; overflow: hidden; }
-	.fill { display: block; height: 100%; background: var(--accent); border-radius: 6px; }
-	.val { font-size: 13px; font-weight: 700; color: #18181B; text-align: right; }
+	/* Breakdown table (mirrors the Stats breakdown tables) */
+	.tbl-card { padding: 0; overflow: hidden; }
+	.tbl-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; flex-wrap: wrap; }
+	.tbl-search { flex: 1; min-width: 160px; font-family: inherit; font-size: 13px; border: 1px solid var(--border); border-radius: 9px; padding: 8px 11px; }
+	.tbl-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(245,120,50,.15); }
+	.csv-btn { display: inline-flex; align-items: center; gap: 6px; font-family: inherit; font-size: 13px; font-weight: 700; color: #524431; background: #fff; border: 1px solid var(--border); border-radius: 9px; padding: 8px 14px; cursor: pointer; }
+	.csv-btn:hover { background: #FAF6EE; }
+
+	.tbl-scroll { max-height: 560px; overflow: auto; }
+	.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+	.tbl thead th { position: sticky; top: 0; background: #FBF4E2; color: #8A5A20; font-weight: 800; text-align: right; padding: 11px 18px; cursor: pointer; white-space: nowrap; border-bottom: 1px solid var(--border); user-select: none; }
+	.tbl thead th.c-name { text-align: left; }
+	.tbl thead th:hover { color: #B4611A; }
+	.ca { font-size: 10px; color: #B99A5E; }
+	.tbl tbody td { padding: 10px 18px; border-bottom: 1px solid #F4EEDF; }
+	.tbl tbody tr:nth-child(even) { background: #FCFAF4; }
+	.tbl tbody tr:hover { background: #FAF6EE; }
+	.c-name { text-align: left; }
+	.num { text-align: right; font-variant-numeric: tabular-nums; color: #3F3F46; white-space: nowrap; }
+	.sku { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #9A8A6A; margin-right: 8px; }
+	.ptitle, .cname { color: #27272A; font-weight: 600; }
+	.index-chip { display: inline-block; min-width: 40px; text-align: center; font-weight: 800; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #F4F1EA; color: #71717A; }
+	.index-chip.green { background: #EAF7EF; color: #16794C; }
+	.index-chip.orange { background: #FDEBD2; color: #B4611A; }
+	.index-chip.red { background: #FDECEC; color: #C4381B; }
+	.empty-row { text-align: center; color: #9A8A6A; padding: 28px; }
 
 	@media (max-width: 720px) {
 		.kpis { grid-template-columns: 1fr; }
-		.head { flex-direction: column; }
 	}
 </style>

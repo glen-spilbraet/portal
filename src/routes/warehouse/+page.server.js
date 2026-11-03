@@ -59,18 +59,53 @@ export async function load({ url, platform }) {
 			 GROUP BY d, site`
 		).bind(from, to).all()).results ?? [];
 
-		const customers = (await db.prepare(
-			`SELECT customer_group_name AS name, sub_site AS site,
-			        COUNT(*) AS orders, COALESCE(SUM(line_count),0) AS lines, COALESCE(SUM(unit_count),0) AS units
-			 FROM wms_orders
-			 WHERE done_date IS NOT NULL AND done_date BETWEEN ? AND ? AND customer_group_name IS NOT NULL
-			 GROUP BY customer_group_name
-			 ORDER BY units DESC LIMIT 15`
-		).bind(from, to).all()).results ?? [];
+		const rows = async (sql) => (await db.prepare(sql).bind(from, to).all()).results ?? [];
+
+		// Per-customer inbound (received) + handled (done).
+		const cIn = await rows(
+			`SELECT customer_group_name AS name, COUNT(*) AS orders, COALESCE(SUM(line_count),0) AS lines, COALESCE(SUM(unit_count),0) AS units
+			 FROM wms_orders WHERE customer_group_name IS NOT NULL AND received_date IS NOT NULL
+			 AND substr(received_date,1,10) BETWEEN ? AND ? GROUP BY customer_group_name`);
+		const cHd = await rows(
+			`SELECT customer_group_name AS name, COUNT(*) AS orders, COALESCE(SUM(line_count),0) AS lines, COALESCE(SUM(unit_count),0) AS units
+			 FROM wms_orders WHERE customer_group_name IS NOT NULL AND done_date IS NOT NULL
+			 AND done_date BETWEEN ? AND ? GROUP BY customer_group_name`);
+
+		// Per-product (SKU) inbound + handled, via the order lines.
+		const pIn = await rows(
+			`SELECT l.item_number AS name, MAX(l.title) AS label, COUNT(DISTINCT l.order_id) AS orders,
+			        COUNT(*) AS lines, COALESCE(SUM(l.amount_delivered),0) AS units
+			 FROM wms_order_lines l JOIN wms_orders ord ON ord.order_id = l.order_id
+			 WHERE l.item_number IS NOT NULL AND ord.received_date IS NOT NULL
+			 AND substr(ord.received_date,1,10) BETWEEN ? AND ? GROUP BY l.item_number`);
+		const pHd = await rows(
+			`SELECT l.item_number AS name, MAX(l.title) AS label, COUNT(DISTINCT l.order_id) AS orders,
+			        COUNT(*) AS lines, COALESCE(SUM(l.amount_delivered),0) AS units
+			 FROM wms_order_lines l JOIN wms_orders ord ON ord.order_id = l.order_id
+			 WHERE l.item_number IS NOT NULL AND ord.done_date IS NOT NULL
+			 AND ord.done_date BETWEEN ? AND ? GROUP BY l.item_number`);
+
+		const merge = (inRows, hdRows) => {
+			const m = new Map();
+			const touch = (name, label) => {
+				let e = m.get(name);
+				if (!e) { e = { name, label: label || name, in_orders: 0, in_lines: 0, in_units: 0, hd_orders: 0, hd_lines: 0, hd_units: 0 }; m.set(name, e); }
+				else if (label && e.label === e.name) e.label = label;
+				return e;
+			};
+			for (const r of inRows) { const e = touch(r.name, r.label); e.in_orders = r.orders; e.in_lines = r.lines; e.in_units = r.units; }
+			for (const r of hdRows) { const e = touch(r.name, r.label); e.hd_orders = r.orders; e.hd_lines = r.lines; e.hd_units = r.units; }
+			return [...m.values()];
+		};
+
+		const customers = merge(cIn, cHd);
+		const products = merge(pIn, pHd)
+			.sort((a, b) => (b.in_units + b.hd_units) - (a.in_units + a.hd_units))
+			.slice(0, 200);
 
 		const meta = await db.prepare('SELECT last_run, last_done_max, orders_seen, status FROM wms_sync_meta WHERE id = 1').first().catch(() => null);
 
-		return { from, to, presets, selected, ready: true, inbound, handled, customers, syncMeta: meta };
+		return { from, to, presets, selected, ready: true, inbound, handled, dims: { customers, products }, syncMeta: meta };
 	} catch (e) {
 		return { from, to, presets, selected, ready: false, reason: 'no-table', message: e instanceof Error ? e.message : String(e) };
 	}
