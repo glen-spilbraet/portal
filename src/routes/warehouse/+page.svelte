@@ -221,13 +221,10 @@
 
 <main>
 	<header class="head">
-		<div>
-			<h1>Warehouse</h1>
-			<p class="sub">Inbound (orders received) vs handled (picked &amp; shipped), from the Lagersystem mirror.</p>
-		</div>
-		<div class="grain">
+		<h1>Warehouse</h1>
+		<div class="pub-toggle" role="group" aria-label="Metric">
 			{#each GRAINS as g}
-				<button type="button" class="seg" class:on={grain === g.key} onclick={() => (grain = g.key)}>{g.label}</button>
+				<button type="button" class:active={grain === g.key} onclick={() => (grain = g.key)}>{g.label}</button>
 			{/each}
 		</div>
 	</header>
@@ -360,13 +357,8 @@
 	@keyframes db-spin { to { transform: rotate(360deg); } }
 
 	main { max-width: 1200px; margin: 0 auto; width: 100%; padding: 28px 28px 80px; box-sizing: border-box; }
-	.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+	.head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 	h1 { font-size: 22px; font-weight: 800; color: #18181B; margin: 0; }
-	.sub { font-size: 13px; color: #71717A; margin: 4px 0 0; }
-
-	.grain { display: inline-flex; background: #F4F1EA; border-radius: 10px; padding: 3px; align-self: center; }
-	.seg { border: 0; background: transparent; padding: 6px 14px; font-size: 13px; font-weight: 700; color: #6B6355; border-radius: 8px; cursor: pointer; }
-	.seg.on { background: #fff; color: #18181B; box-shadow: var(--shadow); }
 
 	.empty { border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 40px; text-align: center; background: #FBFAF7; }
 	.empty .muted { font-size: 13px; }
