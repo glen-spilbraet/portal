@@ -77,12 +77,21 @@ export async function load({ url, platform }) {
 		const rows = async (sql) => (await db.prepare(sql).bind(from, to).all()).results ?? [];
 
 		// Breakdown dimensions — handled orders only (done_date in range).
+		// Product name: canonical sheet name (sales_sheets + translations, primary
+		// language first) — same rule as the other reports — falling back to the
+		// Lagersystem line title only when the SKU has no sheet.
 		const products = await rows(
-			`SELECT l.item_number AS key, MAX(l.title) AS label, COUNT(DISTINCT l.order_id) AS orders,
-			        COUNT(*) AS lines, COALESCE(SUM(l.amount_delivered),0) AS units
-			 FROM wms_order_lines l JOIN wms_orders ord ON ord.order_id = l.order_id
-			 WHERE l.item_number IS NOT NULL AND ord.done_date IS NOT NULL AND ord.done_date BETWEEN ? AND ?
-			 GROUP BY l.item_number ORDER BY units DESC LIMIT 500`);
+			`SELECT g.key, g.orders, g.lines, g.units,
+			        COALESCE((SELECT tr.value FROM sales_sheets s2 JOIN translations tr ON tr.sheet_id = s2.id
+			                  WHERE lower(s2.sku) = lower(g.key) AND tr.key = 'product_name' AND COALESCE(tr.value,'') != ''
+			                  ORDER BY (tr.language = s2.primary_language) DESC LIMIT 1), g.label) AS label
+			 FROM (
+			   SELECT l.item_number AS key, MAX(l.title) AS label, COUNT(DISTINCT l.order_id) AS orders,
+			          COUNT(*) AS lines, COALESCE(SUM(l.amount_delivered),0) AS units
+			   FROM wms_order_lines l JOIN wms_orders ord ON ord.order_id = l.order_id
+			   WHERE l.item_number IS NOT NULL AND ord.done_date IS NOT NULL AND ord.done_date BETWEEN ? AND ?
+			   GROUP BY l.item_number ORDER BY units DESC LIMIT 500
+			 ) g`);
 		const customers = await rows(
 			`SELECT customer_group_name AS key, customer_group_name AS label, COUNT(*) AS orders,
 			        COALESCE(SUM(line_count),0) AS lines, COALESCE(SUM(unit_count),0) AS units

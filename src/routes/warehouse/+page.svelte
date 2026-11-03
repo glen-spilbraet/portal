@@ -10,7 +10,9 @@
 		{ key: 'units', label: 'Units' },
 	];
 	let grain = $state('orders');
-	let bucketBy = $state('day');
+	// Granularity: auto-picked from the range length; a manual pick overrides
+	// until the date range changes.
+	let bucketOverride = $state(null);
 	const BUCKETS = [
 		{ key: 'day', label: 'Days' },
 		{ key: 'week', label: 'Weeks' },
@@ -71,6 +73,16 @@
 			d.setUTCDate(d.getUTCDate() + 1);
 		}
 		return out;
+	});
+
+	// ≤ 31 days → Days · ≤ 6 months → Weeks · ≤ 2 years → Months · longer → Quarters
+	const autoBucket = $derived(
+		days.length <= 31 ? 'day' : days.length <= 183 ? 'week' : days.length <= 730 ? 'month' : 'quarter'
+	);
+	const bucketBy = $derived(bucketOverride ?? autoBucket);
+	$effect(() => {
+		data.from; data.to; // reset the manual pick whenever the range changes
+		bucketOverride = null;
 	});
 
 	function byDay(rows) {
@@ -346,7 +358,7 @@
 				</div>
 				<div class="pub-toggle" role="group" aria-label="Break down by">
 					{#each BUCKETS as b}
-						<button type="button" class:active={bucketBy === b.key} onclick={() => (bucketBy = b.key)}>{b.label}</button>
+						<button type="button" class:active={bucketBy === b.key} onclick={() => (bucketOverride = b.key)}>{b.label}</button>
 					{/each}
 				</div>
 			</div>
