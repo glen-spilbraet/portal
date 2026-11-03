@@ -11,8 +11,8 @@
 		{ label: 'Sent · 5',              method: 'GET',  path: '/api/order/list/status/SENT?page=1&pagesize=5', body: '' },
 		{ label: 'Finished · 5',          method: 'GET',  path: '/api/order/list/status/FINISHED?page=1&pagesize=5', body: '' },
 		{ label: 'Goods-in list',         method: 'GET',  path: '/api/goodsin/list', body: '' },
-		{ label: 'Report: last month (received)', method: 'POST', path: '/api/reports/orders', body: '{\n  "orderPeriod": "lastMonth",\n  "orderCustomperiodType": "date_recived"\n}' },
-		{ label: 'Report: last month (done)',     method: 'POST', path: '/api/reports/orders', body: '{\n  "orderPeriod": "lastMonth",\n  "orderCustomperiodType": "date_done"\n}' },
+		{ label: 'Report: Oct (received)', method: 'POST', path: '/api/reports/orders', body: '{\n  "orderCustomperiodFrom": "2026-10-01",\n  "orderCustomperiodTo": "2026-10-31",\n  "orderCustomperiodType": "date_recived"\n}' },
+		{ label: 'Report: Oct (done)',     method: 'POST', path: '/api/reports/orders', body: '{\n  "orderCustomperiodFrom": "2026-10-01",\n  "orderCustomperiodTo": "2026-10-31",\n  "orderCustomperiodType": "date_done"\n}' },
 	];
 
 	let method = $state('GET');
