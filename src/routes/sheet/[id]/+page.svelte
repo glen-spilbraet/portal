@@ -360,6 +360,27 @@
 		uploading = '';
 		flashSaved(); await invalidateAll();
 	}
+	// People Playing: several photos at once, no cropping (focal point is set
+	// afterwards by clicking). Uploaded one by one so order follows the selection.
+	let gridProgress = $state(''); // '' | '2/5'
+	let gridDrag = $state(false);
+	async function uploadMany(fileList) {
+		const files = [...(fileList ?? [])].filter((f) => f.type.startsWith('image/'));
+		if (!files.length || gridProgress) return;
+		const base = Date.now();
+		let failed = 0;
+		for (let i = 0; i < files.length; i++) {
+			gridProgress = `${i + 1}/${files.length}`;
+			const fd = new FormData();
+			fd.append('file', files[i]); fd.append('sheetId', sheetId); fd.append('type', 'grid');
+			fd.append('order', String(base + i));
+			const res = await fetch('/api/images', { method: 'POST', body: fd }).catch(() => null);
+			if (!res?.ok) failed++;
+		}
+		gridProgress = '';
+		if (failed) alert(`${failed} of ${files.length} photo${files.length === 1 ? '' : 's'} failed to upload.`);
+		flashSaved(); await invalidateAll();
+	}
 	async function deleteImg(id) {
 		await fetch(`/api/images/${id}`, { method: 'DELETE' });
 		flashSaved(); await invalidateAll();
@@ -660,8 +681,15 @@
 			</div>
 
 			<div class="img-group">
-				<div class="group-head"><h3>People Playing <em>(sheet grid)</em></h3><button class="mini" onclick={() => gridInput.click()} disabled={uploading === 'grid'}>{uploading === 'grid' ? 'Uploading…' : '+ Add'}</button></div>
-				<input type="file" accept="image/*" bind:this={gridInput} onchange={(e) => upload(e.currentTarget.files?.[0], 'grid')} hidden />
+				<div class="group-head"><h3>People Playing <em>(sheet grid)</em></h3><button class="mini" onclick={() => gridInput.click()} disabled={!!gridProgress}>{gridProgress ? `Uploading ${gridProgress}…` : '+ Add photos'}</button></div>
+				<input type="file" accept="image/*" multiple bind:this={gridInput} onchange={(e) => { uploadMany(e.currentTarget.files); e.currentTarget.value = ''; }} hidden />
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="drop-zone" class:over={gridDrag}
+					ondragover={(e) => { e.preventDefault(); gridDrag = true; }}
+					ondragleave={() => (gridDrag = false)}
+					ondrop={(e) => { e.preventDefault(); gridDrag = false; uploadMany(e.dataTransfer?.files); }}>
+					{gridProgress ? `Uploading ${gridProgress}…` : 'Drop photos here — or use “+ Add photos” to pick several at once'}
+				</div>
 				{#if data.images.length}
 					<div class="thumbs">{#each data.images as img (img.id)}
 						<div class="thumb">
@@ -999,4 +1027,6 @@
 	.ga-note { font-size: 11px; font-weight: 600; color: #15803D; padding: 6px 12px; }
 	.ga-note.err { color: #B91C1C; }
 	.cp-btns { display: flex; gap: 6px; flex-shrink: 0; }
+	.drop-zone { border: 1.5px dashed #d4d4d8; border-radius: 10px; padding: 12px; margin-bottom: 10px; text-align: center; font-size: 12px; color: #a1a1aa; transition: background .15s, border-color .15s; }
+	.drop-zone.over { border-color: #6D5BD0; background: #f5f3ff; color: #6D5BD0; }
 </style>
