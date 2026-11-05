@@ -36,7 +36,9 @@ function rulePredicate(rules) {
 	const exc = (rules ?? []).filter((r) => r.action === 'exclude');
 	let clause = `li.deal_kind = 'closed'`;
 	if (inc.length) clause += ` AND (${inc.map(frag).join(' OR ')})`;
-	if (exc.length) clause += ` AND NOT (${exc.map(frag).join(' OR ')})`;
+	// COALESCE: a NULL comparison (e.g. a line with no series or publisher) must
+	// count as "not excluded" — plain NOT (NULL) would silently drop it.
+	if (exc.length) clause += ` AND NOT COALESCE((${exc.map(frag).join(' OR ')}), 0)`;
 	return { clause, binds };
 }
 
@@ -150,6 +152,50 @@ export async function computeReport(salesDb, rules, { metric = 'both', cur, prio
 	for (const r of pivotRows) { const m = MARKETS.includes(r.market) ? r.market : 'International'; const row = bySku[r.sku]; if (row) { row.markets[m].revenue += r.revenue; row.markets[m].units += r.units; } }
 	const topProducts = topCur.map((p) => bySku[p.sku]);
 
+	// Series pivot: every series with sales in range (per market + total + prior),
+	// plus one "No series" bucket so the tab still adds up to the report total.
+	// Empty when no product in the report belongs to a series → the UI hides the tab.
+	const [serCur, serPrev] = await Promise.all([
+		salesDb.prepare(
+			`SELECT li.series_id AS sid, se.name AS name, se.publisher AS publisher, d.market AS market, ${sumExpr}
+			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
+			 LEFT JOIN series se ON se.id = li.series_id
+			 WHERE ${clause} AND li.close_date >= ? AND li.close_date < ?
+			 GROUP BY li.series_id, d.market`
+		).bind(...binds, cur.start, cur.end).all(),
+		salesDb.prepare(
+			`SELECT li.series_id AS sid, ${sumExpr}
+			 FROM deal_line_items li WHERE ${clause} AND li.close_date >= ? AND li.close_date < ?
+			 GROUP BY li.series_id`
+		).bind(...binds, prior.start, prior.end).all(),
+	]);
+	const bySeries = new Map();
+	for (const r of serCur.results ?? []) {
+		const key = r.sid ?? '';
+		if (!bySeries.has(key)) bySeries.set(key, {
+			id: r.sid ?? null, name: r.sid ? (r.name ?? 'Unknown series') : 'No series', publisher: r.sid ? (r.publisher ?? '') : '',
+			none: !r.sid, skus: 0, total: { revenue: 0, units: 0 }, totalPrev: { revenue: 0, units: 0 }, markets: mZero(),
+		});
+		const row = bySeries.get(key);
+		const m = MARKETS.includes(r.market) ? r.market : 'International';
+		row.markets[m].revenue += r.revenue; row.markets[m].units += r.units;
+		row.total.revenue += r.revenue; row.total.units += r.units;
+	}
+	for (const r of serPrev.results ?? []) {
+		const row = bySeries.get(r.sid ?? '');
+		if (row) { row.totalPrev.revenue = r.revenue; row.totalPrev.units = r.units; }
+	}
+	// Distinct products per series (per-market rows can't be summed for this).
+	if (bySeries.size) {
+		const skuCounts = (await salesDb.prepare(
+			`SELECT li.series_id AS sid, COUNT(DISTINCT li.sku) AS skus
+			 FROM deal_line_items li WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? GROUP BY li.series_id`
+		).bind(...binds, cur.start, cur.end).all()).results ?? [];
+		for (const r of skuCounts) { const row = bySeries.get(r.sid ?? ''); if (row) row.skus = r.skus; }
+	}
+	const named = [...bySeries.values()].filter((r) => !r.none);
+	const topSeries = named.length ? [...named, ...[...bySeries.values()].filter((r) => r.none)] : [];
+
 	return {
 		markets: MARKETS,
 		period: { label: label ?? 'Year to date', start: cur.start, end: cur.end },
@@ -162,6 +208,7 @@ export async function computeReport(salesDb, rules, { metric = 'both', cur, prio
 		},
 		market,
 		topProducts,
+		topSeries,
 	};
 }
 
@@ -172,7 +219,7 @@ export async function computeReport(salesDb, rules, { metric = 'both', cur, prio
 
 const CC = { Denmark: 'DK', Sweden: 'SE', Norway: 'NO' }; // short labels for the big three
 
-export async function computeExport(salesDb, rules, { measure = 'units', cur, prior } = {}) {
+export async function computeExport(salesDb, rules, { measure = 'units', cur, prior, by = 'product' } = {}) {
 	const m = measure === 'revenue' ? 'revenue' : 'units';
 	const col = m === 'revenue' ? 'li.amount_dkk' : 'li.quantity';
 	const { clause, binds } = await buildPredicate(salesDb, rules);
@@ -183,20 +230,31 @@ export async function computeExport(salesDb, rules, { measure = 'units', cur, pr
 	// company country (blank → "Unknown") instead of collapsing to International.
 	const bucket = `CASE WHEN d.market IN ('Denmark','Sweden','Norway') THEN d.market
 	                     ELSE COALESCE(NULLIF(TRIM(d.country),''), 'Unknown') END`;
-	const rows = (await salesDb.prepare(
-		`SELECT li.sku AS sku, COALESCE(${CAT_NAME}, MAX(li.name)) AS name, ${bucket} AS country,
-		        COALESCE(SUM(${col}),0) AS val
-		 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
-		 WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? AND li.sku IS NOT NULL AND li.sku != ''
-		 GROUP BY li.sku, country`
-	).bind(...binds, cur.start, cur.end).all()).results ?? [];
+	// by = 'series': one row per series (publisher in the SKU column, products
+	// without a series as "No series"); otherwise one row per product.
+	const rows = by === 'series'
+		? (await salesDb.prepare(
+			`SELECT COALESCE(li.series_id, '') AS sku, COALESCE(MAX(se.name), 'No series') AS name,
+			        COALESCE(MAX(se.publisher), '') AS publisher, ${bucket} AS country, COALESCE(SUM(${col}),0) AS val
+			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
+			 LEFT JOIN series se ON se.id = li.series_id
+			 WHERE ${clause} AND li.close_date >= ? AND li.close_date < ?
+			 GROUP BY COALESCE(li.series_id, ''), country`
+		).bind(...binds, cur.start, cur.end).all()).results ?? []
+		: (await salesDb.prepare(
+			`SELECT li.sku AS sku, COALESCE(${CAT_NAME}, MAX(li.name)) AS name, ${bucket} AS country,
+			        COALESCE(SUM(${col}),0) AS val
+			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
+			 WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? AND li.sku IS NOT NULL AND li.sku != ''
+			 GROUP BY li.sku, country`
+		).bind(...binds, cur.start, cur.end).all()).results ?? [];
 
 	const bySku = new Map();
 	const countryTotal = new Map();
 	for (const r of rows) {
 		const val = Math.round(r.val || 0);
 		if (!val && val !== 0) continue;
-		if (!bySku.has(r.sku)) bySku.set(r.sku, { sku: r.sku, name: r.name || r.sku, values: new Map(), total: 0 });
+		if (!bySku.has(r.sku)) bySku.set(r.sku, { sku: r.sku, name: r.name || r.sku, publisher: r.publisher ?? null, values: new Map(), total: 0 });
 		const row = bySku.get(r.sku);
 		row.values.set(r.country, (row.values.get(r.country) || 0) + val);
 		row.total += val;
@@ -209,8 +267,10 @@ export async function computeExport(salesDb, rules, { measure = 'units', cur, pr
 		.filter((c) => !LEAD.includes(c))
 		.sort((a, b) => (countryTotal.get(b) - countryTotal.get(a)) || a.localeCompare(b));
 	const countries = [...LEAD.filter((c) => countryTotal.has(c)), ...rest];
-	const outRows = [...bySku.values()].sort((a, b) => b.total - a.total || (a.name || '').localeCompare(b.name || ''));
-	return { measure: m, countries, rows: outRows, period: { start: cur.start, end: cur.end } };
+	const outRows = [...bySku.values()].sort((a, b) =>
+		(by === 'series' ? (a.sku === '') - (b.sku === '') : 0) // "No series" last
+		|| b.total - a.total || (a.name || '').localeCompare(b.name || ''));
+	return { measure: m, by: by === 'series' ? 'series' : 'product', countries, rows: outRows, period: { start: cur.start, end: cur.end } };
 }
 
 const csvCell = (v) => {
@@ -221,11 +281,12 @@ const csvCell = (v) => {
 /** Render an export (from computeExport) to semicolon-delimited CSV with a BOM,
  * so it opens with correct columns and æøå in Nordic Excel. */
 export function exportToCsv(exp) {
-	const header = ['Product', 'SKU', ...exp.countries.map((c) => CC[c] ?? c), 'Total'];
+	const series = exp.by === 'series';
+	const header = [series ? 'Series' : 'Product', series ? 'Publisher' : 'SKU', ...exp.countries.map((c) => CC[c] ?? c), 'Total'];
 	const lines = [header.map(csvCell).join(';')];
 	for (const r of exp.rows) {
 		const cells = [
-			r.name || r.sku, r.sku,
+			r.name || r.sku, series ? (r.publisher ?? '') : r.sku,
 			...exp.countries.map((c) => { const v = r.values.get(c) || 0; return v ? v : ''; }),
 			r.total,
 		];

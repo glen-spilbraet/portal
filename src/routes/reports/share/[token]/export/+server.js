@@ -18,7 +18,8 @@ export async function GET({ params, platform, url }) {
 	const dateParams = allow && hasParams ? url.searchParams : new URLSearchParams('period=ytd');
 	const { cur, prior } = resolveRange(dateParams, now);
 	const measure = url.searchParams.get('measure') === 'revenue' ? 'revenue' : 'units';
+	const by = url.searchParams.get('by') === 'series' ? 'series' : 'product';
 
-	const exp = await computeExport(salesDb, report.rules, { measure, cur, prior });
-	return csvResponse(exportToCsv(exp), `${report.name} ${measure} export.csv`);
+	const exp = await computeExport(salesDb, report.rules, { measure, cur, prior, by });
+	return csvResponse(exportToCsv(exp), `${report.name} ${by === 'series' ? 'series ' : ''}${measure} export.csv`);
 }

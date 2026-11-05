@@ -10,6 +10,7 @@ export async function GET(event) {
 	const report = await getReport(db, event.params.id);
 	if (!report) error(404, 'Report not found');
 	const measure = event.url.searchParams.get('measure') === 'revenue' ? 'revenue' : 'units';
-	const exp = await computeExport(salesDb, report.rules, { measure });
-	return csvResponse(exportToCsv(exp), `${report.name} ${measure} export.csv`);
+	const by = event.url.searchParams.get('by') === 'series' ? 'series' : 'product';
+	const exp = await computeExport(salesDb, report.rules, { measure, by });
+	return csvResponse(exportToCsv(exp), `${report.name} ${by === 'series' ? 'series ' : ''}${measure} export.csv`);
 }

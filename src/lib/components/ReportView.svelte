@@ -32,8 +32,19 @@
 	const maxUnits = $derived(Math.max(1, ...(data?.chart?.monthly ?? []).flatMap((m) => [m.units, m.unitsPrev])));
 	const marketTotal = $derived(Math.max(1, (data?.market ?? []).reduce((s, m) => s + (m[primary] || 0), 0)));
 	const chartHasPrev = $derived((data?.chart?.monthly ?? []).some((m) => m.revenuePrev > 0 || m.unitsPrev > 0));
-	// Export link carries the measure currently in view; all countries, not grouped.
-	const exportHref = $derived(exportBase ? `${exportBase}${exportBase.includes('?') ? '&' : '?'}measure=${primary}` : null);
+	// Best sellers can break down by product or — when the report's products have
+	// series — by series. The Series tab only appears if there's series data.
+	let breakdown = $state('products');
+	const hasSeries = $derived((data?.topSeries ?? []).length > 0);
+	const by = $derived(hasSeries ? breakdown : 'products');
+	const seriesRows = $derived(
+		[...(data?.topSeries ?? [])].sort((a, b) => (a.none - b.none) || (b.total[primary] - a.total[primary]))
+	);
+
+	// Export link carries the measure + breakdown currently in view; all countries.
+	const exportHref = $derived(exportBase
+		? `${exportBase}${exportBase.includes('?') ? '&' : '?'}measure=${primary}${by === 'series' ? '&by=series' : ''}`
+		: null);
 </script>
 
 {#snippet indexChip(cur, prev)}
@@ -132,7 +143,15 @@
 
 	<!-- Best sellers: pivot by market -->
 	<section class="block">
-		<div class="block-head"><h3>Best sellers</h3>
+		<div class="block-head">
+			{#if hasSeries}
+				<div class="bs-tabs" role="tablist" aria-label="Break down best sellers by">
+					<button class="bs-tab" class:on={by === 'products'} role="tab" aria-selected={by === 'products'} onclick={() => (breakdown = 'products')}>Products</button>
+					<button class="bs-tab" class:on={by === 'series'} role="tab" aria-selected={by === 'series'} onclick={() => (breakdown = 'series')}>Series</button>
+				</div>
+			{:else}
+				<h3>Best sellers</h3>
+			{/if}
 			<div class="bh-right">
 				<span class="legend">{primary === 'revenue' ? 'Revenue (kr)' : 'Units'} · by market</span>
 				{#if exportHref}
@@ -143,7 +162,28 @@
 				{/if}
 			</div>
 		</div>
-		{#if !data.topProducts.length}
+		{#if by === 'series'}
+			<div class="pivot-scroll">
+				<table class="pivot">
+					<thead>
+						<tr><th class="l">Series</th>{#each data.markets as mk}<th>{MK_SHORT[mk] ?? mk}</th>{/each}<th>Total</th><th>Index</th></tr>
+					</thead>
+					<tbody>
+						{#each seriesRows as s (s.id ?? '__none')}
+							<tr class:none-row={s.none}>
+								<td class="l">
+									<span class="p-name" title={s.name}>{s.name}</span>
+									<span class="p-sku">{s.none ? 'Products not in a series' : `${s.publisher} · ${s.skus} ${s.skus === 1 ? 'product' : 'products'}`}</span>
+								</td>
+								{#each data.markets as mk}<td>{s.markets[mk][primary] ? fmtP(s.markets[mk][primary]) : '–'}</td>{/each}
+								<td class="tot">{fmtP(s.total[primary])}</td>
+								<td class="ix">{@render indexChip(s.total[primary], s.totalPrev[primary])}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{:else if !data.topProducts.length}
 			<p class="muted">No products in range.</p>
 		{:else}
 			<div class="pivot-scroll">
@@ -231,6 +271,13 @@
 	.legend .dot { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-left: 8px; }
 	.legend .dot.cur { background: #F57832; } .legend .dot.prev { background: #E6DCC6; }
 	.bh-right { display: flex; align-items: center; gap: 12px; }
+	/* Products | Series tabs — same pill style as the internal Stats tables */
+	.bs-tabs { display: flex; gap: 4px; }
+	.bs-tab { font-family: inherit; font-size: 13px; font-weight: 700; color: #6B7280; background: transparent; border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; white-space: nowrap; transition: background .12s, color .12s; }
+	.bs-tab:hover { background: #F4F4F5; color: #18181B; }
+	.bs-tab.on { background: #18181B; color: #fff; }
+	.pivot tr.none-row td { color: #9a9a9a; }
+	.pivot tr.none-row td.tot { color: #6b6b6b; }
 	.export { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: #B15A12; background: #FDEEE4; border: 1px solid #F6CDAB; border-radius: 100px; padding: 5px 12px; text-decoration: none; white-space: nowrap; }
 	.export:hover { background: #FBDDC7; }
 	.export svg { width: 13px; height: 13px; }
