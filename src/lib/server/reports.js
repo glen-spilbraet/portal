@@ -51,32 +51,18 @@ function ytd(now = new Date()) {
 	return { cur: { start: `${y}-01-01`, end: today }, prior: { start: `${y - 1}-01-01`, end: minusYears(today, 1) }, label: `${y} to date` };
 }
 
-async function totalsFor(db, clause, binds, s, e) {
-	return db.prepare(
-		`SELECT ${sumExpr}, COUNT(*) AS lines,
-		        COUNT(DISTINCT CASE WHEN li.sku IS NOT NULL AND li.sku != '' THEN li.sku END) AS skus,
-		        COUNT(DISTINCT li.company_id) AS stores
-		 FROM deal_line_items li WHERE ${clause} AND li.close_date >= ? AND li.close_date < ?`
-	).bind(...binds, s, e).first();
-}
-async function marketFor(db, clause, binds, s, e) {
-	return (await db.prepare(`SELECT d.market AS market, ${sumExpr} FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? GROUP BY d.market`).bind(...binds, s, e).all()).results ?? [];
-}
-async function yearMonthly(db, clause, binds, year) {
-	const rows = (await db.prepare(`SELECT substr(li.close_date,1,7) AS ym, ${sumExpr} FROM deal_line_items li WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? GROUP BY ym`).bind(...binds, `${year}-01-01`, `${year + 1}-01-01`).all()).results ?? [];
-	const map = Object.fromEntries(rows.map((r) => [r.ym, r]));
-	return Array.from({ length: 12 }, (_, i) => { const k = `${year}-${String(i + 1).padStart(2, '0')}`; return { revenue: map[k]?.revenue ?? 0, units: map[k]?.units ?? 0 }; });
-}
-async function totalsBySkuForMarkets(db, clause, binds, s, e, skus) {
-	if (!skus.length) return [];
-	const ph = skus.map(() => '?').join(',');
-	return (await db.prepare(`SELECT li.sku AS sku, d.market AS market, ${sumExpr} FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? AND li.sku IN (${ph}) GROUP BY li.sku, d.market`).bind(...binds, s, e, ...skus).all()).results ?? [];
-}
-async function totalsBySku(db, clause, binds, s, e, skus) {
-	if (!skus.length) return {};
-	const ph = skus.map(() => '?').join(',');
-	const rows = (await db.prepare(`SELECT li.sku AS sku, ${sumExpr} FROM deal_line_items li WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? AND li.sku IN (${ph}) GROUP BY li.sku`).bind(...binds, s, e, ...skus).all()).results ?? [];
-	return Object.fromEntries(rows.map((r) => [r.sku, r]));
+/** Canonical sheet names for a few SKUs (primary language wins). */
+async function catalogNames(db, skus) {
+	const m = new Map();
+	const list = [...new Set(skus.map((s) => String(s).toLowerCase()))];
+	if (!list.length) return m;
+	const rows = (await db.prepare(
+		`SELECT lower(s.sku) AS sku, tr.value AS name FROM sales_sheets s JOIN translations tr ON tr.sheet_id = s.id
+		 WHERE tr.key = 'product_name' AND COALESCE(tr.value,'') != '' AND lower(s.sku) IN (${list.map(() => '?').join(',')})
+		 ORDER BY (tr.language = s.primary_language) ASC`
+	).bind(...list).all()).results ?? [];
+	for (const r of rows) m.set(r.sku, r.name); // primary language sorts last → wins
+	return m;
 }
 
 /** Resolve a "product name contains" term to the set of matching SKUs (from the
@@ -109,102 +95,115 @@ export async function computeReport(salesDb, rules, { metric = 'both', cur, prio
 	const curYear = now.getUTCFullYear();
 	const orderBy = metric === 'units' ? 'units' : 'revenue';
 	const mZero = () => Object.fromEntries(MARKETS.map((m) => [m, { revenue: 0, units: 0 }]));
+	const mk = (m) => (MARKETS.includes(m) ? m : 'International');
 
-	// Development chart — calendar current year vs last year (independent of range).
-	const [curMonthly, prevMonthly] = await Promise.all([
-		yearMonthly(salesDb, clause, binds, curYear),
-		yearMonthly(salesDb, clause, binds, curYear - 1),
+	// Four passes instead of a dozen — on an unfiltered report each pass scans
+	// every closed line of the period, and too many at once trips D1's
+	// "overloaded" limit (shared with the sales stats). Products, markets,
+	// totals and series are all derived from ONE grouped pass per period.
+	const pivotFor = (r) => salesDb.prepare(
+		`SELECT li.sku AS sku, li.series_id AS sid, d.market AS market, MAX(li.name) AS name,
+		        MAX(se.name) AS sname, MAX(se.publisher) AS spub, COUNT(*) AS lines, ${sumExpr}
+		 FROM deal_line_items li
+		 LEFT JOIN sales_deals d ON d.deal_id = li.deal_id
+		 LEFT JOIN series se ON se.id = li.series_id
+		 WHERE ${clause} AND li.close_date >= ? AND li.close_date < ?
+		 GROUP BY li.sku, li.series_id, d.market`
+	).bind(...binds, r.start, r.end).all();
+	const [chartRes, curRes, priorRes, stores] = await Promise.all([
+		// Development chart: calendar current year vs last year (independent of range), one pass.
+		salesDb.prepare(
+			`SELECT substr(li.close_date,1,7) AS ym, ${sumExpr} FROM deal_line_items li
+			 WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? GROUP BY ym`
+		).bind(...binds, `${curYear - 1}-01-01`, `${curYear + 1}-01-01`).all(),
+		pivotFor(cur),
+		pivotFor(prior),
+		salesDb.prepare(
+			`SELECT COUNT(DISTINCT CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.company_id END) AS cur,
+			        COUNT(DISTINCT CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.company_id END) AS prev
+			 FROM deal_line_items li
+			 WHERE ${clause} AND ((li.close_date >= ? AND li.close_date < ?) OR (li.close_date >= ? AND li.close_date < ?))`
+		).bind(cur.start, cur.end, prior.start, prior.end, ...binds, cur.start, cur.end, prior.start, prior.end).first(),
 	]);
+
+	const byYm = Object.fromEntries((chartRes.results ?? []).map((r) => [r.ym, r]));
+	const ymKey = (y, i) => `${y}-${String(i + 1).padStart(2, '0')}`;
 	const chart = {
 		year: curYear,
-		monthly: Array.from({ length: 12 }, (_, i) => ({
-			month: i + 1,
-			revenue: curMonthly[i].revenue, units: curMonthly[i].units,
-			revenuePrev: prevMonthly[i].revenue, unitsPrev: prevMonthly[i].units,
-		})),
+		monthly: Array.from({ length: 12 }, (_, i) => {
+			const c = byYm[ymKey(curYear, i)], p = byYm[ymKey(curYear - 1, i)];
+			return { month: i + 1, revenue: c?.revenue ?? 0, units: c?.units ?? 0, revenuePrev: p?.revenue ?? 0, unitsPrev: p?.units ?? 0 };
+		}),
 	};
 
-	// Range figures.
-	const [totalsCur, totalsPrev, mktCur, mktPrev] = await Promise.all([
-		totalsFor(salesDb, clause, binds, cur.start, cur.end),
-		totalsFor(salesDb, clause, binds, prior.start, prior.end),
-		marketFor(salesDb, clause, binds, cur.start, cur.end),
-		marketFor(salesDb, clause, binds, prior.start, prior.end),
-	]);
-	const mkCur = mZero(), mkPrev = mZero();
-	for (const r of mktCur) { const m = MARKETS.includes(r.market) ? r.market : 'International'; mkCur[m].revenue += r.revenue; mkCur[m].units += r.units; }
-	for (const r of mktPrev) { const m = MARKETS.includes(r.market) ? r.market : 'International'; mkPrev[m].revenue += r.revenue; mkPrev[m].units += r.units; }
-	const market = MARKETS.map((m) => ({ market: m, revenue: mkCur[m].revenue, units: mkCur[m].units, revenuePrev: mkPrev[m].revenue, unitsPrev: mkPrev[m].units }));
+	// Fold one period's grouped rows into totals / markets / per-SKU / per-series.
+	function fold(rows) {
+		const out = { revenue: 0, units: 0, lines: 0, skus: new Set(), market: mZero(), bySku: new Map(), bySeries: new Map() };
+		for (const r of rows) {
+			const rev = r.revenue || 0, un = r.units || 0, m = mk(r.market);
+			out.revenue += rev; out.units += un; out.lines += r.lines || 0;
+			out.market[m].revenue += rev; out.market[m].units += un;
+			if (r.sku) {
+				out.skus.add(r.sku);
+				let p = out.bySku.get(r.sku);
+				if (!p) out.bySku.set(r.sku, (p = { sku: r.sku, name: r.name, total: { revenue: 0, units: 0 }, markets: mZero() }));
+				if (!p.name && r.name) p.name = r.name;
+				p.total.revenue += rev; p.total.units += un;
+				p.markets[m].revenue += rev; p.markets[m].units += un;
+			}
+			const key = r.sid ?? '';
+			let s = out.bySeries.get(key);
+			if (!s) out.bySeries.set(key, (s = {
+				id: r.sid ?? null, name: r.sid ? (r.sname ?? 'Unknown series') : 'No series', publisher: r.sid ? (r.spub ?? '') : '',
+				none: !r.sid, skuSet: new Set(), total: { revenue: 0, units: 0 }, markets: mZero(),
+			}));
+			if (r.sku) s.skuSet.add(r.sku);
+			s.total.revenue += rev; s.total.units += un;
+			s.markets[m].revenue += rev; s.markets[m].units += un;
+		}
+		return out;
+	}
+	const c = fold(curRes.results ?? []);
+	const p = fold(priorRes.results ?? []);
 
-	// Best-seller pivot: top SKUs (by primary) with per-market split + total + prior.
-	const topCur = (await salesDb.prepare(
-		`SELECT li.sku AS sku, COALESCE(${CAT_NAME}, MAX(li.name)) AS name, ${sumExpr}
-		 FROM deal_line_items li WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? AND li.sku IS NOT NULL AND li.sku != ''
-		 GROUP BY li.sku ORDER BY ${orderBy} DESC LIMIT ${TOP_N}`
-	).bind(...binds, cur.start, cur.end).all()).results ?? [];
-	const skus = topCur.map((p) => p.sku);
-	const [pivotRows, priorBySku] = await Promise.all([
-		totalsBySkuForMarkets(salesDb, clause, binds, cur.start, cur.end, skus),
-		totalsBySku(salesDb, clause, binds, prior.start, prior.end, skus),
-	]);
-	const bySku = {};
-	for (const p of topCur) bySku[p.sku] = { sku: p.sku, name: p.name, total: { revenue: p.revenue, units: p.units }, totalPrev: { revenue: priorBySku[p.sku]?.revenue ?? 0, units: priorBySku[p.sku]?.units ?? 0 }, markets: mZero() };
-	for (const r of pivotRows) { const m = MARKETS.includes(r.market) ? r.market : 'International'; const row = bySku[r.sku]; if (row) { row.markets[m].revenue += r.revenue; row.markets[m].units += r.units; } }
-	const topProducts = topCur.map((p) => bySku[p.sku]);
+	const market = MARKETS.map((m) => ({
+		market: m, revenue: c.market[m].revenue, units: c.market[m].units,
+		revenuePrev: p.market[m].revenue, unitsPrev: p.market[m].units,
+	}));
 
-	// Series pivot: every series with sales in range (per market + total + prior),
-	// plus one "No series" bucket so the tab still adds up to the report total.
-	// Empty when no product in the report belongs to a series → the UI hides the tab.
-	const [serCur, serPrev] = await Promise.all([
-		salesDb.prepare(
-			`SELECT li.series_id AS sid, se.name AS name, se.publisher AS publisher, d.market AS market, ${sumExpr}
-			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
-			 LEFT JOIN series se ON se.id = li.series_id
-			 WHERE ${clause} AND li.close_date >= ? AND li.close_date < ?
-			 GROUP BY li.series_id, d.market`
-		).bind(...binds, cur.start, cur.end).all(),
-		salesDb.prepare(
-			`SELECT li.series_id AS sid, ${sumExpr}
-			 FROM deal_line_items li WHERE ${clause} AND li.close_date >= ? AND li.close_date < ?
-			 GROUP BY li.series_id`
-		).bind(...binds, prior.start, prior.end).all(),
-	]);
-	const bySeries = new Map();
-	for (const r of serCur.results ?? []) {
-		const key = r.sid ?? '';
-		if (!bySeries.has(key)) bySeries.set(key, {
-			id: r.sid ?? null, name: r.sid ? (r.name ?? 'Unknown series') : 'No series', publisher: r.sid ? (r.publisher ?? '') : '',
-			none: !r.sid, skus: 0, total: { revenue: 0, units: 0 }, totalPrev: { revenue: 0, units: 0 }, markets: mZero(),
-		});
-		const row = bySeries.get(key);
-		const m = MARKETS.includes(r.market) ? r.market : 'International';
-		row.markets[m].revenue += r.revenue; row.markets[m].units += r.units;
-		row.total.revenue += r.revenue; row.total.units += r.units;
-	}
-	for (const r of serPrev.results ?? []) {
-		const row = bySeries.get(r.sid ?? '');
-		if (row) { row.totalPrev.revenue = r.revenue; row.totalPrev.units = r.units; }
-	}
-	// Distinct products per series (per-market rows can't be summed for this).
-	if (bySeries.size) {
-		const skuCounts = (await salesDb.prepare(
-			`SELECT li.series_id AS sid, COUNT(DISTINCT li.sku) AS skus
-			 FROM deal_line_items li WHERE ${clause} AND li.close_date >= ? AND li.close_date < ? GROUP BY li.series_id`
-		).bind(...binds, cur.start, cur.end).all()).results ?? [];
-		for (const r of skuCounts) { const row = bySeries.get(r.sid ?? ''); if (row) row.skus = r.skus; }
-	}
-	const named = [...bySeries.values()].filter((r) => !r.none);
-	const topSeries = named.length ? [...named, ...[...bySeries.values()].filter((r) => r.none)] : [];
+	// Best sellers: top SKUs by the report's primary measure, names from Sheets.
+	const other = orderBy === 'units' ? 'revenue' : 'units'; // stable tie-break: other measure, then SKU
+	const top = [...c.bySku.values()]
+		.sort((a, b) => (b.total[orderBy] - a.total[orderBy]) || (b.total[other] - a.total[other]) || a.sku.localeCompare(b.sku))
+		.slice(0, TOP_N);
+	const names = await catalogNames(salesDb, top.map((t) => t.sku));
+	const topProducts = top.map((t) => ({
+		sku: t.sku,
+		name: names.get(t.sku.toLowerCase()) ?? t.name,
+		total: t.total,
+		totalPrev: { revenue: p.bySku.get(t.sku)?.total.revenue ?? 0, units: p.bySku.get(t.sku)?.total.units ?? 0 },
+		markets: t.markets,
+	}));
+
+	// Series pivot (+ "No series" bucket so it adds up). Empty when no product in
+	// the report belongs to a series → the UI hides the Series tab.
+	const seriesOut = [...c.bySeries.values()].map((s) => ({
+		id: s.id, name: s.name, publisher: s.publisher, none: s.none, skus: s.skuSet.size,
+		total: s.total, markets: s.markets,
+		totalPrev: { revenue: p.bySeries.get(s.id ?? '')?.total.revenue ?? 0, units: p.bySeries.get(s.id ?? '')?.total.units ?? 0 },
+	}));
+	const named = seriesOut.filter((s) => !s.none);
+	const topSeries = named.length ? [...named, ...seriesOut.filter((s) => s.none)] : [];
 
 	return {
 		markets: MARKETS,
 		period: { label: label ?? 'Year to date', start: cur.start, end: cur.end },
 		chart,
 		totals: {
-			revenue: totalsCur?.revenue ?? 0, units: totalsCur?.units ?? 0, lines: totalsCur?.lines ?? 0,
-			skus: totalsCur?.skus ?? 0, stores: totalsCur?.stores ?? 0,
-			revenuePrev: totalsPrev?.revenue ?? 0, unitsPrev: totalsPrev?.units ?? 0,
-			skusPrev: totalsPrev?.skus ?? 0, storesPrev: totalsPrev?.stores ?? 0,
+			revenue: c.revenue, units: c.units, lines: c.lines,
+			skus: c.skus.size, stores: stores?.cur ?? 0,
+			revenuePrev: p.revenue, unitsPrev: p.units,
+			skusPrev: p.skus.size, storesPrev: stores?.prev ?? 0,
 		},
 		market,
 		topProducts,
