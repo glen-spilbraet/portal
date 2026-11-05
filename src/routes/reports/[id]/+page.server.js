@@ -1,6 +1,5 @@
 import { error } from '@sveltejs/kit';
 import { getReport } from '$lib/db.js';
-import { computeReport } from '$lib/server/reports.js';
 import { listPublishers } from '$lib/server/publishers.js';
 import { listAllSeries } from '$lib/server/series.js';
 
@@ -13,8 +12,8 @@ export async function load({ params, parent, platform, url }) {
 	if (!report) error(404, 'Report not found');
 
 	const salesDb = platform?.env?.SALES_DB;
-	const preview = salesDb ? await computeReport(salesDb, report.rules, { metric: report.metric }) : null;
+	// No figures here — the editor only defines rules; "View" opens the (cached) report.
 	const publishers = salesDb ? ((await listPublishers(salesDb)) ?? []).map((r) => r.name) : [];
 	const series = salesDb ? await listAllSeries(salesDb) : [];
-	return { user, report, preview, publishers, series, origin: url.origin };
+	return { user, report, publishers, series, origin: url.origin };
 }

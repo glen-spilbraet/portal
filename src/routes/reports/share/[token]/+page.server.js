@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { getReportByToken } from '$lib/db.js';
 import { computeReport } from '$lib/server/reports.js';
+import { cachedReport, ruleKey } from '$lib/server/reportCache.js';
 import { resolveRange, getPeriodOptions, addDaysStr } from '$lib/server/statsRange.js';
 
 export async function load({ params, platform, url }) {
@@ -17,7 +18,11 @@ export async function load({ params, platform, url }) {
 	const { cur, prior, label, selected } = resolveRange(dateParams, now);
 
 	const salesDb = platform?.env?.SALES_DB;
-	const data = salesDb ? await computeReport(salesDb, report.rules, { metric: report.metric, cur, prior, label }) : null;
+	// Cached until the criteria change or the nightly sales sync runs.
+	const data = salesDb
+		? await cachedReport(db, salesDb, { kind: 'view', rules: ruleKey(report.rules), metric: report.metric, cur, prior, label },
+			() => computeReport(salesDb, report.rules, { metric: report.metric, cur, prior, label }))
+		: null;
 	const opts = getPeriodOptions(now);
 
 	return {

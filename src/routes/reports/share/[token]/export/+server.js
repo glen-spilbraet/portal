@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { getReportByToken } from '$lib/db.js';
 import { computeExport, exportToCsv, csvResponse } from '$lib/server/reports.js';
 import { resolveRange } from '$lib/server/statsRange.js';
+import { cachedReport, ruleKey } from '$lib/server/reportCache.js';
 
 // Public CSV export for a shared report — mirrors the share page's date range.
 export async function GET({ params, platform, url }) {
@@ -20,6 +21,7 @@ export async function GET({ params, platform, url }) {
 	const measure = url.searchParams.get('measure') === 'revenue' ? 'revenue' : 'units';
 	const by = url.searchParams.get('by') === 'series' ? 'series' : 'product';
 
-	const exp = await computeExport(salesDb, report.rules, { measure, cur, prior, by });
+	const exp = await cachedReport(db, salesDb, { kind: 'export', rules: ruleKey(report.rules), measure, cur, prior, by },
+		() => computeExport(salesDb, report.rules, { measure, cur, prior, by }));
 	return csvResponse(exportToCsv(exp), `${report.name} ${by === 'series' ? 'series ' : ''}${measure} export.csv`);
 }

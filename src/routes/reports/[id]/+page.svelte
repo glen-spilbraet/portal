@@ -1,6 +1,5 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
-	import ReportView from '$lib/components/ReportView.svelte';
 
 	let { data } = $props();
 
@@ -9,8 +8,6 @@
 	let allowDate = $state(!!data.report.allow_date_filter);
 	let rules = $state(data.report.rules.map((r) => ({ action: r.action, kind: r.kind, value: r.value })));
 	let shareToken = $state(data.report.share_token);
-	let preview = $state(data.preview);
-	let previewing = $state(false);
 	let saving = $state(false);
 	let saved = $state(false);
 	let copied = $state(false);
@@ -50,29 +47,10 @@
 	}
 	function pickSku(i, s) { rules[i].value = s.sku; rules = [...rules]; skuDrop = { idx: -1, results: [] }; }
 
-	// ── Live preview (debounced) ─────────────────────────────────────────────────
-	let lastKey = $state('');
-	$effect(() => {
-		const key = JSON.stringify({ metric, rules });
-		if (key === lastKey) return;
-		lastKey = key;
-		const t = setTimeout(refreshPreview, 300);
-		return () => clearTimeout(t);
-	});
-	async function refreshPreview() {
-		previewing = true;
-		try {
-			const res = await fetch(`/api/reports/${data.report.id}/preview`, {
-				method: 'POST', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ rules: cleanRules(), metric })
-			});
-			if (res.ok) preview = await res.json();
-		} finally { previewing = false; }
-	}
 	const cleanRules = () => rules.filter((r) => (r.value ?? '').toString().trim());
 
 	async function save() {
-		if (saving) return;
+		if (saving) return false;
 		saving = true; saved = false;
 		try {
 			const res = await fetch(`/api/reports/${data.report.id}`, {
@@ -81,7 +59,16 @@
 			});
 			if (!res.ok) throw new Error('Save failed');
 			saved = true; setTimeout(() => (saved = false), 1600);
-		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { saving = false; }
+			return true;
+		} catch (e) { alert(e instanceof Error ? e.message : String(e)); return false; } finally { saving = false; }
+	}
+
+	// "View" saves first so the report shows exactly what's in the editor. The tab
+	// is opened synchronously (popup blockers) and pointed at the report after.
+	async function view() {
+		const w = window.open('', '_blank');
+		if (await save()) { if (w) w.location.href = shareUrl; else window.open(shareUrl, '_blank'); }
+		else w?.close();
 	}
 
 	async function copyLink() {
@@ -107,7 +94,10 @@
 			<section class="panel">
 				<div class="panel-head">
 					<h2>Setup</h2>
-					<button class="btn primary" onclick={save} disabled={saving}>{saved ? 'Saved ✓' : saving ? 'Saving…' : 'Save'}</button>
+					<div class="head-actions">
+						<button class="btn" onclick={view} disabled={saving} title="Save and open the report">View</button>
+						<button class="btn primary" onclick={save} disabled={saving}>{saved ? 'Saved ✓' : saving ? 'Saving…' : 'Save'}</button>
+					</div>
 				</div>
 
 				<label class="fld"><span>Report name</span><input bind:value={name} /></label>
@@ -122,7 +112,7 @@
 				<label class="chk"><input type="checkbox" bind:checked={allowDate} /> Let viewers change the date range on the shared report</label>
 
 				<div class="rules-head"><span>Product rules</span><button class="add" onclick={addRule}>+ Add rule</button></div>
-				<p class="hint">Include rules define the product set (no includes = all products). Exclude rules remove from it.</p>
+				<p class="hint">Include rules define the product set (no includes = all products). Exclude rules remove from it. Use <strong>View</strong> to see the figures.</p>
 
 				{#if !rules.length}
 					<p class="empty-rule">No rules — the report covers <strong>all products</strong>.</p>
@@ -173,11 +163,6 @@
 				</div>
 			</section>
 
-			<!-- Preview -->
-			<section class="preview">
-				<div class="preview-head"><h2>Preview</h2>{#if previewing}<span class="muted">Updating…</span>{/if}</div>
-				<ReportView data={preview} {metric} exportBase={`/reports/${data.report.id}/export`} />
-			</section>
 		</div>
 	</main>
 </div>
@@ -190,13 +175,12 @@
 	.crumbs a:hover { text-decoration: underline; }
 	.crumbs .sep { color: #ccc; } .crumbs .current { color: #9a9a9a; font-weight: 600; }
 
-	.grid { display: grid; grid-template-columns: 400px 1fr; gap: 20px; align-items: start; }
-	@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+	.grid { max-width: 640px; }
+	.head-actions { display: flex; gap: 8px; }
 
 	.panel { background: #fff; border: 1px solid #ececec; border-radius: 14px; padding: 18px; position: sticky; top: 16px; }
-	.panel-head, .preview-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-	.panel-head h2, .preview-head h2 { font-size: 15px; font-weight: 800; margin: 0; }
-	.muted { font-size: 12px; color: #a1a1aa; }
+	.panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+	.panel-head h2 { font-size: 15px; font-weight: 800; margin: 0; }
 
 	.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 9px; background: white; font-size: 13px; font-weight: 600; font-family: inherit; color: #18181B; cursor: pointer; text-decoration: none; }
 	.btn.primary { background: #F57832; color: white; border-color: #F57832; }
@@ -234,5 +218,4 @@
 	.link { background: none; border: none; padding: 0; font: inherit; font-size: 12px; font-weight: 600; color: #6D5BD0; cursor: pointer; }
 	.link:hover { text-decoration: underline; }
 
-	.preview { min-width: 0; }
 </style>
