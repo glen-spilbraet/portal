@@ -374,6 +374,7 @@
 			const fd = new FormData();
 			fd.append('file', files[i]); fd.append('sheetId', sheetId); fd.append('type', 'grid');
 			fd.append('order', String(base + i));
+			if (i < files.length - 1) fd.append('quiet', '1'); // shops are notified once, after the last
 			const res = await fetch('/api/images', { method: 'POST', body: fd }).catch(() => null);
 			if (!res?.ok) failed++;
 		}

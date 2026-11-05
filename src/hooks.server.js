@@ -1,4 +1,5 @@
 import { notifyShops } from '$lib/server/shopNotify.js';
+import { d1WithRetry } from '$lib/server/d1Retry.js';
 
 /**
  * Keep the B2B shops in step with the Portal: after any successful save that
@@ -39,7 +40,10 @@ async function shopTarget(event) {
 	if (m) return [m[1]];
 
 	if (path === '/api/images') {
-		const sheetId = (await event.request.clone().formData().catch(() => null))?.get('sheetId')?.toString();
+		const fd = await event.request.clone().formData().catch(() => null);
+		// Multi-upload marks all but the last photo `quiet` → the shops get ONE notice.
+		if (fd?.get('quiet') === '1') return null;
+		const sheetId = fd?.get('sheetId')?.toString();
 		return sheetId ? [sheetId] : null; // variant uploads carry no sheet and change nothing
 	}
 	if (path === '/api/images/swap') {
@@ -54,6 +58,15 @@ async function shopTarget(event) {
 
 /** @type {import('@sveltejs/kit').Handle} */
 export async function handle({ event, resolve }) {
+	// Every DB query in the app retries momentary D1 hiccups (see d1Retry.js).
+	const env = event.platform?.env;
+	if (env) {
+		try {
+			if (env.DB) env.DB = d1WithRetry(env.DB);
+			if (env.SALES_DB) env.SALES_DB = d1WithRetry(env.SALES_DB);
+		} catch (e) { console.warn('D1 retry wrapper not applied', e); }
+	}
+
 	const method = event.request.method;
 	if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return resolve(event);
 
@@ -83,4 +96,14 @@ export async function handle({ event, resolve }) {
 		} catch (e) { console.warn('shop notify failed', e); }
 	}
 	return response;
+}
+
+/**
+ * Log unexpected server errors with the path, so failures are traceable in the
+ * Cloudflare logs instead of only showing "500 Internal Error".
+ * @type {import('@sveltejs/kit').HandleServerError}
+ */
+export function handleError({ error, event, status, message }) {
+	if (status !== 404) console.error(`[${status}] ${event.request.method} ${event.url.pathname}:`, error);
+	return { message };
 }
