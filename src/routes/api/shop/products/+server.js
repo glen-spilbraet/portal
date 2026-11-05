@@ -13,8 +13,11 @@ export async function GET({ request, platform, url }) {
 	requireShopKey(request, env);
 	if (!env?.DB || !env?.SALES_DB) error(500, 'Database unavailable');
 
-	const feed = await buildShopFeed(env.DB, env.SALES_DB, url.origin);
-	const only = new Set(url.searchParams.getAll('sku').map((s) => s.trim().toLowerCase()).filter(Boolean));
+	const skus = url.searchParams.getAll('sku').map((s) => s.trim()).filter(Boolean);
+	// With ?sku=… every query is narrowed to those products (cheap), instead of
+	// building the whole catalogue for one product.
+	const feed = await buildShopFeed(env.DB, env.SALES_DB, url.origin, { skus });
+	const only = new Set(skus.map((s) => s.toLowerCase()));
 	if (only.size) {
 		feed.products = feed.products.filter((/** @type {any} */ p) => only.has(String(p.sku).toLowerCase()));
 		feed.categories.products = feed.categories.products.filter((/** @type {any} */ r) => only.has(String(r.sku).toLowerCase()));

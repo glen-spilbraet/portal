@@ -9,7 +9,6 @@
  * Sheets and awards come from DB (env-specific); the publisher and series
  * mapping from SALES_DB (shared prod), same as everywhere else in the portal.
  */
-import { listAllInstances, getBadgesForSkus } from './awards.js';
 import { listTaxonomy } from './categories.js';
 
 const MAX_USP = 8;
@@ -25,20 +24,63 @@ function fieldMap(dataFields) {
 }
 
 /**
+ * Every award/review instance per SKU (main product + additional products) in
+ * ONE query, with what both the `awards` list and the box `badges` need.
+ * `skus` (lowercase) narrows it to those products.
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string[] | null} skus
+ */
+async function loadAwardRows(db, skus) {
+	const filter = skus ? `WHERE lower(s.sku) IN (${skus.map(() => '?').join(',')})` : '';
+	const rows = /** @type {any[]} */ ((await db.prepare(
+		`SELECT lower(s.sku) AS sku, i.id, i.is_nominated, i.is_winner, i.award_category, i.instance_date, i.disclosure_date,
+		        i.nominee_badge_key, i.winner_badge_key, i.created_at,
+		        m.name AS media_name, m.country AS media_country, m.badge_placement, m.badge_placement_2,
+		        m.badge_pad_top, m.badge_pad_right, m.badge_pad_bottom, m.badge_pad_left, m.badge_size_pct
+		 FROM (SELECT id AS instance_id, sku FROM press_instance WHERE sku IS NOT NULL AND sku != ''
+		       UNION SELECT instance_id, sku FROM press_instance_product WHERE sku IS NOT NULL AND sku != '') s
+		 JOIN press_instance i ON i.id = s.instance_id
+		 JOIN award_media m ON m.id = i.media_id
+		 ${filter}`
+	).bind(...(skus ?? [])).all()).results ?? []);
+	// Same sku listed twice on one instance → once.
+	const seen = new Set();
+	const out = rows.filter((r) => { const k = `${r.id}|${r.sku}`; if (seen.has(k)) return false; seen.add(k); return true; });
+
+	const ids = [...new Set(out.map((r) => r.id))];
+	/** @type {Record<string, any[]>} */
+	const statements = {};
+	const stmtRows = /** @type {any[]} */ (skus
+		? (ids.length ? (await db.prepare(`SELECT instance_id, statement, score FROM award_statement WHERE instance_id IN (${ids.map(() => '?').join(',')}) ORDER BY rowid`).bind(...ids).all()).results ?? [] : [])
+		: (await db.prepare('SELECT instance_id, statement, score FROM award_statement ORDER BY rowid').all()).results ?? []);
+	for (const st of stmtRows) (statements[st.instance_id] ??= []).push({ statement: st.statement ?? null, score: st.score ?? null });
+	return { rows: out, statements };
+}
+
+/**
  * @param {import('@cloudflare/workers-types').D1Database} db
  * @param {import('@cloudflare/workers-types').D1Database} salesDb
  * @param {string} origin absolute base for image URLs
+ * @param {{ skus?: string[] }} [opts] only these SKUs (the shop's instant refresh
+ *   after a save) — every query is narrowed, instead of building the whole
+ *   catalogue and filtering afterwards.
  */
-export async function buildShopFeed(db, salesDb, origin) {
+export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 	const imgUrl = (/** @type {string | null} */ key) => (key ? `${origin}/api/img/${key}` : null);
+	const only = opts.skus?.length ? [...new Set(opts.skus.map((s) => String(s).trim().toLowerCase()).filter(Boolean))] : null;
+	const inList = only ? only.map(() => '?').join(',') : '';
+	const sheetFilter = only ? ` AND lower(trim(sku)) IN (${inList})` : '';
+	const bySheet = only ? ` WHERE sheet_id IN (SELECT id FROM sales_sheets WHERE lower(trim(sku)) IN (${inList}))` : '';
+	const andBySheet = only ? ` AND sheet_id IN (SELECT id FROM sales_sheets WHERE lower(trim(sku)) IN (${inList}))` : '';
+	const b = only ?? [];
 
 	const [sheetsRes, trRes, imgRes, videoRes, articleRes] = await db.batch([
 		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, preorder_date, restock_date, updated_at, awards_updated_at
-			FROM sales_sheets WHERE trim(sku) != '' ORDER BY updated_at DESC`),
-		db.prepare(`SELECT sheet_id, language, key, value FROM translations WHERE trim(value) != ''`),
-		db.prepare(`SELECT sheet_id, r2_key, type FROM sheet_images ORDER BY display_order ASC`),
-		db.prepare(`SELECT sheet_id, url, orientation, markets FROM sheet_video ORDER BY display_order ASC, created_at ASC`),
-		db.prepare(`SELECT sheet_id, url, title, description, site_name, image_key, image_url, favicon_url, markets FROM sheet_article ORDER BY display_order ASC, created_at ASC`)
+			FROM sales_sheets WHERE trim(sku) != ''${sheetFilter} ORDER BY updated_at DESC`).bind(...b),
+		db.prepare(`SELECT sheet_id, language, key, value FROM translations WHERE trim(value) != ''${andBySheet}`).bind(...b),
+		db.prepare(`SELECT sheet_id, r2_key, type FROM sheet_images${bySheet} ORDER BY display_order ASC`).bind(...b),
+		db.prepare(`SELECT sheet_id, url, orientation, markets FROM sheet_video${bySheet} ORDER BY display_order ASC, created_at ASC`).bind(...b),
+		db.prepare(`SELECT sheet_id, url, title, description, site_name, image_key, image_url, favicon_url, markets FROM sheet_article${bySheet} ORDER BY display_order ASC, created_at ASC`).bind(...b)
 	]);
 
 	// markets: JSON array of DK/SE/NO/INT/PL, or null = available in all markets.
@@ -69,11 +111,16 @@ export async function buildShopFeed(db, salesDb, origin) {
 		(r.type === 'content' ? t.content : t.people_playing).push(r.r2_key);
 	}
 
-	// Awards keyed by every SKU an instance names (main + additional products).
+	// Awards keyed by every SKU an instance names (main + additional products):
+	// newest first, then outlet name, then newest created.
+	const { rows: awardRows, statements } = await loadAwardRows(db, only);
+	const cmpDesc = (/** @type {any} */ a, /** @type {any} */ b) => String(b ?? '').localeCompare(String(a ?? ''));
 	/** @type {Record<string, any[]>} */
 	const awards = {};
-	for (const i of await listAllInstances(db)) {
-		const entry = {
+	for (const i of [...awardRows].sort((a, b) => cmpDesc(a.instance_date, b.instance_date)
+		|| String(a.media_name ?? '').localeCompare(String(b.media_name ?? ''), undefined, { sensitivity: 'base' })
+		|| cmpDesc(a.created_at, b.created_at))) {
+		(awards[i.sku] ??= []).push({
 			media: i.media_name,
 			media_country: i.media_country ?? null,
 			award_category: i.award_category ?? null,
@@ -82,10 +129,8 @@ export async function buildShopFeed(db, salesDb, origin) {
 			instance_date: i.instance_date ?? null,
 			disclosure_date: i.disclosure_date ?? null,
 			badges: { nominee: imgUrl(i.nominee_badge_key), winner: imgUrl(i.winner_badge_key) },
-			statements: (i.statements ?? []).map((/** @type {any} */ s) => ({ statement: s.statement ?? null, score: s.score ?? null }))
-		};
-		const skus = [i.sku, ...(i.additional_products ?? []).map((/** @type {any} */ a) => a.sku)];
-		for (const sku of new Set(skus.filter(Boolean).map((/** @type {string} */ s) => s.toLowerCase()))) (awards[sku] ??= []).push(entry);
+			statements: statements[i.id] ?? []
+		});
 	}
 
 	const products = [];
@@ -142,23 +187,32 @@ export async function buildShopFeed(db, salesDb, origin) {
 	// Box badges exactly as the sheets and catalogues resolve them: winner badge
 	// once disclosed, else nominee; newest first, with each outlet's corners,
 	// padding (% of box) and size (% of box width).
+	// (Same rules as awards.js getBadgesForSkus, from the rows already loaded.)
 	const today = new Date().toISOString().slice(0, 10);
-	const badgesBySku = /** @type {Record<string, any[]>} */ (await getBadgesForSkus(db, products.map((p) => p.sku), today));
-	for (const p of products) {
-		/** @type {any} */ (p).badges = (badgesBySku[p.sku] ?? []).map((/** @type {any} */ b) => ({
-			image: imgUrl(b.image_key),
-			kind: b.kind,
-			media: b.media,
-			placement: b.placement,
-			placement_2: b.placement_2,
-			pad: b.pad,
-			size_pct: b.size_pct
-		}));
+	/** @type {Record<string, any[]>} */
+	const badgesBySku = {};
+	for (const r of [...awardRows].sort((a, b) => cmpDesc(a.instance_date, b.instance_date) || cmpDesc(a.created_at, b.created_at))) {
+		const disclosed = !r.disclosure_date || r.disclosure_date <= today;
+		const isWinner = !!(r.is_winner && r.winner_badge_key && disclosed);
+		const key = isWinner ? r.winner_badge_key : (r.is_nominated ? r.nominee_badge_key : null);
+		if (!key) continue;
+		(badgesBySku[r.sku] ??= []).push({
+			image: imgUrl(key),
+			kind: isWinner ? 'winner' : 'nominee',
+			media: r.media_name ?? null,
+			placement: r.badge_placement || 'bottom-right',
+			placement_2: r.badge_placement_2 || null,
+			pad: { top: r.badge_pad_top ?? 0, right: r.badge_pad_right ?? 0, bottom: r.badge_pad_bottom ?? 0, left: r.badge_pad_left ?? 0 },
+			size_pct: r.badge_size_pct ?? 15
+		});
 	}
+	for (const p of products) /** @type {any} */ (p).badges = badgesBySku[p.sku.toLowerCase()] ?? [];
 
 	// Category groups/categories with labels, and every SKU's categories.
 	const taxonomy = await listTaxonomy(salesDb);
-	const productCats = await salesDb.prepare('SELECT sku, category_id FROM product_category ORDER BY sku').all();
+	const productCats = await salesDb.prepare(
+		`SELECT sku, category_id FROM product_category${only ? ` WHERE lower(sku) IN (${inList})` : ''} ORDER BY sku`
+	).bind(...b).all();
 
 	const [prefixRes, overrideRes, seriesRes] = await salesDb.batch([
 		salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix ORDER BY prefix'),
