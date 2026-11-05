@@ -18,6 +18,7 @@
 		{:else if transient}
 			<h1>Something went wrong</h1>
 			<p>Usually this is momentary — the database was busy. Trying again normally works.</p>
+			{#if page.error?.ref}<p class="ref">Reference: <code>{page.error.ref}</code></p>{/if}
 		{:else}
 			<h1>Something went wrong</h1>
 			<p>{page.error?.message ?? 'Unexpected error.'}</p>
@@ -35,6 +36,8 @@
 	.code { font-size: 13px; font-weight: 800; letter-spacing: .08em; color: #a1a1aa; margin: 0 0 6px; }
 	h1 { font-size: 20px; margin: 0 0 8px; }
 	p { color: #52525b; font-size: 14px; margin: 0; }
+	.ref { margin-top: 10px; font-size: 12px; color: #71717a; }
+	code { font-family: ui-monospace, Menlo, monospace; background: #f4f4f5; padding: 1px 6px; border-radius: 5px; }
 	.actions { display: flex; gap: 8px; justify-content: center; margin-top: 20px; }
 	.btn { border: 1px solid #e4e4e7; background: #fff; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 700; color: #18181b; text-decoration: none; cursor: pointer; }
 	.btn.primary { background: #18181b; color: #fff; border-color: #18181b; }

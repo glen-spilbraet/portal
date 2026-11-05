@@ -1,5 +1,21 @@
 import { notifyShops } from '$lib/server/shopNotify.js';
 import { d1WithRetry } from '$lib/server/d1Retry.js';
+import { logError, describe, newRef } from '$lib/server/errorLog.js';
+import { verifySession } from '$lib/auth.js';
+
+/** Signed-in user's email for the error log (null if anonymous). @param {import('@sveltejs/kit').RequestEvent} event */
+async function userOf(event) {
+	try { return await verifySession(event.cookies.get('session') ?? '', event.platform?.env?.APP_SECRET ?? 'dev-secret'); }
+	catch { return null; }
+}
+
+/** Common request fields for an error_log row. @param {import('@sveltejs/kit').RequestEvent} event */
+const reqInfo = (event) => ({
+	method: event.request.method,
+	path: event.url.pathname + event.url.search,
+	route: event.route?.id ?? null,
+	ua: event.request.headers.get('user-agent'),
+});
 
 /**
  * Keep the B2B shops in step with the Portal: after any successful save that
@@ -59,14 +75,49 @@ async function shopTarget(event) {
 /** @type {import('@sveltejs/kit').Handle} */
 export async function handle({ event, resolve }) {
 	// Every DB query in the app retries momentary D1 hiccups (see d1Retry.js).
-	const env = event.platform?.env;
-	if (env) {
+	// Each request gets its own wrapped bindings, so retries are logged against
+	// the page that hit them (Admin → Error Log, source "retry").
+	const platform = event.platform;
+	if (platform?.env) {
 		try {
-			if (env.DB) env.DB = d1WithRetry(env.DB);
-			if (env.SALES_DB) env.SALES_DB = d1WithRetry(env.SALES_DB);
+			const retries = /** @type {any[]} */ ([]);
+			const onRetry = (/** @type {any} */ info) => retries.push(info);
+			const env = { ...platform.env };
+			if (env.DB) env.DB = d1WithRetry(env.DB, onRetry);
+			if (env.SALES_DB) env.SALES_DB = d1WithRetry(env.SALES_DB, onRetry);
+			/** @type {any} */ (platform).env = env; // plain per-request object at runtime
+			/** @type {any} */ (event.locals).__retries = retries;
 		} catch (e) { console.warn('D1 retry wrapper not applied', e); }
 	}
 
+	const response = await handleShop(event, resolve);
+
+	const locals = /** @type {any} */ (event.locals);
+	// A 5xx that did not come from an unexpected exception (error(500) or an API
+	// answering 500 itself) — still worth a row.
+	if (response.status >= 500 && !locals.__errorLogged) {
+		logError(platform, { source: 'server', status: response.status, ...reqInfo(event), user: await userOf(event),
+			message: `HTTP ${response.status} response`, stack: '' });
+	}
+	// Retries: one row per request (only when something actually had to retry).
+	const retries = locals.__retries ?? [];
+	if (retries.length) {
+		const failed = retries.filter((r) => !r.recovered);
+		logError(platform, {
+			source: 'retry', status: failed.length ? 500 : 200, ...reqInfo(event), user: await userOf(event),
+			message: failed.length ? `D1 retry gave up (${failed.length} of ${retries.length})` : `D1 retry recovered (${retries.length})`,
+			stack: retries.map((r) => `${r.recovered ? 'recovered' : 'FAILED'} after ${r.attempts} retr${r.attempts === 1 ? 'y' : 'ies'} — ${r.label}${r.message ? `\n    ${r.message}` : ''}`).join('\n'),
+		});
+	}
+	return response;
+}
+
+/**
+ * Shop notifications around saves (unchanged behaviour).
+ * @param {import('@sveltejs/kit').RequestEvent} event
+ * @param {(event: import('@sveltejs/kit').RequestEvent) => Promise<Response> | Response} resolve
+ */
+async function handleShop(event, resolve) {
 	const method = event.request.method;
 	if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return resolve(event);
 
@@ -103,7 +154,12 @@ export async function handle({ event, resolve }) {
  * Cloudflare logs instead of only showing "500 Internal Error".
  * @type {import('@sveltejs/kit').HandleServerError}
  */
-export function handleError({ error, event, status, message }) {
-	if (status !== 404) console.error(`[${status}] ${event.request.method} ${event.url.pathname}:`, error);
-	return { message };
+export async function handleError({ error, event, status, message }) {
+	if (status === 404) return { message };
+	console.error(`[${status}] ${event.request.method} ${event.url.pathname}:`, error);
+	const ref = newRef();
+	/** @type {any} */ (event.locals).__errorLogged = true;
+	const { message: msg, stack } = describe(error);
+	logError(event.platform, { source: 'server', status, ...reqInfo(event), user: await userOf(event), message: msg, stack, ref });
+	return { message, ref };
 }

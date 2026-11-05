@@ -1,6 +1,11 @@
 // See https://svelte.dev/docs/kit/types#app.d.ts
 declare global {
 	namespace App {
+		interface Error {
+			message: string;
+			/** Short id of the error_log row, shown on the error page. */
+			ref?: string;
+		}
 		interface Platform {
 			env: {
 				DB: import('@cloudflare/workers-types').D1Database;
