@@ -28,16 +28,18 @@ async function dataStamp(salesDb) {
  * `criteria` must contain everything that affects the result (rules, metric,
  * window…). Today's UTC date is always mixed in, because default windows
  * (year-to-date, current-year chart) move with the calendar.
+ * `opts.stamp(salesDb)` overrides the data version (default: sales sync).
  * @param {D1 | undefined} appDb  @param {D1} salesDb
- * @template T @param {() => Promise<T>} fn @returns {Promise<T>}
+ * @template T @param {() => Promise<T>} fn
+ * @param {{ stamp?: (db: D1) => Promise<string | null> }} [opts] @returns {Promise<T>}
  */
-export async function cachedReport(appDb, salesDb, criteria, fn) {
+export async function cachedReport(appDb, salesDb, criteria, fn, opts = {}) {
 	if (!appDb) return fn();
 	let key, stamp;
 	try {
 		const day = new Date().toISOString().slice(0, 10);
 		key = await sha256(JSON.stringify({ v: 1, day, ...criteria }));
-		stamp = await dataStamp(salesDb);
+		stamp = opts.stamp ? await opts.stamp(salesDb) : await dataStamp(salesDb);
 		if (stamp) {
 			const row = await appDb.prepare('SELECT payload FROM report_cache WHERE key = ? AND stamp = ?').bind(key, stamp).first();
 			if (row?.payload) return JSON.parse(String(row.payload));
@@ -47,11 +49,13 @@ export async function cachedReport(appDb, salesDb, criteria, fn) {
 	const value = await fn();
 	if (stamp && key) {
 		try {
+			const json = JSON.stringify(value);
+			if (json.length > 1_800_000) return value; // D1 row limit is ~2 MB
 			await appDb.batch([
 				appDb.prepare(
 					`INSERT INTO report_cache (key, stamp, payload, created_at) VALUES (?, ?, ?, datetime('now'))
 					 ON CONFLICT(key) DO UPDATE SET stamp = excluded.stamp, payload = excluded.payload, created_at = excluded.created_at`
-				).bind(key, stamp, JSON.stringify(value)),
+				).bind(key, stamp, json),
 				// Housekeeping: anything older than two days can never be hit again.
 				appDb.prepare(`DELETE FROM report_cache WHERE created_at < datetime('now', '-2 days')`),
 			]);

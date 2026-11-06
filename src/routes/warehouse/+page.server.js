@@ -3,7 +3,18 @@
 // lagersystem-sync worker). Access is enforced by the root layout (`warehouse`
 // permission); route lives at /warehouse.
 
+import { cachedReport } from '$lib/server/reportCache.js';
+
 const ymd = (d) => d.toISOString().slice(0, 10);
+
+// Warehouse data only changes when the lagersystem-sync worker runs (hourly
+// orders, stock snapshot), so results are cached until either run stamps a new
+// last_run. Not cached while a sync is mid-run.
+async function wmsStamp(db) {
+	const r = (await db.prepare('SELECT id, last_run, status FROM wms_sync_meta WHERE id IN (1, 2)').all()).results ?? [];
+	if (!r.length || r.some((x) => x.status === 'running')) return null;
+	return r.map((x) => `${x.id}:${x.last_run}`).join('|');
+}
 
 // Lagersystem stores the delivery country as an ISO 3166 numeric code.
 const COUNTRY_BY_NUM = {
@@ -63,11 +74,24 @@ export async function load({ url, platform }) {
 	if (!db) return { from, to, presets, selected, ready: false, reason: 'no-db' };
 
 	try {
+		const data = await cachedReport(appDb, db, { kind: 'warehouse', from, to },
+			() => computeRange(db, appDb, from, to), { stamp: wmsStamp });
+		const deadStock = await cachedReport(appDb, db, { kind: 'warehouse-deadstock' },
+			async () => loadDeadStock(db, await catalogNames(appDb)), { stamp: wmsStamp }).catch(() => null);
+		return { from, to, presets, selected, ready: true, ...data, deadStock };
+	} catch (e) {
+		const message = e instanceof Error ? e.message : String(e);
+		return { from, to, presets, selected, ready: false, reason: /no such table/i.test(message) ? 'no-table' : 'error', message };
+	}
+}
+
+async function computeRange(db, appDb, from, to) {
+	{
 		const inbound = (await db.prepare(
 			`SELECT substr(received_date,1,10) AS d, sub_site AS site,
 			        COUNT(*) AS orders, COALESCE(SUM(line_count),0) AS lines, COALESCE(SUM(unit_count),0) AS units
 			 FROM wms_orders
-			 WHERE received_date IS NOT NULL AND substr(received_date,1,10) BETWEEN ? AND ?
+			 WHERE received_date IS NOT NULL AND received_date >= ? AND received_date < date(?, '+1 day')
 			 GROUP BY d, site`
 		).bind(from, to).all()).results ?? [];
 
@@ -131,15 +155,8 @@ export async function load({ url, platform }) {
 		// migration 0102 not applied yet) hides just that section.
 		const heatmap = await loadHeatmap(db, from, to).catch(() => null);
 		const scorecard = await loadScorecard(db, to).catch(() => null);
-		const deadStock = await loadDeadStock(db, names).catch(() => null);
 
-		return {
-			from, to, presets, selected, ready: true, inbound, handled,
-			dims: { products, customers, countries }, handling, heatmap, scorecard, deadStock, syncMeta: meta,
-		};
-	} catch (e) {
-		const message = e instanceof Error ? e.message : String(e);
-		return { from, to, presets, selected, ready: false, reason: /no such table/i.test(message) ? 'no-table' : 'error', message };
+		return { inbound, handled, dims: { products, customers, countries }, handling, heatmap, scorecard, syncMeta: meta };
 	}
 }
 
@@ -149,7 +166,7 @@ async function loadHeatmap(db, from, to) {
 		`SELECT CAST(strftime('%w', received_date) AS INTEGER) AS wd, CAST(strftime('%H', received_date) AS INTEGER) AS hr,
 		        COUNT(*) AS orders, COALESCE(SUM(line_count),0) AS lines, COALESCE(SUM(unit_count),0) AS units
 		 FROM wms_orders
-		 WHERE received_date IS NOT NULL AND substr(received_date,1,10) BETWEEN ? AND ?
+		 WHERE received_date IS NOT NULL AND received_date >= ? AND received_date < date(?, '+1 day')
 		 GROUP BY wd, hr`
 	).bind(from, to).all()).results ?? [];
 	// How many of each weekday the range spans, so cells can show a per-day average.
@@ -174,7 +191,7 @@ const WK = (col) => `date(${col}, '-' || ((CAST(strftime('%w', ${col}) AS INTEGE
 async function scoreSpan(db, start, end, weekEnds) {
 	const recv = (await db.prepare(
 		`SELECT ${WK('substr(received_date,1,10)')} AS w, COUNT(*) AS c FROM wms_orders
-		 WHERE received_date IS NOT NULL AND substr(received_date,1,10) BETWEEN ? AND ? GROUP BY w`
+		 WHERE received_date IS NOT NULL AND received_date >= ? AND received_date < date(?, '+1 day') GROUP BY w`
 	).bind(start, end).all()).results ?? [];
 	const hand = (await db.prepare(
 		`SELECT ${WK('done_date')} AS w, COUNT(*) AS orders, COALESCE(SUM(line_count),0) AS lines, COALESCE(SUM(unit_count),0) AS units
@@ -196,7 +213,7 @@ async function scoreSpan(db, start, end, weekEnds) {
 	const backlog = (await db.prepare(
 		`WITH ends(e) AS (VALUES ${ph})
 		 SELECT e, (SELECT COUNT(*) FROM wms_orders o
-		            WHERE o.received_date IS NOT NULL AND substr(o.received_date,1,10) <= e
+		            WHERE o.received_date IS NOT NULL AND o.received_date < date(e, '+1 day')
 		              AND (o.done_date IS NULL OR o.done_date > e)
 		              AND (o.gone_date IS NULL OR o.gone_date > e)) AS open
 		 FROM ends`
