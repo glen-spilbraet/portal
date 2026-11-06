@@ -55,7 +55,7 @@
 		const sm = data.syncMeta;
 		if (!sm?.last_run) return null;
 		const ageMs = Date.now() - Date.parse(sm.last_run);
-		const stale = ageMs > 3 * 3600 * 1000; // cron is hourly
+		const stale = ageMs > 26 * 3600 * 1000; // cron is nightly
 		if (sm.status === 'error') return { cls: 'bad', label: 'Sync error' };
 		if (stale) return { cls: 'warn', label: `Stale · ${relTime(sm.last_run)}` };
 		return { cls: 'ok', label: `Updated ${relTime(sm.last_run)}` };
@@ -260,12 +260,31 @@
 	const hmBg = (v) => (v > 0 ? `rgba(245,120,50,${(0.07 + 0.93 * (v / (hm.max || 1))).toFixed(3)})` : 'transparent');
 	const hmRowAvg = (wd) => HOURS.reduce((s, h) => s + hmVal(wd, h), 0);
 
-	// ── Slow & dead stock ───────────────────────────────────────────────────────
+	// ── Tabs ─────────────────────────────────────────────────────────────────────
+	// Operational follows the date picker (server load). Slow movers / Dead stock
+	// is fetched lazily the first time its tab is opened — never on page load.
+	let tab = $state('ops');
+	let ds = $state(/** @type {any} */ (null)); // { rows, computed, trackingStart, missing? }
+	let dsLoading = $state(false);
+	let dsError = $state('');
+	async function loadDs() {
+		if (ds || dsLoading) return;
+		dsLoading = true; dsError = '';
+		try {
+			const res = await fetch('/warehouse/dead-stock');
+			if (!res.ok) throw new Error((await res.json().catch(() => null))?.message ?? `HTTP ${res.status}`);
+			ds = await res.json();
+		} catch (e) { dsError = e instanceof Error ? e.message : String(e); }
+		finally { dsLoading = false; }
+	}
+	function openTab(k) { tab = k; if (k === 'dead') loadDs(); }
+
+	// ── Slow movers / dead stock ────────────────────────────────────────────────
 	const DS_MODES = [
-		{ key: '60', label: 'No shipments 60d' },
-		{ key: '90', label: 'No shipments 90d' },
-		{ key: '180', label: 'No shipments 180d' },
-		{ key: 'slow', label: 'Slow (> 12 mo cover)' },
+		{ key: '90', label: 'No sales 90 days' },
+		{ key: '180', label: 'No sales 180 days' },
+		{ key: '365', label: 'No sales 365 days' },
+		{ key: 'slow', label: 'Slow movers (> 12 mo cover)' },
 	];
 	let dsMode = $state('90');
 	let dsSearch = $state('');
@@ -276,18 +295,27 @@
 		else { dsSortKey = k; dsSortDir = ['sku', 'name', 'vendor'].includes(k) ? 'asc' : 'desc'; }
 	}
 	const todayMs = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
-	const dsAll = $derived((data.deadStock?.rows ?? []).map((r) => {
-		const since = r.last_done ? Math.round((todayMs - Date.parse(r.last_done + 'T00:00:00Z')) / 86400000) : Infinity;
-		const u90 = Number(r.units90) || 0;
+	const dsAll = $derived((ds?.rows ?? []).map((r) => {
+		const since = r.last_sale ? Math.round((todayMs - Date.parse(r.last_sale + 'T00:00:00Z')) / 86400000) : Infinity;
 		const stock = Number(r.stock) || 0;
-		return { sku: r.sku, name: r.name || r.title || r.sku, vendor: r.vendor || '', category: r.category || '', stock, last: r.last_done, since, units90: u90, cover: u90 > 0 ? stock / (u90 / 90) : Infinity };
+		const u365 = Number(r.units_365) || 0;
+		return {
+			sku: r.sku, name: r.name || r.title || r.sku, vendor: r.vendor || '', category: r.category || '', stock,
+			last: r.last_sale, since,
+			u90: Number(r.units_90) || 0, u180: Number(r.units_180) || 0, u365,
+			cover: u365 > 0 ? stock / (u365 / 365) : Infinity,
+		};
 	}));
+	// Units sold in the selected window (no-sales modes are 0 by definition, so
+	// slow movers show the 12-month figure).
+	const dsPeriodKey = $derived(dsMode === '90' ? 'u90' : dsMode === '180' ? 'u180' : 'u365');
+	const dsPeriodLabel = $derived(dsMode === '90' ? 'Sold 90d' : dsMode === '180' ? 'Sold 180d' : 'Sold 12 mo');
 	const dsRows = $derived.by(() => {
 		const q = dsSearch.trim().toLowerCase();
-		let out = dsAll.filter((r) => (dsMode === 'slow' ? r.units90 > 0 && r.cover > 365 : r.since >= Number(dsMode)));
+		let out = dsAll.filter((r) => (dsMode === 'slow' ? r.u365 > 0 && r.cover > 365 : r.since >= Number(dsMode)));
 		if (q) out = out.filter((r) => [r.sku, r.name, r.vendor, r.category].some((s) => String(s).toLowerCase().includes(q)));
 		const dir = dsSortDir === 'asc' ? 1 : -1;
-		const key = dsSortKey === 'last' ? 'since' : dsSortKey;
+		const key = dsSortKey === 'last' ? 'since' : dsSortKey === 'period' ? dsPeriodKey : dsSortKey;
 		out.sort((a, b) => {
 			const av = a[key], bv = b[key];
 			if (typeof av === 'string') return av.toLowerCase() < bv.toLowerCase() ? -dir : av.toLowerCase() > bv.toLowerCase() ? dir : 0;
@@ -300,8 +328,8 @@
 	const coverLabel = (c) => (!Number.isFinite(c) ? '—' : c >= 60 ? `${Math.round(c / 30.4)} mo` : `${Math.round(c)} d`);
 	function dsExport() {
 		const esc = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-		const lines = ['SKU,Product Name,Supplier,Category,Stock,Last shipped,Days since,Shipped 90d,Cover (days)'];
-		for (const r of dsRows) lines.push([esc(r.sku), esc(r.name), esc(r.vendor), esc(r.category), r.stock, r.last ?? '', Number.isFinite(r.since) ? r.since : '', r.units90, Number.isFinite(r.cover) ? Math.round(r.cover) : ''].join(','));
+		const lines = [`SKU,Product Name,Supplier,Category,Stock,Last sale,Days since,${dsPeriodLabel},Cover (days)`];
+		for (const r of dsRows) lines.push([esc(r.sku), esc(r.name), esc(r.vendor), esc(r.category), r.stock, r.last ?? '', Number.isFinite(r.since) ? r.since : '', r[dsPeriodKey], Number.isFinite(r.cover) ? Math.round(r.cover) : ''].join(','));
 		const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
 		const a = document.createElement('a');
 		a.href = url; a.download = `slow-dead-stock-${dsMode}.csv`; a.click();
@@ -404,6 +432,9 @@
 		{#if fresh}
 			<div class="freshness {fresh.cls}"><span class="dot"></span>{fresh.label}</div>
 		{/if}
+		{#if tab === 'dead'}
+			<span class="range-note">As of last night’s sync — not affected by the date range</span>
+		{:else}
 		<div class="range-controls" class:busy aria-busy={busy}>
 			<select class="quick-select" class:active={data.selected !== 'custom'} aria-label="Quick select" onchange={pickPreset} disabled={busy}>
 				<option value="" disabled selected={data.selected === 'custom'}>Custom range</option>
@@ -420,20 +451,108 @@
 				</button>
 			</form>
 		</div>
+		{/if}
 	</div>
 </div>
 
 <main>
 	<div class="section-head page">
 		<h2>Warehouse</h2>
-		<div class="pub-toggle" role="group" aria-label="Metric">
-			{#each GRAINS as g}
-				<button type="button" class:active={grain === g.key} onclick={() => (grain = g.key)}>{g.label}</button>
-			{/each}
-		</div>
+		{#if tab === 'ops'}
+			<div class="pub-toggle" role="group" aria-label="Metric">
+				{#each GRAINS as g}
+					<button type="button" class:active={grain === g.key} onclick={() => (grain = g.key)}>{g.label}</button>
+				{/each}
+			</div>
+		{/if}
 	</div>
 
-	{#if !data.ready}
+	<div class="wh-tabs" role="tablist" aria-label="Warehouse views">
+		<button type="button" role="tab" class="wh-tab" class:on={tab === 'ops'} aria-selected={tab === 'ops'} onclick={() => openTab('ops')}>Operational</button>
+		<button type="button" role="tab" class="wh-tab" class:on={tab === 'dead'} aria-selected={tab === 'dead'} onclick={() => openTab('dead')}>Slow movers / Dead stock</button>
+	</div>
+
+	{#if tab === 'dead'}
+		<div class="section-head ds-head">
+			<h2>Slow movers &amp; dead stock</h2>
+			<span class="sc-cap">
+				{#if ds?.computed}computed {relTime(ds.computed)} · {/if}{fmt(dsRows.length)} SKUs · {fmt(dsUnits)} units in stock
+			</span>
+		</div>
+		{#if dsLoading}
+			<div class="empty"><p class="muted">Loading…</p></div>
+		{:else if dsError}
+			<div class="empty">
+				<p><strong>Couldn’t load slow movers.</strong></p>
+				<p class="muted err-detail">{dsError}</p>
+				<p><button type="button" class="export-btn" onclick={() => { ds = null; loadDs(); }}>Try again</button></p>
+			</div>
+		{:else if ds?.missing}
+			<div class="empty"><p class="muted">The nightly stock summary isn’t set up yet (table <code>wms_sku_activity</code>). It appears after migration 0106 and the next nightly sync.</p></div>
+		{:else if ds}
+			<section class="table-wrap ds-wrap">
+				<div class="table-head">
+					<div class="dim-tabs" role="tablist">
+						{#each DS_MODES as m}
+							<button class="dim-tab" class:on={dsMode === m.key} role="tab" aria-selected={dsMode === m.key} onclick={() => (dsMode = m.key)}>{m.label}</button>
+						{/each}
+					</div>
+					<span class="count">{fmt(dsRows.length)}</span>
+					<button class="export-btn" onclick={dsExport} type="button" title="Export the current view to CSV">
+						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+						</svg>
+						Export CSV
+					</button>
+				</div>
+				<div class="dim-filter">
+					<div class="dim-search">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+						</svg>
+						<input type="text" bind:value={dsSearch} placeholder="Search SKU, product, supplier…" aria-label="Filter slow and dead stock" />
+						{#if dsSearch}
+							<button class="dim-search-clear" onclick={() => (dsSearch = '')} aria-label="Clear search" title="Clear">×</button>
+						{/if}
+					</div>
+				</div>
+				<div class="table-scroll">
+					<table>
+						<colgroup>
+							<col style="width:120px" /><col /><col style="width:90px" />
+							<col style="width:120px" /><col style="width:96px" /><col style="width:104px" /><col style="width:84px" />
+						</colgroup>
+						<thead>
+							<tr>
+								{#each [['sku', 'SKU', false], ['name', 'Product Name', false], ['stock', 'Stock', true], ['last', 'Last sale', true], ['since', 'Days since', true], ['period', dsPeriodLabel, true], ['cover', 'Cover', true]] as [k, lbl, isNum]}
+									<th class="th-sort" class:num={isNum} class:sorted={dsSortKey === k} onclick={() => dsSetSort(k)}>{lbl}{#if dsSortKey === k}<span class="caret">{dsSortDir === 'asc' ? '▲' : '▼'}</span>{/if}</th>
+								{/each}
+							</tr>
+						</thead>
+						<tbody>
+							{#each dsRows as r (r.sku)}
+								<tr>
+									<td class="sku">{r.sku}</td>
+									<td class="name">{r.name}{#if r.category || r.vendor}<span class="ds-cat">{[r.category, r.vendor].filter(Boolean).join(' · ')}</span>{/if}</td>
+									<td class="num">{fmt(r.stock)}</td>
+									<td class="num">
+										{#if r.last}{shortDate(r.last)} {r.last.slice(0, 4)}
+										{:else}<span class="ds-never">None since {shortDate(ds.trackingStart)} {ds.trackingStart?.slice(0, 4)}</span>{/if}
+									</td>
+									<td class="num">{Number.isFinite(r.since) ? fmt(r.since) : '—'}</td>
+									<td class="num">{fmt(r[dsPeriodKey])}</td>
+									<td class="num">{coverLabel(r.cover)}</td>
+								</tr>
+							{/each}
+							{#if dsRows.length === 0}
+								<tr><td colspan="7" class="empty-row">Nothing matches this filter.</td></tr>
+							{/if}
+						</tbody>
+					</table>
+				</div>
+			</section>
+		{/if}
+	{:else if !data.ready}
 		<div class="empty">
 			<p><strong>No warehouse data yet.</strong></p>
 			{#if data.reason === 'no-table'}
@@ -688,79 +807,6 @@
 			</div>
 		</section>
 
-		<!-- Slow & dead stock (as of today, independent of the date range) -->
-		{#if data.deadStock}
-			<div class="section-head ds-head">
-				<h2>Slow &amp; dead stock</h2>
-				<span class="sc-cap">
-					as of today{#if data.deadStock.updated} · stock synced {relTime(data.deadStock.updated)}{/if}
-					· {fmt(dsRows.length)} SKUs · {fmt(dsUnits)} units
-				</span>
-			</div>
-			<section class="table-wrap ds-wrap">
-				<div class="table-head">
-					<div class="dim-tabs" role="tablist">
-						{#each DS_MODES as m}
-							<button class="dim-tab" class:on={dsMode === m.key} role="tab" aria-selected={dsMode === m.key} onclick={() => (dsMode = m.key)}>{m.label}</button>
-						{/each}
-					</div>
-					<span class="count">{fmt(dsRows.length)}</span>
-					<button class="export-btn" onclick={dsExport} type="button" title="Export the current view to CSV">
-						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
-						</svg>
-						Export CSV
-					</button>
-				</div>
-				<div class="dim-filter">
-					<div class="dim-search">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-							<circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-						</svg>
-						<input type="text" bind:value={dsSearch} placeholder="Search SKU, product, supplier…" aria-label="Filter slow and dead stock" />
-						{#if dsSearch}
-							<button class="dim-search-clear" onclick={() => (dsSearch = '')} aria-label="Clear search" title="Clear">×</button>
-						{/if}
-					</div>
-				</div>
-				<div class="table-scroll">
-					<table>
-						<colgroup>
-							<col style="width:120px" /><col /><col style="width:190px" />
-							<col style="width:90px" /><col style="width:150px" /><col style="width:104px" /><col style="width:84px" />
-						</colgroup>
-						<thead>
-							<tr>
-								{#each [['sku', 'SKU', false], ['name', 'Product Name', false], ['vendor', 'Supplier', false], ['stock', 'Stock', true], ['last', 'Last shipped', true], ['units90', 'Shipped 90d', true], ['cover', 'Cover', true]] as [k, lbl, isNum]}
-									<th class="th-sort" class:num={isNum} class:sorted={dsSortKey === k} onclick={() => dsSetSort(k)}>{lbl}{#if dsSortKey === k}<span class="caret">{dsSortDir === 'asc' ? '▲' : '▼'}</span>{/if}</th>
-								{/each}
-							</tr>
-						</thead>
-						<tbody>
-							{#each dsRows as r (r.sku)}
-								<tr>
-									<td class="sku">{r.sku}</td>
-									<td class="name">{r.name}{#if r.category}<span class="ds-cat">{r.category}</span>{/if}</td>
-									<td class="ds-ven">{r.vendor || '—'}</td>
-									<td class="num">{fmt(r.stock)}</td>
-									<td class="num">
-										{#if r.last}{shortDate(r.last)} {r.last.slice(0, 4)}<span class="ds-ago">{r.since} d ago</span>
-										{:else}<span class="ds-never">Not since {shortDate(data.deadStock.trackingStart)} {data.deadStock.trackingStart?.slice(0, 4)}</span>{/if}
-									</td>
-									<td class="num">{fmt(r.units90)}</td>
-									<td class="num">{coverLabel(r.cover)}</td>
-								</tr>
-							{/each}
-							{#if dsRows.length === 0}
-								<tr><td colspan="7" class="empty-row">
-									{data.deadStock.products ? 'Nothing matches this filter.' : 'No stock snapshot yet — it arrives with the next sync.'}
-								</td></tr>
-							{/if}
-						</tbody>
-					</table>
-				</div>
-			</section>
-		{/if}
 	{/if}
 </main>
 
@@ -919,8 +965,15 @@
 	.hm-c.hm-tot { background: #FBEFCB !important; color: #7B3803; }
 	.hm-h.hm-tot { text-align: center; padding-left: 0; }
 
+	/* Tabs (underline style, like the Stats sub-views) */
+	.wh-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--border); margin: -6px 0 22px; }
+	.wh-tab { font-family: inherit; font-size: 13.5px; font-weight: 700; color: #8A7E68; background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 0 9px; margin-bottom: -1px; cursor: pointer; }
+	.wh-tab:hover { color: #524431; }
+	.wh-tab.on { color: #18181B; border-bottom-color: var(--accent); }
+	.range-note { font-size: 12.5px; font-weight: 600; color: #A89C84; padding: 7px 0; }
+
 	/* Slow & dead stock */
-	.ds-head { margin-top: 30px; }
+	.ds-head { margin-top: 4px; }
 	.ds-wrap { margin-top: 0; }
 	.ds-cat { display: block; font-size: 11.5px; font-weight: 500; color: #A89C84; margin-top: 1px; }
 	.ds-ven { color: #6b5e4e; font-size: 12.5px; }

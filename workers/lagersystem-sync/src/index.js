@@ -15,9 +15,13 @@
  *                  fetched in full each run (small) -> the live inbound queue.
  *
  * Triggers:
- *   - hourly cron
+ *   - nightly cron: run (+ forced stock snapshot) → SKU activity rollup →
+ *     warm the portals' Warehouse cache
  *   - HTTP GET/POST with `Authorization: Bearer <SYNC_SECRET>`:
- *       (default)      incremental run (same as cron)
+ *       (default)      incremental run (orders only, like before)
+ *       ?nightly=1     the full nightly sequence, same as the cron
+ *       ?activity=1    only rebuild wms_sku_activity
+ *       ?warm=1        only warm the portals' Warehouse cache
  *       ?full=1        ignore stored cutoff, backfill BACKFILL_DAYS of FINISHED
  *       ?days=N        backfill N days of FINISHED this run
  *       ?backfill=1    resumable historical backfill of FINISHED, bounded per
@@ -39,7 +43,7 @@ const OVERLAP_DAYS = 3; // re-pull a few days past the last cutoff to catch late
 
 export default {
 	async scheduled(event, env, ctx) {
-		ctx.waitUntil(run(env, {}).catch((e) => console.error('scheduled sync failed', e)));
+		ctx.waitUntil(nightly(env).catch((e) => console.error('nightly sync failed', e)));
 	},
 
 	async fetch(request, env) {
@@ -63,6 +67,14 @@ export default {
 			}
 		}
 
+		try {
+			if (url.searchParams.get('nightly') === '1') return json({ ok: true, ...(await nightly(env)) });
+			if (url.searchParams.get('activity') === '1') return json({ ok: true, activity: await refreshSkuActivity(env) });
+			if (url.searchParams.get('warm') === '1') return json({ ok: true, warm: await warmPortals(env) });
+		} catch (e) {
+			return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
+		}
+
 		const opts = {};
 		if (url.searchParams.get('full') === '1') opts.full = true;
 		if (url.searchParams.get('stock') === '1') opts.stock = true; // force a stock snapshot
@@ -76,6 +88,78 @@ export default {
 		}
 	},
 };
+
+/**
+ * The nightly sequence. Each step is independent: a failing step is reported
+ * but doesn't stop the next (the portal then simply builds its cache on the
+ * first page load instead).
+ */
+async function nightly(env) {
+	const out = {};
+	try { out.sync = await run(env, { stock: true }); }
+	catch (e) { out.sync = { error: e instanceof Error ? e.message : String(e) }; console.error('nightly: sync failed', e); }
+	try { out.activity = await refreshSkuActivity(env); }
+	catch (e) { out.activity = { error: e instanceof Error ? e.message : String(e) }; console.error('nightly: activity failed', e); }
+	try { out.warm = await warmPortals(env); }
+	catch (e) { out.warm = { error: e instanceof Error ? e.message : String(e) }; }
+	console.log('nightly done', JSON.stringify(out));
+	return out;
+}
+
+/**
+ * Rebuild wms_sku_activity — one row per SKU in the stock snapshot with its
+ * last sale and units shipped over 90/180/365 days. One aggregate pass over
+ * the order lines, done entirely inside D1 (DELETE + INSERT…SELECT in one
+ * batch, so readers never see a half-built table). Feeds the Warehouse
+ * "Slow movers / Dead stock" tab, which then never touches order history.
+ */
+async function refreshSkuActivity(env) {
+	const t = Date.now();
+	const run = async () => env.DB.batch([
+		env.DB.prepare('DELETE FROM wms_sku_activity'),
+		env.DB.prepare(
+			`INSERT INTO wms_sku_activity (item_number, title, category, vendor, stock, last_sale, units_90, units_180, units_365, computed_at)
+			 SELECT s.item_number, s.title, s.category, s.vendor, s.stock, a.last_sale,
+			        COALESCE(a.u90, 0), COALESCE(a.u180, 0), COALESCE(a.u365, 0), datetime('now')
+			 FROM wms_stock s
+			 LEFT JOIN (
+			   SELECT l.item_number, MAX(o.done_date) AS last_sale,
+			          SUM(CASE WHEN o.done_date >= date('now','-90 day')  THEN l.amount_delivered ELSE 0 END) AS u90,
+			          SUM(CASE WHEN o.done_date >= date('now','-180 day') THEN l.amount_delivered ELSE 0 END) AS u180,
+			          SUM(CASE WHEN o.done_date >= date('now','-365 day') THEN l.amount_delivered ELSE 0 END) AS u365
+			   FROM wms_order_lines l JOIN wms_orders o ON o.order_id = l.order_id
+			   WHERE o.done_date IS NOT NULL AND l.item_number IS NOT NULL
+			   GROUP BY l.item_number
+			 ) a ON a.item_number = s.item_number`
+		),
+	]);
+	for (let attempt = 0; ; attempt++) {
+		try { await run(); break; }
+		catch (e) {
+			if (attempt < 3 && /overload|too many|busy|reset|timeout/i.test(String(e?.message ?? e))) { await sleep(5000 * (attempt + 1)); continue; }
+			throw e;
+		}
+	}
+	const n = (await env.DB.prepare('SELECT COUNT(*) AS n FROM wms_sku_activity').first())?.n ?? 0;
+	await env.DB.prepare(
+		`INSERT INTO wms_sync_meta (id, last_run, orders_seen, status, message) VALUES (3, ?, ?, 'ok', 'sku activity')
+		 ON CONFLICT(id) DO UPDATE SET last_run = excluded.last_run, orders_seen = excluded.orders_seen, status = 'ok', message = excluded.message`
+	).bind(new Date().toISOString(), n).run();
+	return { skus: n, ms: Date.now() - t };
+}
+
+/** Ask each portal (prod + dev) to pre-build its Warehouse cache. Best effort. */
+async function warmPortals(env) {
+	const urls = String(env.PORTAL_URLS || '').split(',').map((u) => u.trim().replace(/\/$/, '')).filter(Boolean);
+	const out = {};
+	for (const base of urls) {
+		try {
+			const res = await fetch(`${base}/api/warehouse/warm`, { method: 'POST', headers: { Authorization: `Bearer ${env.SYNC_SECRET}` } });
+			out[base] = res.ok ? 'ok' : `HTTP ${res.status}`; // 404 = that portal doesn't have the endpoint yet
+		} catch (e) { out[base] = e instanceof Error ? e.message : String(e); }
+	}
+	return out;
+}
 
 /** Shift today's UTC date by -n days, as YYYY-MM-DD. */
 function daysAgoYmd(n) {
@@ -330,7 +414,7 @@ async function run(env, opts) {
 	// glitch can't mark live orders as gone.
 	const vanished = activeOk ? await resolveVanished(env, activeStart) : { skipped: true };
 
-	// Stock snapshot (slow & dead stock), refreshed when older than 3 h.
+	// Stock snapshot (slow & dead stock): forced by the nightly run; manual runs refresh it when older than 3 h.
 	let stock = null;
 	try { stock = await syncStockIfStale(env, opts.stock === true); }
 	catch (e) { stock = { error: e instanceof Error ? e.message : String(e) }; }
@@ -351,12 +435,12 @@ async function run(env, opts) {
  * each up via POST /api/order/search and record the outcome: SENT/FINISHED →
  * done_date today (the FINISHED scan later overwrites with the real date);
  * cancelled/rejected/etc → gone_date; not found → deleted (gone). Bounded per
- * run; the rest are picked up next hour.
+ * run (300 — the run is nightly now); the rest are picked up the next night.
  */
 async function resolveVanished(env, activeStart) {
 	const rows = (await env.DB.prepare(
 		`SELECT order_id FROM wms_orders
-		 WHERE done_date IS NULL AND gone_date IS NULL AND synced_at < ? LIMIT 60`
+		 WHERE done_date IS NULL AND gone_date IS NULL AND synced_at < ? LIMIT 300`
 	).bind(activeStart).all()).results ?? [];
 	const today = new Date().toISOString().slice(0, 10);
 	const out = { checked: rows.length, done: 0, gone: 0, still_active: 0, unknown: 0 };
