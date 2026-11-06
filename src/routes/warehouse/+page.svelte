@@ -1,5 +1,6 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
+	import SubTabs from '$lib/components/SubTabs.svelte';
 	import { goto } from '$app/navigation';
 
 	let { data } = $props();
@@ -455,22 +456,17 @@
 	</div>
 </div>
 
-<main>
-	<div class="section-head page">
-		<h2>Warehouse</h2>
-		{#if tab === 'ops'}
-			<div class="pub-toggle" role="group" aria-label="Metric">
-				{#each GRAINS as g}
-					<button type="button" class:active={grain === g.key} onclick={() => (grain = g.key)}>{g.label}</button>
-				{/each}
-			</div>
-		{/if}
-	</div>
+<SubTabs
+	title="Warehouse"
+	active={tab}
+	onselect={openTab}
+	tabs={[
+		{ key: 'ops', label: 'Operational', icon: 'chart' },
+		{ key: 'dead', label: 'Slow movers / Dead stock', icon: 'box_off' },
+	]}
+/>
 
-	<div class="wh-tabs" role="tablist" aria-label="Warehouse views">
-		<button type="button" role="tab" class="wh-tab" class:on={tab === 'ops'} aria-selected={tab === 'ops'} onclick={() => openTab('ops')}>Operational</button>
-		<button type="button" role="tab" class="wh-tab" class:on={tab === 'dead'} aria-selected={tab === 'dead'} onclick={() => openTab('dead')}>Slow movers / Dead stock</button>
-	</div>
+<main>
 
 	{#if tab === 'dead'}
 		<div class="section-head ds-head">
@@ -565,6 +561,15 @@
 			{/if}
 		</div>
 	{:else}
+		<div class="section-head">
+			<h2>Inbound vs handled</h2>
+			<div class="pub-toggle" role="group" aria-label="Metric">
+				{#each GRAINS as g}
+					<button type="button" class:active={grain === g.key} onclick={() => (grain = g.key)}>{g.label}</button>
+				{/each}
+			</div>
+		</div>
+
 		<!-- KPI row -->
 		<div class="kpis">
 			<div class="kpi inbound">
@@ -965,11 +970,6 @@
 	.hm-c.hm-tot { background: #FBEFCB !important; color: #7B3803; }
 	.hm-h.hm-tot { text-align: center; padding-left: 0; }
 
-	/* Tabs (underline style, like the Stats sub-views) */
-	.wh-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--border); margin: -6px 0 22px; }
-	.wh-tab { font-family: inherit; font-size: 13.5px; font-weight: 700; color: #8A7E68; background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 0 9px; margin-bottom: -1px; cursor: pointer; }
-	.wh-tab:hover { color: #524431; }
-	.wh-tab.on { color: #18181B; border-bottom-color: var(--accent); }
 	.range-note { font-size: 12.5px; font-weight: 600; color: #A89C84; padding: 7px 0; }
 
 	/* Slow & dead stock */

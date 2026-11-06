@@ -33,30 +33,36 @@ function countryName(code) {
 	return COUNTRY_BY_NUM[c] ?? `Country ${code}`;
 }
 
-/** Quick-select presets (independent of the Stats date picker). */
+/**
+ * Quick-select presets. All of them END YESTERDAY — today is never included
+ * (the data is synced nightly, so today would always be partial/empty).
+ * "To date" periods run from the start of the period containing yesterday,
+ * so on the 1st, "Month to date" is the whole previous month.
+ */
 export function buildPresets() {
 	const now = new Date();
-	const y = now.getUTCFullYear();
-	const m = now.getUTCMonth();
-	const today = new Date(Date.UTC(y, m, now.getUTCDate()));
-	const minus = (n) => { const d = new Date(today); d.setUTCDate(d.getUTCDate() - n); return d; };
 	const utc = (yy, mm, dd) => new Date(Date.UTC(yy, mm, dd));
+	const end = utc(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1); // yesterday
+	const y = end.getUTCFullYear();
+	const m = end.getUTCMonth();
+	const minus = (n) => { const d = new Date(end); d.setUTCDate(d.getUTCDate() - n); return d; };
 
 	const q = Math.floor(m / 3);
 	const qStart = utc(y, q * 3, 1);
-	const lqStartMonthRaw = q * 3 - 3;
-	const lqYear = lqStartMonthRaw < 0 ? y - 1 : y;
-	const lqStart = utc(lqYear, (lqStartMonthRaw + 12) % 12, 1);
-	const lqEnd = new Date(qStart); lqEnd.setUTCDate(lqEnd.getUTCDate() - 1);
+	const lqStart = utc(y, q * 3 - 3, 1);              // Date.UTC rolls negative months back a year
+	const lqEnd = utc(y, q * 3, 0);                    // day 0 = last day of the previous month
+	const lmStart = utc(y, m - 1, 1);
+	const lmEnd = utc(y, m, 0);
 
 	return [
-		{ key: '7d',  label: 'Last 7 days',   from: ymd(minus(6)),  to: ymd(today) },
-		{ key: '14d', label: 'Last 14 days',  from: ymd(minus(13)), to: ymd(today) },
-		{ key: '30d', label: 'Last 30 days',  from: ymd(minus(29)), to: ymd(today) },
-		{ key: 'tq',  label: 'This quarter',  from: ymd(qStart),    to: ymd(today) },
-		{ key: 'lq',  label: 'Last quarter',  from: ymd(lqStart),   to: ymd(lqEnd) },
-		{ key: 'ty',  label: 'This year',     from: ymd(utc(y, 0, 1)),   to: ymd(today) },
-		{ key: 'ly',  label: 'Last year',     from: ymd(utc(y - 1, 0, 1)), to: ymd(utc(y - 1, 11, 31)) },
+		{ key: 'mtd', label: 'Month to date',   from: ymd(utc(y, m, 1)), to: ymd(end) },
+		{ key: 'qtd', label: 'Quarter to date', from: ymd(qStart),       to: ymd(end) },
+		{ key: 'ytd', label: 'Year to date',    from: ymd(utc(y, 0, 1)), to: ymd(end) },
+		{ key: '7d',  label: 'Last 7 days',     from: ymd(minus(6)),     to: ymd(end) },
+		{ key: '30d', label: 'Last 30 days',    from: ymd(minus(29)),    to: ymd(end) },
+		{ key: 'lm',  label: 'Last month',      from: ymd(lmStart),      to: ymd(lmEnd) },
+		{ key: 'lq',  label: 'Last quarter',    from: ymd(lqStart),      to: ymd(lqEnd) },
+		{ key: 'ly',  label: 'Last year',       from: ymd(utc(y - 1, 0, 1)), to: ymd(utc(y - 1, 11, 31)) },
 	];
 }
 
