@@ -154,8 +154,11 @@ async function warmPortals(env) {
 	const out = {};
 	for (const base of urls) {
 		try {
-			const res = await fetch(`${base}/api/warehouse/warm`, { method: 'POST', headers: { Authorization: `Bearer ${env.SYNC_SECRET}` } });
-			out[base] = res.ok ? 'ok' : `HTTP ${res.status}`; // 404 = that portal doesn't have the endpoint yet
+			// redirect: 'manual' — a portal without the endpoint redirects to /login,
+			// which would otherwise look like a 200.
+			const res = await fetch(`${base}/api/warehouse/warm`, { method: 'POST', redirect: 'manual', headers: { Authorization: `Bearer ${env.SYNC_SECRET}` } });
+			const body = res.ok ? await res.json().catch(() => null) : null;
+			out[base] = body?.ok ? 'ok' : `HTTP ${res.status}${res.ok ? ' (not the warm endpoint)' : ''}`;
 		} catch (e) { out[base] = e instanceof Error ? e.message : String(e); }
 	}
 	return out;
