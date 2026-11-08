@@ -11,9 +11,9 @@
  * event/award never leak into a publisher's report.
  *
  * Publisher-facing visibility:
- *   - awards: submitted / nominated / winner; a win shows only once its
+ *   - awards: nominated / winner only; a win shows only once its
  *     disclosure_date has passed (before that it shows as nominated);
- *     "nothing" (no result) is hidden
+ *     "submitted" and "nothing" are hidden
  *   - press:  sent / used / (legacy entries with no status); "not_used" hidden
  *   - events: everything except cancelled; internal notes/contacts never exposed
  *
@@ -153,7 +153,7 @@ export async function loadInitiatives(db, salesDb, rules) {
 		const base = { id: e.id, date: e.instance_date, media: e.media, country: e.media_country, skus, link: e.proof_url || null };
 		if (isAward) {
 			const status = e.status || (e.is_winner ? 'winner' : e.is_nominated ? 'nominated' : 'submitted');
-			if (status === 'nothing') continue;
+			if (status !== 'winner' && status !== 'nominated') continue; // submitted / nothing → not shown
 			const disclosed = !e.disclosure_date || e.disclosure_date <= today;
 			const shown = status === 'winner' && !disclosed ? 'nominated' : status; // never leak an unannounced win
 			const badge = shown === 'winner' ? e.winner_badge_key : shown === 'nominated' ? e.nominee_badge_key : null;

@@ -19,15 +19,18 @@
 	const fDate = (s) => { const p = dParts(s); return p ? `${p.d} ${p.m} ${p.y}` : ''; };
 	const nf = new Intl.NumberFormat('en-GB');
 	const prod = (sku) => data.products[sku] ?? { sku: sku.toUpperCase(), name: sku.toUpperCase(), image: null };
-	const STATUS = {
-		winner: { label: 'Winner', cls: 'win' },
-		nominated: { label: 'Nominated', cls: 'nom' },
-		submitted: { label: 'Submitted', cls: 'sub' },
-		sent: { label: 'Sent for review', cls: 'sub' },
-		used: { label: 'Featured', cls: 'feat' },
-	};
 	const scoreText = (q, scale) => (q.score == null ? null : scale ? `${nf.format(q.score)}/${scale}` : nf.format(q.score));
-	const show = (k) => filter === 'all' || filter === k;
+	// One timeline, newest first, all kinds mixed; each card carries a type badge.
+	const items = $derived([
+		...data.awards.map((x) => ({ kind: 'awards', x })),
+		...data.press.map((x) => ({ kind: 'press', x })),
+		...data.events.map((x) => ({ kind: 'events', x })),
+	].sort((a, b) => String(b.x.date ?? '').localeCompare(String(a.x.date ?? ''))));
+	const shown = $derived(filter === 'all' ? items : items.filter((i) => i.kind === filter));
+	const typeBadge = (i) =>
+		i.kind === 'awards' ? (i.x.status === 'winner' ? { label: 'Award winner', cls: 'win' } : { label: 'Nominee', cls: 'nom' })
+		: i.kind === 'press' ? { label: 'Press', cls: 'press' }
+		: i.x.upcoming ? { label: 'Upcoming event', cls: 'up' } : { label: 'Event', cls: 'event' };
 	const empty = $derived(!data.awards.length && !data.press.length && !data.events.length);
 </script>
 
@@ -75,70 +78,56 @@
 		</div>
 	{/if}
 
-	{#if show('awards') && data.awards.length}
-		<h2 class="sec">Awards</h2>
-		<div class="grid">
-			{#each data.awards as a (a.id)}
-				<article class="card award {STATUS[a.status]?.cls}">
+	<div class="grid">
+		{#each shown as i (i.kind + i.x.id)}
+			{@const tb = typeBadge(i)}
+			{#if i.kind === 'awards'}
+				{@const a = i.x}
+				<article class="card award" class:win={a.status === 'winner'}>
 					<div class="a-top">
+						<span class="pill {tb.cls}">{tb.label}</span>
 						{#if a.badge}
-							<img class="badge" src={a.badge} alt="{a.media} {STATUS[a.status]?.label}" loading="lazy" />
+							<img class="badge" src={a.badge} alt="{a.media} {tb.label}" loading="lazy" />
 						{:else}
 							<span class="trophy" aria-hidden="true">
 								<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>
 							</span>
 						{/if}
-						<span class="pill {STATUS[a.status]?.cls}">{STATUS[a.status]?.label ?? a.status}</span>
 					</div>
 					<div class="c-body">
 						<h3>{a.category ?? a.media}</h3>
-						<p class="meta">{a.category ? a.media : ''}{a.category && a.country ? ' · ' : ''}{a.country ?? ''}{a.date ? ` · ${fDate(a.date)}` : ''}</p>
+						<p class="meta">{[a.category ? a.media : null, a.country, fDate(a.date)].filter(Boolean).join(' · ')}</p>
 						{#each a.quotes as q}{@render quote(q, null)}{/each}
 						{@render products(a.skus)}
 						{#if a.link}<a class="more" href={a.link} target="_blank" rel="noopener">View announcement ↗</a>{/if}
 					</div>
 				</article>
-			{/each}
-		</div>
-	{/if}
-
-	{#if show('press') && data.press.length}
-		<h2 class="sec">Press</h2>
-		<div class="grid">
-			{#each data.press as p (p.id)}
+			{:else if i.kind === 'press'}
+				{@const p = i.x}
 				{@const top = p.quotes.find((q) => q.score != null)}
 				<article class="card press">
 					<div class="c-body">
+						<span class="pill {tb.cls} inline">{tb.label}</span>
 						<div class="p-head">
 							<div>
 								<h3>{p.media}</h3>
-								<p class="meta">{p.country ?? ''}{p.country && p.date ? ' · ' : ''}{fDate(p.date)}</p>
+								<p class="meta">{[p.country, fDate(p.date)].filter(Boolean).join(' · ')}</p>
 							</div>
-							{#if top && scoreText(top, p.scale)}
-								<span class="ring" title="Review score">{scoreText(top, p.scale)}</span>
-							{:else}
-								<span class="pill {STATUS[p.status]?.cls}">{STATUS[p.status]?.label ?? 'Featured'}</span>
-							{/if}
+							{#if top && scoreText(top, p.scale)}<span class="ring" title="Review score">{scoreText(top, p.scale)}</span>{/if}
 						</div>
 						{#each p.quotes as q}{#if q.text}<blockquote><p>“{q.text}”</p></blockquote>{/if}{/each}
 						{@render products(p.skus)}
 						{#if p.link}<a class="more" href={p.link} target="_blank" rel="noopener">Read the article ↗</a>{/if}
 					</div>
 				</article>
-			{/each}
-		</div>
-	{/if}
-
-	{#if show('events') && data.events.length}
-		<h2 class="sec">Events</h2>
-		<div class="grid ev-grid">
-			{#each data.events as e (e.id)}
+			{:else}
+				{@const e = i.x}
 				{@const d = dParts(e.date)}
 				<article class="card event">
 					<div class="e-media" class:noimg={!e.images.length}>
 						{#if e.images.length}<img src="{e.images[0]}?size=1000" alt="" loading="lazy" />{/if}
+						<span class="pill {tb.cls}">{tb.label}</span>
 						{#if d}<div class="cal"><span class="cm">{d.m}</span><span class="cd">{d.d}</span><span class="cy">{d.y}</span></div>{/if}
-						{#if e.upcoming}<span class="pill up">Upcoming</span>{/if}
 					</div>
 					<div class="c-body">
 						<h3>{e.title}</h3>
@@ -157,9 +146,9 @@
 						{/if}
 					</div>
 				</article>
-			{/each}
-		</div>
-	{/if}
+			{/if}
+		{/each}
+	</div>
 {/if}
 
 <style>
@@ -175,6 +164,7 @@
 	.chips button.on { background: #18181B; border-color: #18181B; color: #fff; }
 	.chips button.on span { color: #d8cfbf; }
 
+	.chips { margin-bottom: 16px; }
 	.sec { font-size: 15px; font-weight: 800; color: #18181B; margin: 22px 0 12px; letter-spacing: -0.2px; display: flex; align-items: center; gap: 12px; }
 	.sec::after { content: ''; flex: 1; height: 1px; background: rgba(184,160,120,.35); }
 	.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
@@ -186,14 +176,16 @@
 	.meta { font-size: 12.5px; color: #8a7f6a; margin: -4px 0 0; font-weight: 600; }
 
 	.pill { font-size: 11.5px; font-weight: 800; padding: 3px 10px; border-radius: 100px; white-space: nowrap; letter-spacing: .1px; }
-	.pill.win { background: #FFE6A5; color: #7B3803; }
-	.pill.nom { background: #FBEFD9; color: #8A5A20; }
-	.pill.sub, .pill.feat { background: #F2EEE6; color: #6B6355; }
+	.pill.win { background: #F5B731; color: #4A2A00; }
+	.pill.nom { background: #FFE6A5; color: #7B3803; }
+	.pill.press { background: #E8EEF9; color: #2B4C7E; }
+	.pill.event { background: #E6F4EC; color: #1E6B45; }
 	.pill.up { background: #F57832; color: #fff; }
+	.pill.inline { align-self: flex-start; }
 
 	.a-top { position: relative; display: flex; align-items: center; justify-content: center; height: 128px; background: #FBF5E8; }
 	.award.win .a-top { background: linear-gradient(160deg, #FFF3D1, #FBE3B0); }
-	.a-top .pill { position: absolute; top: 10px; right: 10px; }
+	.a-top .pill { position: absolute; top: 10px; left: 10px; }
 	.badge { max-height: 100px; max-width: 70%; object-fit: contain; }
 	.trophy { width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; background: #fff; color: #C98A1E; }
 
@@ -220,7 +212,7 @@
 	.cm { font-size: 10.5px; font-weight: 800; color: #F57832; text-transform: uppercase; letter-spacing: .5px; }
 	.cd { font-size: 21px; font-weight: 800; color: #18181B; }
 	.cy { font-size: 10px; font-weight: 700; color: #a99f8c; }
-	.e-media .pill.up { position: absolute; top: 10px; right: 10px; }
+	.e-media .pill { position: absolute; top: 10px; left: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
 	.people { margin: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #524431; }
 	.thumbs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 2px; }
 	.thumbs img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: block; }
