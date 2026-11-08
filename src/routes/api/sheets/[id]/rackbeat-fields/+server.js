@@ -27,19 +27,31 @@ export async function POST({ params, request, cookies, platform }) {
 		if (ALLOWED.has(k)) slugValues[k] = v;
 	}
 
+	// The value is already saved in the Portal before this call; Rackbeat is a
+	// best-effort mirror. "Product not in Rackbeat (yet)" or "field missing on
+	// this product" are expected states, not server errors → 200 + `skipped`, so
+	// the sheet says so instead of failing (and the Error Log isn't flooded).
+	if (!sheet.sku) return json({ ok: true, skipped: 'This sheet has no SKU' });
 	let wrote = false;
 	if (Object.keys(slugValues).length) {
 		const r = await updateRackbeatCustomFieldsBySlug(sheet.sku, apiKey, slugValues);
-		if (!r.ok) error(502, `Rackbeat update failed (${r.status})${r.error ? ': ' + r.error : ''}`);
+		if (!r.ok) {
+			if (r.status === 404) return json({ ok: true, skipped: `${sheet.sku} isn’t in Rackbeat yet` });
+			if (r.error === 'No matching fields') return json({ ok: true, skipped: 'This product has no matching fields in Rackbeat' });
+			error(502, `Rackbeat update failed (${r.status})${r.error ? ': ' + r.error : ''}`);
+		}
 		wrote = true;
 	}
 
 	// Pieces: resolve the field by name, then write by its numeric id.
 	if ('pieces' in values) {
 		const pf = await fetchRackbeatCustomFieldByName(sheet.sku, apiKey, PIECES_FIELD_RE);
-		if (pf?.id == null) error(502, 'Rackbeat “pieces” field not found for this product');
+		if (pf?.id == null) return json({ ok: true, skipped: 'No “pieces” field on this product in Rackbeat' });
 		const r = await updateRackbeatCustomFieldById(sheet.sku, apiKey, pf.id, values.pieces);
-		if (!r.ok) error(502, `Rackbeat update failed (${r.status})${r.error ? ': ' + r.error : ''}`);
+		if (!r.ok) {
+			if (r.status === 404) return json({ ok: true, skipped: `${sheet.sku} isn’t in Rackbeat yet` });
+			error(502, `Rackbeat update failed (${r.status})${r.error ? ': ' + r.error : ''}`);
+		}
 		wrote = true;
 	}
 

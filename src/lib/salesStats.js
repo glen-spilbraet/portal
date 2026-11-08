@@ -5,6 +5,11 @@
  * Deals are organised by `close_date` (YYYY-MM-DD).
  */
 
+// Credit notes = deals whose rackbeat_id starts with "CN-". Written as a range
+// (not LIKE 'CN-%', which is case-insensitive and can't use an index) so it
+// uses idx_sales_deals_rackbeat (migration 0108). '.' is the next ASCII char after '-'.
+const CN_RANGE = "(rackbeat_id >= 'CN-' AND rackbeat_id < 'CN.')";
+
 const MARKETS = ['Denmark', 'Sweden', 'Norway', 'International'];
 
 /**
@@ -14,7 +19,7 @@ const MARKETS = ['Denmark', 'Sweden', 'Norway', 'International'];
 function buildWhere(startIncl, endExcl, filters = {}) {
 	const where = ['close_date >= ?', 'close_date < ?'];
 	const binds = [startIncl, endExcl];
-	if (filters.creditNotes) where.push("rackbeat_id LIKE 'CN-%'"); // scope to credit notes
+	if (filters.creditNotes) where.push(CN_RANGE); // scope to credit notes
 	if (filters.ownerEmail) {
 		where.push('owner_email = ?');
 		binds.push(filters.ownerEmail);
@@ -516,7 +521,7 @@ export async function getDimensionBreakdown(db, windows, col, filters = {}) {
 	const { y0, y1, y2 } = windows;
 	const where = [];
 	const binds = [];
-	if (filters.creditNotes) where.push("rackbeat_id LIKE 'CN-%'");
+	if (filters.creditNotes) where.push(CN_RANGE);
 	if (filters.ownerEmail) { where.push('owner_email = ?'); binds.push(filters.ownerEmail); }
 	for (const [c, key] of [['customer_level', 'levels'], ['customer_group', 'groups'], ['country', 'countries']]) {
 		const vals = filters[key];
@@ -549,7 +554,9 @@ export async function getDimensionBreakdown(db, windows, col, filters = {}) {
 /**
  * Credit-note breakdown at LINE-ITEM level (for the Publisher / Product
  * dimensions), across three windows. dim = 'publisher' (SKU-prefix model) or
- * 'product' (SKU). Scoped to credit-note deals (rackbeat_id LIKE 'CN-%').
+ * 'product' (SKU). Scoped to credit-note deals (rackbeat_id starting "CN-").
+ * Reads only the credit-note deals' lines (deals first via idx_sales_deals_rackbeat
+ * + idx_dli_deal) within the three windows — not every sales line in history.
  */
 export async function getCreditLineDimension(db, windows, dim) {
 	const { y0, y1, y2 } = windows;
@@ -566,11 +573,14 @@ export async function getCreditLineDimension(db, windows, dim) {
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
 			 FROM (
 			   SELECT ${keyExpr} AS kv, ${nameExpr} AS nm, li.close_date AS close_date, li.amount_dkk AS amount_dkk
-			   FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
-			   WHERE li.deal_kind = 'closed' AND d.rackbeat_id LIKE 'CN-%' AND li.sku IS NOT NULL AND li.sku != ''
+			   FROM sales_deals d CROSS JOIN deal_line_items li ON li.deal_id = d.deal_id -- CROSS JOIN: SQLite keeps this order (deals first)
+			   WHERE (d.rackbeat_id >= 'CN-' AND d.rackbeat_id < 'CN.')
+			     AND li.deal_kind = 'closed' AND li.sku IS NOT NULL AND li.sku != ''
+			     AND li.close_date >= ? AND li.close_date < ?
 			 ) GROUP BY kv`
 		)
-		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end,
+			[y0.start, y1.start, y2.start].sort()[0], [y0.end, y1.end, y2.end].sort().at(-1))
 		.all();
 	return (rows.results ?? [])
 		.map((r) => ({

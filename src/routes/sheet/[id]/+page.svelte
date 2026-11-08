@@ -160,9 +160,12 @@
 			const res = await fetch(`/api/sheets/${sheetId}/rackbeat-fields`, {
 				method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values })
 			});
-			rbMsg = res.ok ? 'Synced to Rackbeat' : 'Rackbeat sync failed';
-		} catch { rbMsg = 'Rackbeat sync failed'; }
-		setTimeout(() => (rbMsg = ''), 2800);
+			const body = await res.json().catch(() => ({}));
+			rbMsg = !res.ok ? `Saved in Portal — Rackbeat sync failed${body?.message ? `: ${body.message}` : ''}`
+				: body?.skipped ? `Saved in Portal only — ${body.skipped}`
+				: 'Synced to Rackbeat';
+		} catch { rbMsg = 'Saved in Portal — Rackbeat sync failed'; }
+		setTimeout(() => (rbMsg = ''), rbMsg === 'Synced to Rackbeat' ? 2800 : 6000);
 	}
 	async function saveAge() {
 		rbErr = '';

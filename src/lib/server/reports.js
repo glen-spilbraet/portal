@@ -253,9 +253,9 @@ export async function computeExport(salesDb, rules, { measure = 'units', cur, pr
 	for (const r of rows) {
 		const val = Math.round(r.val || 0);
 		if (!val && val !== 0) continue;
-		if (!bySku.has(r.sku)) bySku.set(r.sku, { sku: r.sku, name: r.name || r.sku, publisher: r.publisher ?? null, values: new Map(), total: 0 });
+		if (!bySku.has(r.sku)) bySku.set(r.sku, { sku: r.sku, name: r.name || r.sku, publisher: r.publisher ?? null, values: {}, total: 0 });
 		const row = bySku.get(r.sku);
-		row.values.set(r.country, (row.values.get(r.country) || 0) + val);
+		row.values[r.country] = (row.values[r.country] || 0) + val; // plain object: survives the JSON cache
 		row.total += val;
 		countryTotal.set(r.country, (countryTotal.get(r.country) || 0) + val);
 	}
@@ -286,7 +286,7 @@ export function exportToCsv(exp) {
 	for (const r of exp.rows) {
 		const cells = [
 			r.name || r.sku, series ? (r.publisher ?? '') : r.sku,
-			...exp.countries.map((c) => { const v = r.values.get(c) || 0; return v ? v : ''; }),
+			...exp.countries.map((c) => { const v = r.values?.[c] || 0; return v ? v : ''; }),
 			r.total,
 		];
 		lines.push(cells.map(csvCell).join(';'));

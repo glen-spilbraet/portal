@@ -21,7 +21,7 @@ export async function GET({ params, platform, url }) {
 	const measure = url.searchParams.get('measure') === 'revenue' ? 'revenue' : 'units';
 	const by = url.searchParams.get('by') === 'series' ? 'series' : 'product';
 
-	const exp = await cachedReport(db, salesDb, { kind: 'export', rules: ruleKey(report.rules), measure, cur, prior, by },
+	const exp = await cachedReport(db, salesDb, { kind: 'export', v: 2, rules: ruleKey(report.rules), measure, cur, prior, by },
 		() => computeExport(salesDb, report.rules, { measure, cur, prior, by }));
 	return csvResponse(exportToCsv(exp), `${report.name} ${by === 'series' ? 'series ' : ''}${measure} export.csv`);
 }

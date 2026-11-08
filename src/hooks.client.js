@@ -24,7 +24,23 @@ const describe = (err) => err instanceof Error
 	? { message: err.message || err.name, stack: err.stack ?? '' }
 	: { message: String(err), stack: '' };
 
+// After a deploy, a page that was already open asks for old JS chunks that no
+// longer exist ("Failed to fetch dynamically imported module"). The fix is a
+// fresh load of the page — done once (guarded for 30 s so it can't loop), and
+// not reported as an error.
+const STALE_CHUNK = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS/i;
+function reloadForNewVersion() {
+	try {
+		const last = Number(sessionStorage.getItem('portal:chunk-reload') || 0);
+		if (Date.now() - last < 30000) return false;
+		sessionStorage.setItem('portal:chunk-reload', String(Date.now()));
+	} catch { /* storage blocked — still reload once */ }
+	location.reload();
+	return true;
+}
+
 if (typeof window !== 'undefined') {
+	window.addEventListener('vite:preloadError', (ev) => { if (reloadForNewVersion()) ev.preventDefault(); });
 	window.addEventListener('error', (ev) => {
 		// Ignore failed <img>/<script> loads (no error object) and cross-origin "Script error."
 		if (!ev.error) return;
@@ -35,6 +51,8 @@ if (typeof window !== 'undefined') {
 
 /** @type {import('@sveltejs/kit').HandleClientError} */
 export function handleError({ error, event, status, message }) {
+	const d = describe(error);
+	if (STALE_CHUNK.test(d.message) && reloadForNewVersion()) return { message };
 	if (status !== 404) report({ ...describe(error), status, route: event.route?.id ?? null });
 	return { message };
 }

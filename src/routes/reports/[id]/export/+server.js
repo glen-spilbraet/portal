@@ -12,7 +12,7 @@ export async function GET(event) {
 	if (!report) error(404, 'Report not found');
 	const measure = event.url.searchParams.get('measure') === 'revenue' ? 'revenue' : 'units';
 	const by = event.url.searchParams.get('by') === 'series' ? 'series' : 'product';
-	const exp = await cachedReport(db, salesDb, { kind: 'export', rules: ruleKey(report.rules), measure, by },
+	const exp = await cachedReport(db, salesDb, { kind: 'export', v: 2, rules: ruleKey(report.rules), measure, by },
 		() => computeExport(salesDb, report.rules, { measure, by }));
 	return csvResponse(exportToCsv(exp), `${report.name} ${by === 'series' ? 'series ' : ''}${measure} export.csv`);
 }

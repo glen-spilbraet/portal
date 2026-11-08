@@ -108,13 +108,26 @@ async function attachActuals(db, lines, windowOf) {
 		if (e && (maxDate === null || e > maxDate)) maxDate = e;
 	}
 	const closedByKey = await closedQtyLookup(db, cids, minDate, maxDate);
-	return lines.map((line) => {
-		const [s, e] = windowOf(line);
-		let actual = 0;
-		const arr = closedByKey.get(line.cid + ' ' + line.sku);
-		if (arr) for (const c of arr) if (c.close_date >= s && c.close_date <= e) actual += c.quantity || 0;
-		return { ...line, actual_qty: actual };
+	// Each purchase counts ONCE: when a customer has the same SKU on several
+	// forecast lines with overlapping windows (e.g. two forecast deals), a
+	// purchase goes to the earliest-starting line whose window contains it —
+	// never to all of them (that double-counted actuals / inflated attainment).
+	const out = lines.map((line) => ({ ...line, actual_qty: 0 }));
+	const byKey = new Map();
+	out.forEach((line, i) => {
+		const k = line.cid + ' ' + line.sku;
+		(byKey.get(k) ?? byKey.set(k, []).get(k)).push(i);
 	});
+	for (const [k, idxs] of byKey) {
+		const arr = closedByKey.get(k);
+		if (!arr) continue;
+		const wins = idxs.map((i) => ({ i, w: windowOf(out[i]) })).sort((a, b) => String(a.w[0]).localeCompare(String(b.w[0])));
+		for (const c of arr) {
+			const hit = wins.find(({ w: [s, e] }) => c.close_date >= s && c.close_date <= e);
+			if (hit) out[hit.i].actual_qty += c.quantity || 0;
+		}
+	}
+	return out;
 }
 
 /**
@@ -243,7 +256,10 @@ function aggregateByCustomer(rows, keepWindow = false) {
 		const aq = r.actual_qty || 0;
 		c.forecastUnits += fq;
 		c.actualUnits += aq;
-		c.skus.push({ sku: r.sku, name: r.name || r.sku, forecast: fq, actual: aq });
+		// Same SKU on several lines (e.g. two forecast deals) → one row (unique keys in the UI).
+		const ex = c.skus.find((x) => x.sku === r.sku);
+		if (ex) { ex.forecast += fq; ex.actual += aq; }
+		else c.skus.push({ sku: r.sku, name: r.name || r.sku, forecast: fq, actual: aq });
 	}
 	const out = [...map.values()].map((c) => {
 		c.attainment = c.forecastUnits > 0 ? c.actualUnits / c.forecastUnits : null;

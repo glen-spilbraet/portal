@@ -77,6 +77,12 @@ async function shopTarget(event) {
 const INITIATIVE_PATHS = /^\/(api\/)?(awards|events|admin\/publishers|admin\/series)(\/|$)/;
 
 export async function handle({ event, resolve }) {
+	// Browsers ask for /favicon.ico (and an old link pointed at /favicon.png);
+	// neither file exists, so each one rendered a 404 page — layout + DB lookups —
+	// on every page view. Answer from the real icon, before touching the DB.
+	if (event.url.pathname === '/favicon.ico' || event.url.pathname === '/favicon.png') {
+		return new Response(null, { status: 301, headers: { Location: '/portal-fav.png', 'Cache-Control': 'public, max-age=86400' } });
+	}
 	// Every DB query in the app retries momentary D1 hiccups (see d1Retry.js).
 	// Each request gets its own wrapped bindings, so retries are logged against
 	// the page that hit them (Admin → Error Log, source "retry").
@@ -107,8 +113,14 @@ export async function handle({ event, resolve }) {
 	// A 5xx that did not come from an unexpected exception (error(500) or an API
 	// answering 500 itself) — still worth a row.
 	if (response.status >= 500 && !locals.__errorLogged) {
+		// error(5xx, '…') from an API: keep its message (e.g. the Rackbeat reason).
+		let detail = '';
+		try {
+			const ct = response.headers.get('content-type') ?? '';
+			if (ct.includes('json')) detail = String((await response.clone().json())?.message ?? '').slice(0, 300);
+		} catch { /* body not readable — fine */ }
 		logError(platform, { source: 'server', status: response.status, ...reqInfo(event), user: await userOf(event),
-			message: `HTTP ${response.status} response`, stack: '' });
+			message: detail ? `HTTP ${response.status}: ${detail}` : `HTTP ${response.status} response`, stack: '' });
 	}
 	// Retries: one row per request (only when something actually had to retry).
 	const retries = locals.__retries ?? [];
@@ -166,7 +178,8 @@ async function handleShop(event, resolve) {
  * @type {import('@sveltejs/kit').HandleServerError}
  */
 export async function handleError({ error, event, status, message }) {
-	if (status === 404) return { message };
+	// 404 (missing page) and 405 (bots POSTing to pages) aren't app errors.
+	if (status === 404 || status === 405) return { message };
 	console.error(`[${status}] ${event.request.method} ${event.url.pathname}:`, error);
 	const ref = newRef();
 	/** @type {any} */ (event.locals).__errorLogged = true;
