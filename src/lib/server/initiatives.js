@@ -112,7 +112,8 @@ export async function loadInitiatives(db, salesDb, rules) {
 	const entries = (await db.prepare(
 		`SELECT i.id, i.sku, i.product_name, i.award_category, i.status, i.is_nominated, i.is_winner,
 		        i.disclosure_date, i.instance_date, i.proof_url, i.nominee_badge_key, i.winner_badge_key,
-		        m.name AS media, m.country AS media_country, m.review_scale
+		        m.name AS media, m.country AS media_country, m.review_scale,
+		        m.badge_placement, m.badge_pad_top, m.badge_pad_right, m.badge_pad_bottom, m.badge_pad_left, m.badge_size_pct
 		 FROM press_instance i JOIN award_media m ON m.id = i.media_id`
 	).all()).results ?? [];
 	const extra = (await db.prepare('SELECT instance_id, sku FROM press_instance_product').all()).results ?? [];
@@ -157,7 +158,16 @@ export async function loadInitiatives(db, salesDb, rules) {
 			const disclosed = !e.disclosure_date || e.disclosure_date <= today;
 			const shown = status === 'winner' && !disclosed ? 'nominated' : status; // never leak an unannounced win
 			const badge = shown === 'winner' ? e.winner_badge_key : shown === 'nominated' ? e.nominee_badge_key : null;
-			awards.push({ ...base, category: e.award_category || null, status: shown, badge: img(badge), quotes });
+			// Badge overlay on the product box, positioned like the catalogue /
+			// award view: primary corner, the two paddings matching that corner,
+			// width as % of the box.
+			const corner = ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(e.badge_placement) ? e.badge_placement : 'bottom-right';
+			const [vy, vx] = corner.split('-');
+			const pad = { top: e.badge_pad_top, right: e.badge_pad_right, bottom: e.badge_pad_bottom, left: e.badge_pad_left };
+			const badgeStyle = badge
+				? `width:${Number(e.badge_size_pct) || 15}%;${vy}:${Number(pad[vy]) || 0}%;${vx}:${Number(pad[vx]) || 0}%`
+				: null;
+			awards.push({ ...base, category: e.award_category || null, status: shown, badge: img(badge), badgeStyle, quotes });
 		} else {
 			if (e.status === 'not_used') continue;
 			press.push({ ...base, status: e.status || 'used', scale: e.review_scale ?? null, quotes });

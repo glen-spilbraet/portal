@@ -26,6 +26,7 @@
 		...data.press.map((x) => ({ kind: 'press', x })),
 		...data.events.map((x) => ({ kind: 'events', x })),
 	].sort((a, b) => String(b.x.date ?? '').localeCompare(String(a.x.date ?? ''))));
+	const boxOf = (skus) => skus.map((s) => prod(s).image).find(Boolean) ?? null;
 	const shown = $derived(filter === 'all' ? items : items.filter((i) => i.kind === filter));
 	const typeBadge = (i) =>
 		i.kind === 'awards' ? (i.x.status === 'winner' ? { label: 'Award winner', cls: 'win' } : { label: 'Nominee', cls: 'nom' })
@@ -40,7 +41,7 @@
 			{@const p = prod(s)}
 			<li>
 				{#if p.image}<img src="{p.image}?size=300" alt="" loading="lazy" />{:else}<span class="ph"></span>{/if}
-				<span class="pn">{p.name}</span>
+				<span class="pn" title={p.name}>{p.name}</span>
 			</li>
 		{/each}
 	</ul>
@@ -49,7 +50,7 @@
 {#snippet quote(q, scale)}
 	{#if q.text || q.score != null}
 		<blockquote>
-			{#if q.text}<p>“{q.text}”</p>{/if}
+			{#if q.text}<p title={q.text}>“{q.text}”</p>{/if}
 			{#if scoreText(q, scale)}<span class="score">{scoreText(q, scale)}</span>{/if}
 		</blockquote>
 	{/if}
@@ -83,20 +84,26 @@
 			{@const tb = typeBadge(i)}
 			{#if i.kind === 'awards'}
 				{@const a = i.x}
+				{@const box = boxOf(a.skus)}
+				{@const meta = [a.category ? a.media : null, a.country, fDate(a.date)].filter(Boolean).join(' · ')}
 				<article class="card award" class:win={a.status === 'winner'}>
-					<div class="a-top">
-						<span class="pill {tb.cls}">{tb.label}</span>
-						{#if a.badge}
-							<img class="badge" src={a.badge} alt="{a.media} {tb.label}" loading="lazy" />
+					<div class="sq">
+						{#if box}
+							<div class="box"><img class="box-img" src="{box}?size=1000" alt="" loading="lazy" />
+								{#if a.badge}<img class="ov-badge" src="{a.badge}?size=400" style={a.badgeStyle} alt="{a.media} {tb.label}" loading="lazy" />{/if}
+							</div>
+						{:else if a.badge}
+							<img class="solo-badge" src="{a.badge}?size=400" alt="{a.media} {tb.label}" loading="lazy" />
 						{:else}
 							<span class="trophy" aria-hidden="true">
 								<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>
 							</span>
 						{/if}
+						<span class="pill {tb.cls}">{tb.label}</span>
 					</div>
 					<div class="c-body">
-						<h3>{a.category ?? a.media}</h3>
-						<p class="meta">{[a.category ? a.media : null, a.country, fDate(a.date)].filter(Boolean).join(' · ')}</p>
+						<h3 title={a.category ?? a.media}>{a.category ?? a.media}</h3>
+						<p class="meta" title={meta}>{meta}</p>
 						{#each a.quotes as q}{@render quote(q, null)}{/each}
 						{@render products(a.skus)}
 						{#if a.link}<a class="more" href={a.link} target="_blank" rel="noopener">View announcement ↗</a>{/if}
@@ -105,17 +112,19 @@
 			{:else if i.kind === 'press'}
 				{@const p = i.x}
 				{@const top = p.quotes.find((q) => q.score != null)}
+				{@const box = boxOf(p.skus)}
+				{@const meta = [p.country, fDate(p.date)].filter(Boolean).join(' · ')}
 				<article class="card press">
+					<div class="sq">
+						{#if box}<div class="box"><img class="box-img" src="{box}?size=1000" alt="" loading="lazy" /></div>
+						{:else}<span class="trophy press-ico" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h13v14H6a2 2 0 0 1-2-2V5z"/><path d="M17 9h3v8a2 2 0 0 1-2 2M8 9h5M8 13h5"/></svg></span>{/if}
+						<span class="pill {tb.cls}">{tb.label}</span>
+						{#if top && scoreText(top, p.scale)}<span class="ring" title="Review score">{scoreText(top, p.scale)}</span>{/if}
+					</div>
 					<div class="c-body">
-						<span class="pill {tb.cls} inline">{tb.label}</span>
-						<div class="p-head">
-							<div>
-								<h3>{p.media}</h3>
-								<p class="meta">{[p.country, fDate(p.date)].filter(Boolean).join(' · ')}</p>
-							</div>
-							{#if top && scoreText(top, p.scale)}<span class="ring" title="Review score">{scoreText(top, p.scale)}</span>{/if}
-						</div>
-						{#each p.quotes as q}{#if q.text}<blockquote><p>“{q.text}”</p></blockquote>{/if}{/each}
+						<h3 title={p.media}>{p.media}</h3>
+						<p class="meta" title={meta}>{meta}</p>
+						{#each p.quotes as q}{#if q.text}<blockquote><p title={q.text}>“{q.text}”</p></blockquote>{/if}{/each}
 						{@render products(p.skus)}
 						{#if p.link}<a class="more" href={p.link} target="_blank" rel="noopener">Read the article ↗</a>{/if}
 					</div>
@@ -123,15 +132,16 @@
 			{:else}
 				{@const e = i.x}
 				{@const d = dParts(e.date)}
+				{@const meta = [e.country, e.type].filter(Boolean).join(' · ')}
 				<article class="card event">
-					<div class="e-media" class:noimg={!e.images.length}>
-						{#if e.images.length}<img src="{e.images[0]}?size=1000" alt="" loading="lazy" />{/if}
+					<div class="sq e-media" class:noimg={!e.images.length}>
+						{#if e.images.length}<img class="cover" src="{e.images[0]}?size=1000" alt="" loading="lazy" />{/if}
 						<span class="pill {tb.cls}">{tb.label}</span>
 						{#if d}<div class="cal"><span class="cm">{d.m}</span><span class="cd">{d.d}</span><span class="cy">{d.y}</span></div>{/if}
 					</div>
 					<div class="c-body">
-						<h3>{e.title}</h3>
-						<p class="meta">{[e.type !== e.title ? e.type : null, e.venue, e.city].filter(Boolean).join(' · ')}{e.time ? ` · ${e.time}` : ''}</p>
+						<h3 title={e.title}>{e.title}</h3>
+						<p class="meta" title={meta}>{meta || ' '}</p>
 						{#if e.participants || e.expected}
 							<p class="people">
 								<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c2 .7 3.2 2.5 3.5 5.2"/></svg>
@@ -167,13 +177,23 @@
 	.chips { margin-bottom: 16px; }
 	.sec { font-size: 15px; font-weight: 800; color: #18181B; margin: 22px 0 12px; letter-spacing: -0.2px; display: flex; align-items: center; gap: 12px; }
 	.sec::after { content: ''; flex: 1; height: 1px; background: rgba(184,160,120,.35); }
-	.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+	.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
 	.ev-grid { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
 
 	.card { background: #fff; border: 1px solid rgba(214,190,150,.45); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 1px 2px rgba(120,90,40,.05), 0 8px 24px -12px rgba(120,90,40,.18); }
 	.c-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
-	h3 { font-size: 15px; font-weight: 800; color: #18181B; margin: 0; letter-spacing: -0.2px; line-height: 1.3; }
-	.meta { font-size: 12.5px; color: #8a7f6a; margin: -4px 0 0; font-weight: 600; }
+	/* One line each, so cards line up; full text in the tooltip. */
+	h3 { font-size: 15px; font-weight: 800; color: #18181B; margin: 0; letter-spacing: -0.2px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.meta { font-size: 12.5px; color: #8a7f6a; margin: -4px 0 0; font-weight: 600; line-height: 1.4; min-height: 1.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+	/* Square top on every card: product box (+ award badge) or event photo. */
+	.sq { position: relative; aspect-ratio: 1 / 1; background: #FBF7EF; display: grid; place-items: center; overflow: hidden; }
+	.sq > .pill { position: absolute; top: 10px; left: 10px; z-index: 4; box-shadow: 0 2px 8px rgba(0,0,0,.10); }
+	.box { position: relative; width: 100%; height: 100%; }
+	.box-img { position: absolute; inset: 7%; width: 86%; height: 86%; object-fit: contain; }
+	.ov-badge { position: absolute; height: auto; z-index: 3; object-fit: contain; pointer-events: none; }
+	.solo-badge { width: 46%; height: auto; object-fit: contain; }
+	.sq .ring { position: absolute; right: 10px; bottom: 10px; z-index: 4; }
 
 	.pill { font-size: 11.5px; font-weight: 800; padding: 3px 10px; border-radius: 100px; white-space: nowrap; letter-spacing: .1px; }
 	.pill.win { background: #F5B731; color: #4A2A00; }
@@ -183,18 +203,13 @@
 	.pill.up { background: #F57832; color: #fff; }
 	.pill.inline { align-self: flex-start; }
 
-	.a-top { position: relative; display: flex; align-items: center; justify-content: center; height: 128px; background: #FBF5E8; }
-	.award.win .a-top { background: linear-gradient(160deg, #FFF3D1, #FBE3B0); }
-	.a-top .pill { position: absolute; top: 10px; left: 10px; }
-	.badge { max-height: 100px; max-width: 70%; object-fit: contain; }
+	.award.win .sq { background: linear-gradient(160deg, #FFF8E4, #FBEBC6); }
 	.trophy { width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; background: #fff; color: #C98A1E; }
 
-	.p-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-	.p-head .meta { margin-top: 3px; }
 	.ring { flex-shrink: 0; min-width: 52px; height: 52px; border-radius: 50%; border: 3px solid #F57832; display: grid; place-items: center; font-size: 14px; font-weight: 800; color: #7B3803; background: #FFF7EC; padding: 0 4px; }
 
 	blockquote { margin: 2px 0; padding: 10px 12px; background: #FBF7EF; border-radius: 10px; position: relative; }
-	blockquote p { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 14px; line-height: 1.5; color: #3F3A31; }
+	blockquote p { margin: 0; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 14px; line-height: 1.5; color: #3F3A31; }
 	blockquote .score { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 800; color: #7B3803; }
 
 	.prods { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -205,14 +220,13 @@
 	.more { margin-top: auto; padding-top: 4px; font-size: 12.5px; font-weight: 700; color: #C4581B; text-decoration: none; }
 	.more:hover { text-decoration: underline; }
 
-	.e-media { position: relative; aspect-ratio: 16 / 9; background: #F3E7D2; overflow: hidden; }
-	.e-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
-	.e-media.noimg { aspect-ratio: auto; height: 96px; background: linear-gradient(160deg, #FDEBD2, #F6D1A6); }
-	.cal { position: absolute; left: 12px; bottom: 12px; background: #fff; border-radius: 10px; width: 54px; text-align: center; padding: 5px 0 6px; box-shadow: 0 4px 14px rgba(0,0,0,.14); display: flex; flex-direction: column; line-height: 1.05; }
+	.e-media { background: #F3E7D2; place-items: stretch; }
+	.e-media .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+	.e-media.noimg { background: linear-gradient(160deg, #FDEBD2, #F6D1A6); }
+	.cal { z-index: 3; position: absolute; left: 12px; bottom: 12px; background: #fff; border-radius: 10px; width: 54px; text-align: center; padding: 5px 0 6px; box-shadow: 0 4px 14px rgba(0,0,0,.14); display: flex; flex-direction: column; line-height: 1.05; }
 	.cm { font-size: 10.5px; font-weight: 800; color: #F57832; text-transform: uppercase; letter-spacing: .5px; }
 	.cd { font-size: 21px; font-weight: 800; color: #18181B; }
 	.cy { font-size: 10px; font-weight: 700; color: #a99f8c; }
-	.e-media .pill { position: absolute; top: 10px; left: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
 	.people { margin: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #524431; }
 	.thumbs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 2px; }
 	.thumbs img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: block; }
