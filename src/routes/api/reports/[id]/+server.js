@@ -11,6 +11,7 @@ export async function PUT(event) {
 	if (typeof body.name === 'string') patch.name = body.name.trim() || 'Untitled report';
 	if (['units', 'revenue', 'both'].includes(body.metric)) patch.metric = body.metric;
 	if (typeof body.allow_date_filter === 'boolean') patch.allow_date_filter = body.allow_date_filter ? 1 : 0;
+	if (typeof body.show_initiatives === 'boolean') patch.show_initiatives = body.show_initiatives ? 1 : 0;
 	if (Object.keys(patch).length) await updateReport(db, id, patch);
 	if (Array.isArray(body.rules)) await setReportRules(db, id, body.rules);
 	return json({ ok: true });

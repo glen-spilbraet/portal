@@ -29,6 +29,7 @@ export async function load({ params, platform, url }) {
 		name: report.name,
 		metric: report.metric,
 		allowDateFilter: allow,
+		showInitiatives: !!report.show_initiatives,
 		data,
 		selected,
 		range: { start: cur.start, endInclusive: addDaysStr(cur.end, -1) },

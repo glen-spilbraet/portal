@@ -6,6 +6,7 @@
 	let name = $state(data.report.name);
 	let metric = $state(data.report.metric);
 	let allowDate = $state(!!data.report.allow_date_filter);
+	let showInit = $state(!!data.report.show_initiatives);
 	let rules = $state(data.report.rules.map((r) => ({ action: r.action, kind: r.kind, value: r.value })));
 	let shareToken = $state(data.report.share_token);
 	let saving = $state(false);
@@ -55,7 +56,7 @@
 		try {
 			const res = await fetch(`/api/reports/${data.report.id}`, {
 				method: 'PUT', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name, metric, allow_date_filter: allowDate, rules: cleanRules() })
+				body: JSON.stringify({ name, metric, allow_date_filter: allowDate, show_initiatives: showInit, rules: cleanRules() })
 			});
 			if (!res.ok) throw new Error('Save failed');
 			saved = true; setTimeout(() => (saved = false), 1600);
@@ -110,6 +111,7 @@
 				</label>
 
 				<label class="chk"><input type="checkbox" bind:checked={allowDate} /> Let viewers change the date range on the shared report</label>
+				<label class="chk"><input type="checkbox" bind:checked={showInit} /> Also show <strong>Initiatives</strong> — awards, press and events for these products (matched on mapped publisher)</label>
 
 				<div class="rules-head"><span>Product rules</span><button class="add" onclick={addRule}>+ Add rule</button></div>
 				<p class="hint">Include rules define the product set (no includes = all products). Exclude rules remove from it. Use <strong>View</strong> to see the figures.</p>
