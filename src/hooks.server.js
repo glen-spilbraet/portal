@@ -1,4 +1,5 @@
 import { notifyShops } from '$lib/server/shopNotify.js';
+import { bumpDataVersion } from '$lib/server/reportCache.js';
 import { d1WithRetry } from '$lib/server/d1Retry.js';
 import { logError, describe, newRef } from '$lib/server/errorLog.js';
 import { verifySession } from '$lib/auth.js';
@@ -73,6 +74,8 @@ async function shopTarget(event) {
 }
 
 /** @type {import('@sveltejs/kit').Handle} */
+const INITIATIVE_PATHS = /^\/(api\/)?(awards|events|admin\/publishers|admin\/series)(\/|$)/;
+
 export async function handle({ event, resolve }) {
 	// Every DB query in the app retries momentary D1 hiccups (see d1Retry.js).
 	// Each request gets its own wrapped bindings, so retries are logged against
@@ -91,6 +94,14 @@ export async function handle({ event, resolve }) {
 	}
 
 	const response = await handleShop(event, resolve);
+
+	// Edits that change report Initiatives → new data version, so cached
+	// Initiatives are rebuilt on next view (reportCache.js dataVersion).
+	if (!['GET', 'HEAD', 'OPTIONS'].includes(event.request.method) && response.status < 400
+		&& INITIATIVE_PATHS.test(event.url.pathname) && platform?.env?.DB) {
+		const work = bumpDataVersion(platform.env.DB, 'initiatives').catch((e) => console.warn('initiatives version bump failed', e));
+		if (platform.context?.waitUntil) platform.context.waitUntil(work); else await work;
+	}
 
 	const locals = /** @type {any} */ (event.locals);
 	// A 5xx that did not come from an unexpected exception (error(500) or an API

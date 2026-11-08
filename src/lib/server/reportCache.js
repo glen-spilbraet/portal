@@ -66,3 +66,22 @@ export async function cachedReport(appDb, salesDb, criteria, fn, opts = {}) {
 
 /** Stable criteria for a rule list (order-preserving, only the fields that matter). */
 export const ruleKey = (rules) => (rules ?? []).map((r) => [r.action, r.kind, String(r.value ?? '').trim()]);
+
+/**
+ * Edit-driven data versions, for cached data that changes on user edits rather
+ * than on the nightly sync (e.g. report Initiatives ← awards/press/events).
+ * Stored as a `meta:<name>` row in report_cache: bumpDataVersion() on any
+ * successful edit (see hooks.server.js), dataVersion() as a cachedReport stamp.
+ * A missing row (never bumped, or swept by the 2-day housekeeping) reads as
+ * 'v0' — at worst one extra recompute, never stale data.
+ * @param {D1} appDb @param {string} name
+ */
+export async function bumpDataVersion(appDb, name) {
+	await appDb.prepare(
+		`INSERT INTO report_cache (key, stamp, payload, created_at) VALUES (?, ?, '', datetime('now'))
+		 ON CONFLICT(key) DO UPDATE SET stamp = excluded.stamp, created_at = excluded.created_at`
+	).bind(`meta:${name}`, `${Date.now()}`).run();
+}
+/** @param {D1} appDb @param {string} name @returns {() => Promise<string>} */
+export const dataVersion = (appDb, name) => async () =>
+	String((await appDb.prepare('SELECT stamp FROM report_cache WHERE key = ?').bind(`meta:${name}`).first())?.stamp ?? 'v0');

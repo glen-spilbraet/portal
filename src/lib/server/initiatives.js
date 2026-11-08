@@ -40,12 +40,16 @@ async function ruleMatcher(salesDb, rules, skus) {
 	const list = [...new Set(skus.map(lc).filter(Boolean))];
 	const pubOf = new Map(), seriesOf = new Map();
 	if (list.length) {
-		const [pfx, ovr] = await Promise.all([
-			salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix').all(),
-			salesDb.prepare('SELECT sku, publisher FROM product_publisher_override').all(),
-		]);
-		const prefixMap = new Map((pfx.results ?? []).map((r) => [String(r.prefix).toUpperCase(), r.publisher]));
-		const overrideMap = new Map((ovr.results ?? []).map((r) => [lc(r.sku), r.publisher]));
+		const prefixMap = new Map(((await salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix').all()).results ?? [])
+			.map((r) => [String(r.prefix).toUpperCase(), r.publisher]));
+		// Only the overrides for the SKUs at hand (not the whole table).
+		const overrideMap = new Map();
+		for (const part of chunk(list, 90)) {
+			const rows = (await salesDb.prepare(
+				`SELECT lower(sku) AS sku, publisher FROM product_publisher_override WHERE lower(sku) IN (${part.map(() => '?').join(',')})`
+			).bind(...part).all()).results ?? [];
+			for (const r of rows) overrideMap.set(r.sku, r.publisher);
+		}
 		for (const s of list) {
 			const p = skuPrefix(s);
 			pubOf.set(s, overrideMap.get(s) ?? (p ? prefixMap.get(p) ?? p : null));
