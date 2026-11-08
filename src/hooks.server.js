@@ -73,9 +73,10 @@ async function shopTarget(event) {
 	return null;
 }
 
-/** @type {import('@sveltejs/kit').Handle} */
+// Edits under these paths change report Initiatives (see below).
 const INITIATIVE_PATHS = /^\/(api\/)?(awards|events|admin\/publishers|admin\/series)(\/|$)/;
 
+/** @type {import('@sveltejs/kit').Handle} */
 export async function handle({ event, resolve }) {
 	// Browsers ask for /favicon.ico (and an old link pointed at /favicon.png);
 	// neither file exists, so each one rendered a 404 page — layout + DB lookups —
@@ -106,7 +107,8 @@ export async function handle({ event, resolve }) {
 	if (!['GET', 'HEAD', 'OPTIONS'].includes(event.request.method) && response.status < 400
 		&& INITIATIVE_PATHS.test(event.url.pathname) && platform?.env?.DB) {
 		const work = bumpDataVersion(platform.env.DB, 'initiatives').catch((e) => console.warn('initiatives version bump failed', e));
-		if (platform.context?.waitUntil) platform.context.waitUntil(work); else await work;
+		const ctx = /** @type {any} */ (platform).context;
+		if (ctx?.waitUntil) ctx.waitUntil(work); else await work;
 	}
 
 	const locals = /** @type {any} */ (event.locals);
