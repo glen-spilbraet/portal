@@ -280,16 +280,21 @@
 
 	let refreshing = $state(false);
 	let refreshMsg = $state('');
+	let refreshTip = $state('');
 	async function refreshFromRackbeat() {
 		if (refreshing) return;
 		refreshing = true; refreshMsg = '';
 		try {
 			const res = await fetch(`/api/sheets/${sheetId}/refresh`, { method: 'POST' });
-			if (res.ok) { const b = await res.json(); if (Array.isArray(b.data_fields)) { dataFields = b.data_fields; initGameAttrs(); } refreshMsg = 'Updated'; }
-			else refreshMsg = 'Failed';
-		} catch { refreshMsg = 'Failed'; }
+			if (res.ok) { const b = await res.json(); if (Array.isArray(b.data_fields)) { dataFields = b.data_fields; initGameAttrs(); } refreshMsg = 'Updated'; refreshTip = ''; }
+			else {
+				const b = await res.json().catch(() => ({}));
+				refreshMsg = res.status === 404 ? 'Not in Rackbeat' : res.status === 502 ? 'Rackbeat busy' : 'Failed';
+				refreshTip = b?.message ?? '';
+			}
+		} catch { refreshMsg = 'Failed'; refreshTip = 'No connection — check your network and try again.'; }
 		refreshing = false;
-		setTimeout(() => (refreshMsg = ''), 2500);
+		setTimeout(() => { refreshMsg = ''; refreshTip = ''; }, refreshMsg === 'Updated' ? 2500 : 6000);
 	}
 
 	// ── Videos & articles (local state; markets null = all markets) ─────────────
@@ -480,7 +485,7 @@
 		<aside class="side">
 			<div class="side-card">
 				<div class="side-head"><h2>Product info</h2>
-					<button class="mini" onclick={refreshFromRackbeat} disabled={refreshing} title="Refresh data fields from Rackbeat">{refreshMsg || (refreshing ? '…' : 'Refresh')}</button>
+					<button class="mini" onclick={refreshFromRackbeat} disabled={refreshing} title={refreshTip || 'Refresh data fields from Rackbeat'}>{refreshMsg || (refreshing ? '…' : 'Refresh')}</button>
 				</div>
 				<label class="name-fld"><span>Product name <em>(all languages)</em></span>
 					<input bind:value={name} onblur={saveName} placeholder="Product name" />

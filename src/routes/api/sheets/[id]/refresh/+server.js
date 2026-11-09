@@ -14,13 +14,17 @@ export async function POST({ params, cookies, platform }) {
 	const sheet = await getSheet(db, params.id);
 	if (!sheet) error(404, 'Sheet not found');
 
+	if (!sheet.sku) error(400, 'This sheet has no SKU');
+	// null = Rackbeat answered 404 (the product doesn't exist there — an expected
+	// state for products not created in Rackbeat yet, so 404, not a server error);
+	// a throw = Rackbeat kept failing / rate-limiting through all retries.
 	let rb;
 	try {
 		rb = await fetchRackbeatProductFull(sheet.sku, platform?.env?.RACKBEAT_API_KEY);
-	} catch {
-		rb = null;
+	} catch (e) {
+		error(502, `Rackbeat is busy or unavailable — try again in a minute (${e instanceof Error ? e.message : String(e)})`);
 	}
-	if (!rb) error(502, 'Could not fetch product from Rackbeat');
+	if (!rb) error(404, `${sheet.sku} isn’t in Rackbeat`);
 
 	const su = rb.size_unit  ?? 'cm';
 	const wu = rb.weight_unit ?? 'g';

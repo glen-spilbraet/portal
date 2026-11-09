@@ -34,7 +34,9 @@ export async function GET({ url, cookies, platform }) {
 	}
 
 	// ── Search ─────────────────────────────────────────────────────────────
-	const q = url.searchParams.get('q')?.trim();
+	// A pasted spreadsheet row (tabs/newlines, hundreds of chars) made SQLite reject
+	// the LIKE pattern as "too complex" → 500. Search on the first cell, max 100 chars.
+	const q = url.searchParams.get('q')?.split(/[\t\r\n]/).map((x) => x.trim()).find(Boolean)?.slice(0, 100);
 	if (q) {
 		const sheets = await searchSheets(db, q);
 		return json({ sheets });
