@@ -44,7 +44,7 @@
 	let loadedSheets = $state(data.sheets.map(decorate));
 	let totalCount   = $state(data.totalCount);
 	let loadingMore  = $state(false);
-	const hasMore    = $derived(!todo && !query.trim() && loadedSheets.length < totalCount);
+	const hasMore    = $derived(!todo && !featuredOnly && !query.trim() && loadedSheets.length < totalCount);
 
 	async function loadMore() {
 		if (loadingMore) return;
@@ -102,6 +102,7 @@
 	}
 	async function setTodo(on) {
 		todo = on;
+		if (on) featuredOnly = false;
 		try { localStorage.setItem(TODO_KEY, on ? '1' : '0'); } catch { /* ignore */ }
 		if (on) await loadTodo();
 	}
@@ -111,7 +112,36 @@
 		try { if (canEdit && localStorage.getItem(TODO_KEY) === '1') setTodo(true); } catch { /* ignore */ }
 	});
 
+	// ── Featured (★ starred for the webshop's "Featured Products") ─────────
+	// Star state per sheet id, so a toggle shows everywhere the sheet appears.
+	let starred = $state(/** @type {Record<string, boolean>} */ ({}));
+	const isStarred = (sh) => starred[sh.id] ?? !!sh.featured_at;
+	let featuredOnly = $state(false);
+	let featuredSheets = $state(/** @type {any[]|null} */ (null));
+	async function toggleFeaturedOnly() {
+		featuredOnly = !featuredOnly;
+		if (featuredOnly) {
+			if (todo) setTodo(false);
+			const res = await fetch('/api/sheets?featured=1');
+			if (res.ok) featuredSheets = (await res.json()).sheets.map(decorate);
+		}
+	}
+	async function toggleStar(sh, ev) {
+		ev.preventDefault(); ev.stopPropagation();
+		const next = !isStarred(sh);
+		starred[sh.id] = next; // optimistic
+		try {
+			const res = await fetch(`/api/sheets/${sh.id}/featured`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ featured: next }) });
+			if (!res.ok) throw new Error();
+		} catch { starred[sh.id] = !next; alert('Couldn’t update the star — try again.'); }
+	}
+
 	const displayed = $derived.by(() => {
+		if (featuredOnly) {
+			const base = (featuredSheets ?? []).filter(isStarred);
+			const q = query.trim().toLowerCase();
+			return q ? base.filter((s) => s.sku.toLowerCase().includes(q) || (s._display || '').toLowerCase().includes(q)) : base;
+		}
 		if (todo) {
 			const base = todoSheets ?? [];
 			const q = query.trim().toLowerCase();
@@ -160,6 +190,10 @@
 						Todo{#if todo && todoSheets}<span class="todo-n">{displayed.length}</span>{/if}
 					</button>
 				{/if}
+				<button class="btn-todo" class:on={featuredOnly} onclick={toggleFeaturedOnly} title="Only products starred as Featured for the webshop">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
+					Featured{#if featuredOnly && featuredSheets}<span class="todo-n">{displayed.length}</span>{/if}
+				</button>
 				<a href="/sheets/awards" class="btn-award-view" title="Products with new press or awards to push to the webshop">
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/>
@@ -196,18 +230,30 @@
 					</a>
 				{/if}
 			</div>
+		{:else if featuredOnly && featuredSheets === null}
+			<div class="no-results">Loading featured products…</div>
+		{:else if featuredOnly && displayed.length === 0}
+			<div class="no-results">{query.trim() ? `No featured products match "${query}"` : 'No featured products yet — click the ☆ on a sheet to feature it in the webshop.'}</div>
 		{:else if todo && todoLoading && todoSheets === null}
 			<div class="no-results">Finding sheets that need work…</div>
 		{:else if todo && displayed.length === 0}
 			<div class="no-results">{query.trim() ? `No to-do sheets match "${query}"` : '🎉 Nothing to do — every sheet has age, time, players, a 3D box image, short description and bullets.'}</div>
-		{:else if !todo && query.trim() && searchResults !== null && searchResults.length === 0}
+		{:else if !featuredOnly && !todo && query.trim() && searchResults !== null && searchResults.length === 0}
 			<div class="no-results">No sheets match "<strong>{query}</strong>"</div>
-		{:else if !todo && query.trim() && searchResults === null}
+		{:else if !featuredOnly && !todo && query.trim() && searchResults === null}
 			<!-- searching spinner state — grid already shows while debouncing -->
 		{:else}
 			<div class="grid">
 				{#each displayed as sheet}
-					<div class="card">
+					<div class="card" class:featured={isStarred(sheet)}>
+						{#if canEdit}
+							<button class="star" class:on={isStarred(sheet)} onclick={(e) => toggleStar(sheet, e)}
+								title={isStarred(sheet) ? 'Featured in the webshop — click to remove' : 'Feature in the webshop'} aria-pressed={isStarred(sheet)} aria-label="Featured">
+								<svg width="17" height="17" viewBox="0 0 24 24" fill={isStarred(sheet) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
+							</button>
+						{:else if isStarred(sheet)}
+							<span class="star on ro" title="Featured in the webshop"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg></span>
+						{/if}
 						<a href={canEdit ? `/sheet/${sheet.id}` : `/sheet/${sheet.id}/preview`} class="card-thumb">
 							{#if sheet.box_image_key}
 								<img src="/api/img/{sheet.box_image_key}?size=300" alt={sheet._display ?? sheet.sku} />
@@ -482,6 +528,7 @@
 	}
 
 	.card {
+		position: relative;
 		background: white;
 		border-radius: var(--radius-lg);
 		border: 1px solid var(--border);
@@ -495,6 +542,13 @@
 		box-shadow: var(--shadow-lg);
 		transform: translateY(-1px);
 	}
+
+	.star { position: absolute; top: 8px; right: 8px; z-index: 2; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--border); background: rgba(255,255,255,.92); color: #B8AE9C; cursor: pointer; padding: 0; opacity: 0; transition: opacity .12s, color .12s, transform .12s; }
+	.card:hover .star, .star:focus-visible, .star.on { opacity: 1; }
+	.star:hover { color: #E0A21B; transform: scale(1.08); }
+	.star.on { color: #E8A317; border-color: #F4D58A; background: #FFF8E1; }
+	.star.ro { cursor: default; }
+	@media (hover: none) { .star { opacity: 1; } }
 
 	.card-thumb {
 		display: block;

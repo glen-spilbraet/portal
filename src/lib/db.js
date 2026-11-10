@@ -1,7 +1,7 @@
 /** @param {App.Platform['env']['DB']} db */
 
 const SHEET_SELECT = `
-	SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by,
+	SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at,
 	       COALESCE(u.first_name, '') as creator_first_name,
 	       t_en.value as name_en,
 	       t_da.value as name_da,
@@ -40,7 +40,7 @@ export async function countSheets(db) {
  */
 export async function listIncompleteSheets(db) {
 	const rows = await db.prepare(`
-		SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by,
+		SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at,
 		       COALESCE(u.first_name, '') as creator_first_name,
 		       t_en.value as name_en, t_da.value as name_da, t_sv.value as name_sv, t_no.value as name_no,
 		       COALESCE(s.usp_count, 3) as usp_count,
@@ -137,6 +137,12 @@ export async function searchSheets(db, query) {
 		.bind(q, q, q, q, q, q)
 		.all();
 	return rows.results;
+}
+
+/** All starred (featured) sheets, most recently starred first. */
+export async function listFeaturedSheets(db) {
+	const rows = await db.prepare(`${SHEET_SELECT} WHERE s.featured_at IS NOT NULL ORDER BY s.featured_at DESC`).all();
+	return rows.results ?? [];
 }
 
 export async function getSheet(db, id) {

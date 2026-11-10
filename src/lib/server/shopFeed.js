@@ -75,7 +75,7 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 	const b = only ?? [];
 
 	const [sheetsRes, trRes, imgRes, videoRes, articleRes] = await db.batch([
-		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, preorder_date, restock_date, updated_at, awards_updated_at
+		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, preorder_date, restock_date, featured_at, updated_at, awards_updated_at
 			FROM sales_sheets WHERE trim(sku) != ''${sheetFilter} ORDER BY updated_at DESC`).bind(...b),
 		db.prepare(`SELECT sheet_id, language, key, value FROM translations WHERE trim(value) != ''${andBySheet}`).bind(...b),
 		db.prepare(`SELECT sheet_id, r2_key, type FROM sheet_images${bySheet} ORDER BY display_order ASC`).bind(...b),
@@ -180,6 +180,9 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 			articles: articles[s.id] ?? [],
 			preorder_date: s.preorder_date || null,
 			restock_date: s.restock_date || null,
+			// Starred in the Portal → show under "Featured Products" (newest star first).
+			featured: !!s.featured_at,
+			featured_at: s.featured_at || null,
 			awards: awards[key] ?? []
 		});
 	}

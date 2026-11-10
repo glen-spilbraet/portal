@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
-import { getAllowedUser, listSheets, searchSheets, listIncompleteSheets, getUserPermissions } from '$lib/db.js';
+import { getAllowedUser, listSheets, searchSheets, listIncompleteSheets, listFeaturedSheets, getUserPermissions } from '$lib/db.js';
 
 const PAGE_SIZE = 30;
 
@@ -32,6 +32,9 @@ export async function GET({ url, cookies, platform }) {
 		if (!perms.sheetsEdit) error(403, 'Edit access required');
 		return json({ sheets: await listIncompleteSheets(db) });
 	}
+
+	// ── Featured (starred for the webshop) ────────────────────────────────
+	if (url.searchParams.get('featured')) return json({ sheets: await listFeaturedSheets(db) });
 
 	// ── Search ─────────────────────────────────────────────────────────────
 	// A pasted spreadsheet row (tabs/newlines, hundreds of chars) made SQLite reject

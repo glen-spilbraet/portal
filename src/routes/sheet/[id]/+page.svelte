@@ -278,6 +278,20 @@
 	function setPreorder(v) { preorderDate = v; putSheet('preorder_date', v || null); }
 	function setRestock(v) { restockDate = v; putSheet('restock_date', v || null); }
 
+	// ★ Featured in the webshop ("Featured Products"), saved instantly.
+	let featured = $state(!!data.sheet.featured_at);
+	let featBusy = $state(false);
+	async function toggleFeatured() {
+		if (featBusy) return;
+		featBusy = true;
+		const next = !featured; featured = next;
+		try {
+			const res = await fetch(`/api/sheets/${sheetId}/featured`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ featured: next }) });
+			if (!res.ok) throw new Error();
+		} catch { featured = !next; alert('Couldn’t update Featured — try again.'); }
+		featBusy = false;
+	}
+
 	let refreshing = $state(false);
 	let refreshMsg = $state('');
 	let refreshTip = $state('');
@@ -465,6 +479,11 @@
 		<div class="left">
 			<a href="/sheets" class="back">← Sheets</a>
 			<span class="sku">{data.sheet.sku}</span>
+			<button class="feat" class:on={featured} onclick={toggleFeatured} disabled={featBusy} aria-pressed={featured}
+				title={featured ? 'Shown under Featured Products in the webshop — click to remove' : 'Feature this product in the webshop'}>
+				<svg width="15" height="15" viewBox="0 0 24 24" fill={featured ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
+				{featured ? 'Featured' : 'Feature'}
+			</button>
 		</div>
 		<div class="lang-tabs">
 			{#each langs as l}
@@ -882,6 +901,10 @@
 	}
 	.fld input:focus, .fld textarea:focus, .fld select:focus { outline: none; border-color: #F57832; box-shadow: 0 0 0 3px rgba(245,120,50,0.12); }
 	.fld input[readonly] { background: #FAFAFA; color: #71717A; }
+	.feat { display: inline-flex; align-items: center; gap: 6px; font-family: inherit; font-size: 12px; font-weight: 700; color: #8A7E68; background: #fff; border: 1px solid var(--border); border-radius: 100px; padding: 5px 11px 5px 9px; cursor: pointer; transition: color .12s, background .12s, border-color .12s; }
+	.feat:hover { color: #B07A0E; border-color: #F4D58A; }
+	.feat.on { color: #8A5A00; background: #FFF4CC; border-color: #F1CF6E; }
+	.feat.on svg { color: #E8A317; }
 	.mini { font-size: 12px; font-weight: 700; color: #B15A12; background: #FDEEE4; border: 1px solid #F6CDAB; border-radius: 8px; padding: 5px 11px; cursor: pointer; font-family: inherit; }
 	.mini:hover { background: #FBDDC7; }
 	.mini.danger { color: #dc2626; background: #fff; border-color: #fecaca; }
