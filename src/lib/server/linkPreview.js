@@ -13,7 +13,8 @@ export async function fetchLinkPreview(rawUrl) {
 	try { url = new URL(String(rawUrl).trim()); } catch { return null; }
 	if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
 
-	const base = { url: url.href, title: null, description: null, siteName: url.hostname.replace(/^www\./, ''), image: null, favicon: null };
+	const base = { url: url.href, title: null, description: null, siteName: url.hostname.replace(/^www\./, ''), image: null, favicon: null, locale: null,
+		/** @type {{ lang: string, href: string }[]} */ alternates: [] };
 	let html = '';
 	try {
 		const res = await fetch(url.href, {
@@ -35,6 +36,15 @@ export async function fetchLinkPreview(rawUrl) {
 	base.description = meta('og:description') || meta('description') || null;
 	base.siteName = meta('og:site_name') || base.siteName;
 	base.image = meta('og:image') || meta('og:image:url') || meta('og:image:secure_url') || meta('twitter:image') || null;
+
+	base.locale = meta('og:locale') || null;
+	// <link rel="alternate" hreflang="xx" href="…"> — the page's localised versions.
+	for (const tag of html.match(/<link\b[^>]*\bhreflang\s*=[^>]*>/gi) ?? []) {
+		if (!/rel\s*=\s*["']alternate["']/i.test(tag)) continue;
+		const lang = tag.match(/hreflang\s*=\s*["']([^"']+)["']/i)?.[1]?.toLowerCase();
+		const href = abs(tag.match(/href\s*=\s*["']([^"']+)["']/i)?.[1], url);
+		if (lang && href && lang !== 'x-default') base.alternates.push({ lang, href });
+	}
 
 	const iconTag = html.match(/<link[^>]+rel\s*=\s*["'][^"']*icon[^"']*["'][^>]*>/i)?.[0];
 	const iconHref = iconTag ? iconTag.match(/href\s*=\s*["']([^"']*)["']/i)?.[1] : null;

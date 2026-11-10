@@ -27,7 +27,17 @@ async function cacheImage(bucket, sheetId, articleId, imageUrl) {
 	} catch { return null; }
 }
 
-/** POST /api/sheets/:id/articles  { url }  — fetch preview, cache image, store. */
+// Our own sites (Spilbræt.dk / Brädspel.se / Brettspill.no): an article there
+// exists per language, linked by <link rel="alternate" hreflang>. Adding any one
+// of them adds every localised version, each shown only in its own market.
+const OWN_SITE = /(^|\.)(spilbraet\.dk|xn--brdspel-5wa\.se|bradspel\.se|brettspill\.no)$/i;
+const LANG_MARKET = { da: 'DK', sv: 'SE', no: 'NO', nb: 'NO', nn: 'NO' };
+const LANG_LABEL = { DK: 'Danish', SE: 'Swedish', NO: 'Norwegian' };
+const marketOfLang = (l) => LANG_MARKET[String(l ?? '').toLowerCase().split(/[-_]/)[0]] ?? null;
+const sameUrl = (a, b) => String(a).replace(/\/+$/, '').toLowerCase() === String(b).replace(/\/+$/, '').toLowerCase();
+
+/** POST /api/sheets/:id/articles  { url }  — fetch preview, cache image, store.
+ *  For our own sites, all localised versions are added (one per market). */
 export async function POST({ params, request, cookies, platform }) {
 	if (!(await checkAuth(cookies, platform))) error(401, 'Unauthorized');
 	const db = platform?.env?.DB;
@@ -39,18 +49,58 @@ export async function POST({ params, request, cookies, platform }) {
 	const preview = await fetchLinkPreview(body.url);
 	if (!preview) error(400, 'Invalid URL');
 
-	const articleId = crypto.randomUUID();
-	const imageKey = await cacheImage(platform?.env?.IMAGES, params.id, articleId, preview.image);
-	if (imageKey) warmImageWidths(platform, imageKey);
+	/** @type {{ preview: any, markets: string[] | null }[]} */
+	let toAdd = [{ preview, markets: null }];
+	const own = OWN_SITE.test(new URL(preview.url).hostname);
+	if (own) {
+		// One entry per market from the hreflang links (the submitted page included);
+		// a page without alternates gets the market of its own og:locale.
+		const byMarket = new Map();
+		for (const a of preview.alternates ?? []) {
+			const m = marketOfLang(a.lang);
+			if (m && !byMarket.has(m)) byMarket.set(m, a.href);
+		}
+		if (!byMarket.size) {
+			const m = marketOfLang(preview.locale);
+			if (m) byMarket.set(m, preview.url);
+		}
+		if (byMarket.size) {
+			toAdd = await Promise.all([...byMarket].map(async ([m, href]) => ({
+				preview: sameUrl(href, preview.url) ? preview : ((await fetchLinkPreview(href)) ?? { ...preview, url: href }),
+				markets: [m],
+			})));
+		}
+	}
 
+	// Already on the sheet (same URL) → just (re)set its market instead of a duplicate.
 	const existing = await getArticles(db, params.id);
-	await addArticle(db, params.id, articleId, {
-		url: preview.url, title: preview.title, description: preview.description,
-		siteName: preview.siteName, imageKey, imageUrl: preview.image, favicon: preview.favicon
-	}, existing.length);
+	let order = existing.length;
+	const added = [], updated = [];
+	for (const { preview: pv, markets } of toAdd) {
+		const dup = existing.find((a) => sameUrl(a.url, pv.url));
+		if (dup) {
+			if (markets) await setArticleMarkets(db, dup.id, markets);
+			updated.push(markets?.[0] ?? dup.url);
+			continue;
+		}
+		const articleId = crypto.randomUUID();
+		const imageKey = await cacheImage(platform?.env?.IMAGES, params.id, articleId, pv.image);
+		if (imageKey) warmImageWidths(platform, imageKey);
+		await addArticle(db, params.id, articleId, {
+			url: pv.url, title: pv.title, description: pv.description,
+			siteName: pv.siteName, imageKey, imageUrl: pv.image, favicon: pv.favicon
+		}, order++);
+		if (markets) await setArticleMarkets(db, articleId, markets);
+		added.push(markets?.[0] ?? null);
+	}
 
 	await notifyShops(platform, { type: 'sheet_article', sku: sheet.sku });
-	return json({ ok: true, id: articleId, articles: await getArticles(db, params.id) });
+	const label = (m) => LANG_LABEL[m] ?? m;
+	const message = own && toAdd.some((t) => t.markets)
+		? [added.length ? `Added ${added.map(label).join(', ')} version${added.length === 1 ? '' : 's'}` : '',
+			updated.length ? `${updated.map(label).join(', ')} already added — market set` : ''].filter(Boolean).join(' · ')
+		: null;
+	return json({ ok: true, added: added.length, message, articles: await getArticles(db, params.id) });
 }
 
 /** DELETE /api/sheets/:id/articles?articleId=… */

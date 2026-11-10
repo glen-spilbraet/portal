@@ -346,15 +346,17 @@
 	let arts = $state(normList(data.articles));
 	let articleUrl = $state('');
 	let articleErr = $state('');
+	let articleInfo = $state('');
 	let articleAdding = $state(false);
 	async function addArticle() {
 		const url = articleUrl.trim();
 		if (!/^https?:\/\//i.test(url)) { articleErr = 'Enter a full URL (https://…)'; return; }
-		articleErr = ''; articleAdding = true;
+		articleErr = ''; articleInfo = ''; articleAdding = true;
 		try {
 			const res = await fetch(`/api/sheets/${sheetId}/articles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
 			if (!res.ok) throw new Error('Could not fetch that page');
 			const b = await res.json(); arts = normList(b.articles); articleUrl = ''; flashSaved();
+			if (b.message) { articleInfo = b.message; setTimeout(() => (articleInfo = ''), 6000); }
 		} catch (e) { articleErr = e.message; }
 		articleAdding = false;
 	}
@@ -666,6 +668,7 @@
 				<button class="btn primary sm" onclick={addArticle} disabled={articleAdding}>{articleAdding ? 'Fetching…' : 'Add'}</button>
 			</div>
 			{#if articleErr}<p class="err">{articleErr}</p>{/if}
+			{#if articleInfo}<p class="info">{articleInfo}</p>{/if}
 		</section>
 
 		<!-- Images -->
@@ -888,6 +891,7 @@
 	.card-head h2 { font-size: 15px; font-weight: 800; color: #18181B; margin: 0; }
 	.hint { font-size: 11.5px; color: #A1A1AA; }
 	.err { font-size: 12px; color: #dc2626; margin: 6px 0 0; }
+	.info { font-size: 12px; color: #16794C; margin: 6px 0 0; font-weight: 600; }
 	.empty { font-size: 13px; color: #A1A1AA; margin: 4px 0; }
 
 	.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
