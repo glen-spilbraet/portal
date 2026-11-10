@@ -15,7 +15,7 @@
 
 import { MARKETS, sanitizeMarkets } from '$lib/server/webshopMarkets.js';
 
-export const MISSING_KEYS = ['age', 'time', 'players', 'pieces', 'category', 'short', 'bullets', 'long'];
+export const MISSING_KEYS = ['age', 'time', 'players', 'pieces', 'gametype', 'type', 'short', 'bullets', 'long'];
 const skuPrefix = (sku) => (String(sku ?? '').match(/^[A-Za-z]+/)?.[0] ?? '').toUpperCase();
 const lc = (s) => String(s ?? '').trim().toLowerCase();
 
@@ -86,8 +86,10 @@ export async function filterSheets(db, salesDb, f) {
 	]);
 	const prefixMap = new Map((pfx.results ?? []).map((r) => [String(r.prefix).toUpperCase(), r.publisher]));
 	const overrideMap = new Map((ovr.results ?? []).map((r) => [r.sku, r.publisher]));
-	// "Category" = a selection in BOTH managed groups (Game Type and Type).
-	const managed = (groups.results ?? []).filter((g) => g.name === 'game type' || g.name === 'type').map((g) => g.id);
+	// The two managed category groups, checked separately ("Game Type", "Type").
+	const groupId = (name) => (groups.results ?? []).find((g) => g.name === name)?.id ?? null;
+	const gameTypeGroup = groupId('game type');
+	const typeGroup = groupId('type');
 	const groupsOf = new Map();
 	for (const r of cats.results ?? []) (groupsOf.get(r.sku) ?? groupsOf.set(r.sku, new Set()).get(r.sku)).add(r.group_id);
 	const webOf = new Map((web.results ?? []).map((r) => [r.sku, r]));
@@ -131,7 +133,8 @@ export async function filterSheets(db, salesDb, f) {
 		if (!field(s.data_fields, 'time')) missing.push('time');
 		if (!field(s.data_fields, 'players')) missing.push('players');
 		if (!field(s.data_fields, 'pieces')) missing.push('pieces');
-		if (managed.length && !managed.every((g) => has.has(g))) missing.push('category');
+		if (gameTypeGroup && !has.has(gameTypeGroup)) missing.push('gametype');
+		if (typeGroup && !has.has(typeGroup)) missing.push('type');
 		if (!s.has_short) missing.push('short');
 		if ((s.usp_count ?? 3) < 1 || (s.usp_filled ?? 0) < (s.usp_count ?? 3)) missing.push('bullets');
 		if (!s.has_long) missing.push('long');

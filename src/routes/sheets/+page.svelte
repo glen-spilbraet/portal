@@ -138,7 +138,7 @@
 
 	// ── Advanced filters (edit access): publisher, missing info, markets, dates ─
 	const ADV_KEY = 'sheets.filters.v1';
-	const MISSING_OPTS = [['age', 'Age'], ['time', 'Time'], ['players', 'Players'], ['pieces', 'Pieces'], ['category', 'Category'], ['short', 'Short text'], ['bullets', 'Bullets'], ['long', 'Long text']];
+	const MISSING_OPTS = [['age', 'Age'], ['time', 'Time'], ['players', 'Players'], ['pieces', 'Pieces'], ['gametype', 'Game Type'], ['type', 'Type'], ['short', 'Short text'], ['bullets', 'Bullets'], ['long', 'Long text']];
 	const MISSING_LABEL = Object.fromEntries(MISSING_OPTS);
 	const MARKET_OPTS = ['DK', 'SE', 'NO', 'INT', 'PL'];
 	const blankFilter = () => ({ pub: '', pubMode: 'mapped', missing: /** @type {string[]} */ ([]), missingMode: 'any', markets: /** @type {string[]} */ ([]), preorder: '', restock: '' });
@@ -197,7 +197,11 @@
 	onMount(() => {
 		try {
 			const saved = JSON.parse(localStorage.getItem(ADV_KEY) || 'null');
-			if (canEdit && saved && typeof saved === 'object') f = { ...blankFilter(), ...saved };
+			if (canEdit && saved && typeof saved === 'object') {
+				f = { ...blankFilter(), ...saved };
+				// 'category' was split into 'gametype' + 'type'.
+				if (Array.isArray(f.missing) && f.missing.includes('category')) f.missing = [...f.missing.filter((k) => k !== 'category'), 'gametype', 'type'];
+			}
 		} catch { /* ignore */ }
 	});
 
@@ -334,7 +338,7 @@
 						{/if}
 					</div>
 				</div>
-				<p class="f-note">Search text above also narrows the filter (name or SKU). “Category” = a Game Type and a Type are selected. Texts and bullets are checked in each sheet’s primary language.</p>
+				<p class="f-note">Search text above also narrows the filter (name or SKU). “Game Type” / “Type” = nothing selected in that category group. Texts and bullets are checked in each sheet’s primary language.</p>
 			</section>
 		{/if}
 
