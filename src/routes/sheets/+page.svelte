@@ -44,7 +44,7 @@
 	let loadedSheets = $state(data.sheets.map(decorate));
 	let totalCount   = $state(data.totalCount);
 	let loadingMore  = $state(false);
-	const hasMore    = $derived(!todo && !featuredOnly && !query.trim() && loadedSheets.length < totalCount);
+	const hasMore    = $derived(!todo && !featuredOnly && !advActive && !query.trim() && loadedSheets.length < totalCount);
 
 	async function loadMore() {
 		if (loadingMore) return;
@@ -102,7 +102,7 @@
 	}
 	async function setTodo(on) {
 		todo = on;
-		if (on) featuredOnly = false;
+		if (on) { featuredOnly = false; f = blankFilter(); }
 		try { localStorage.setItem(TODO_KEY, on ? '1' : '0'); } catch { /* ignore */ }
 		if (on) await loadTodo();
 	}
@@ -136,7 +136,73 @@
 		} catch { starred[sh.id] = !next; alert('Couldn’t update the star — try again.'); }
 	}
 
+	// ── Advanced filters (edit access): publisher, missing info, markets, dates ─
+	const ADV_KEY = 'sheets.filters.v1';
+	const MISSING_OPTS = [['age', 'Age'], ['time', 'Time'], ['players', 'Players'], ['pieces', 'Pieces'], ['category', 'Category'], ['short', 'Short text'], ['bullets', 'Bullets'], ['long', 'Long text']];
+	const MISSING_LABEL = Object.fromEntries(MISSING_OPTS);
+	const MARKET_OPTS = ['DK', 'SE', 'NO', 'INT', 'PL'];
+	const blankFilter = () => ({ pub: '', pubMode: 'mapped', missing: /** @type {string[]} */ ([]), missingMode: 'any', markets: /** @type {string[]} */ ([]), preorder: '', restock: '' });
+	let filterOpen = $state(false);
+	let f = $state(blankFilter());
+	let filterOptions = $state(/** @type {{ publishers: string[] } | null} */ (null));
+	let advResults = $state(/** @type {any[]|null} */ (null));
+	let advLoading = $state(false);
+	let advError = $state('');
+	const advActive = $derived(!!(f.pub || f.missing.length || f.markets.length || f.preorder || f.restock));
+	const advCount = $derived([f.pub, f.missing.length, f.markets.length, f.preorder, f.restock].filter(Boolean).length);
+	const toggleIn = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+
+	async function openFilters() {
+		filterOpen = !filterOpen;
+		if (filterOpen && !filterOptions) {
+			const res = await fetch('/api/sheets/filter?options=1');
+			if (res.ok) filterOptions = await res.json();
+		}
+	}
+	function clearFilters() { f = blankFilter(); }
+
+	// Re-run the filter (debounced) whenever a filter, the search text or the
+	// Featured toggle changes. Filters are remembered per browser.
+	let advTimer = /** @type {ReturnType<typeof setTimeout>|null} */ (null);
+	let advSeq = 0;
+	$effect(() => {
+		const snap = JSON.stringify(f);
+		const q = query.trim();
+		const feat = featuredOnly;
+		try { localStorage.setItem(ADV_KEY, snap); } catch { /* ignore */ }
+		clearTimeout(advTimer ?? undefined);
+		if (!advActive) { advResults = null; return; }
+		if (todo) setTodo(false); // filters replace the Todo view
+		advLoading = true;
+		advTimer = setTimeout(async () => {
+			const seq = ++advSeq;
+			const p = new URLSearchParams({ pubMode: f.pubMode, missingMode: f.missingMode });
+			if (f.pub) p.set('pub', f.pub);
+			if (q) p.set('q', q);
+			if (f.missing.length) p.set('missing', f.missing.join(','));
+			if (f.markets.length) p.set('markets', f.markets.join(','));
+			if (f.preorder) p.set('preorder', f.preorder);
+			if (f.restock) p.set('restock', f.restock);
+			if (feat) p.set('featured', '1');
+			try {
+				const res = await fetch(`/api/sheets/filter?${p}`);
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+				const body = await res.json();
+				if (seq === advSeq) { advResults = body.sheets.map(decorate); advError = ''; }
+			} catch (e) { if (seq === advSeq) advError = 'Couldn’t apply the filters — try again.'; }
+			finally { if (seq === advSeq) advLoading = false; }
+		}, 250);
+		void snap;
+	});
+	onMount(() => {
+		try {
+			const saved = JSON.parse(localStorage.getItem(ADV_KEY) || 'null');
+			if (canEdit && saved && typeof saved === 'object') f = { ...blankFilter(), ...saved };
+		} catch { /* ignore */ }
+	});
+
 	const displayed = $derived.by(() => {
+		if (advActive) return (advResults ?? []).filter((sh) => !featuredOnly || isStarred(sh));
 		if (featuredOnly) {
 			const base = (featuredSheets ?? []).filter(isStarred);
 			const q = query.trim().toLowerCase();
@@ -183,6 +249,10 @@
 					{/if}
 				</div>
 				{#if canEdit}
+					<button class="btn-todo" class:on={advActive} class:open={filterOpen} onclick={openFilters} title="Filter by publisher, missing info, markets and dates" aria-expanded={filterOpen}>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+						Filters{#if advCount}<span class="todo-n">{advCount}</span>{/if}
+					</button>
 					<button class="btn-todo" class:on={todo} onclick={toggleTodo} title="Only sheets missing age, time, players, 3D box image, short description or bullets">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 							<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
@@ -211,7 +281,70 @@
 			</div>
 		</div>
 
-		{#if totalCount === 0}
+		{#if canEdit && filterOpen}
+			<section class="filters" aria-label="Sheet filters">
+				<div class="f-row">
+					<div class="f-grp">
+						<span class="f-lbl">Publisher</span>
+						<select bind:value={f.pub} class="f-sel">
+							<option value="">All publishers</option>
+							{#each filterOptions?.publishers ?? [] as p}<option value={p}>{p}</option>{/each}
+						</select>
+						<div class="seg" role="group" aria-label="Publisher model">
+							<button type="button" class:on={f.pubMode === 'mapped'} onclick={() => (f.pubMode = 'mapped')} title="Per-product mapping, falling back to the SKU prefix">Mapped</button>
+							<button type="button" class:on={f.pubMode === 'sku'} onclick={() => (f.pubMode = 'sku')} title="By SKU prefix only">SKU</button>
+						</div>
+					</div>
+					<div class="f-grp">
+						<span class="f-lbl">Pre-order date</span>
+						<div class="seg">{#each [['', 'Any'], ['yes', 'Has'], ['no', 'None']] as [v, l]}<button type="button" class:on={f.preorder === v} onclick={() => (f.preorder = v)}>{l}</button>{/each}</div>
+					</div>
+					<div class="f-grp">
+						<span class="f-lbl">Restock date</span>
+						<div class="seg">{#each [['', 'Any'], ['yes', 'Has'], ['no', 'None']] as [v, l]}<button type="button" class:on={f.restock === v} onclick={() => (f.restock = v)}>{l}</button>{/each}</div>
+					</div>
+				</div>
+				<div class="f-row">
+					<div class="f-grp wrap">
+						<span class="f-lbl">Missing</span>
+						{#each MISSING_OPTS as [k, l]}
+							<button type="button" class="chip" class:on={f.missing.includes(k)} onclick={() => (f.missing = toggleIn(f.missing, k))}>{l}</button>
+						{/each}
+						{#if f.missing.length > 1}
+							<div class="seg small" title="Missing any of the ticked items, or all of them">
+								<button type="button" class:on={f.missingMode === 'any'} onclick={() => (f.missingMode = 'any')}>Any</button>
+								<button type="button" class:on={f.missingMode === 'all'} onclick={() => (f.missingMode = 'all')}>All</button>
+							</div>
+						{/if}
+					</div>
+				</div>
+				<div class="f-row">
+					<div class="f-grp wrap">
+						<span class="f-lbl">Webshop</span>
+						{#each MARKET_OPTS as m}
+							<button type="button" class="chip" class:on={f.markets.includes(m)} onclick={() => (f.markets = toggleIn(f.markets.filter((x) => x !== 'none'), m))}>{m}</button>
+						{/each}
+						<button type="button" class="chip warn" class:on={f.markets.includes('none')} onclick={() => (f.markets = f.markets.includes('none') ? [] : ['none'])} title="Published in no market at all">Not published</button>
+						<span class="f-hint">{f.markets.includes('none') ? 'Products not published in any market' : f.markets.length ? `Published in ${f.markets.join(' or ')}` : 'Any'}</span>
+					</div>
+					<div class="f-end">
+						{#if advActive}
+							<span class="f-count">{advLoading ? 'Filtering…' : `${displayed.length} match${displayed.length === 1 ? '' : 'es'}`}</span>
+							<button type="button" class="f-clear" onclick={clearFilters}>Clear filters</button>
+						{/if}
+					</div>
+				</div>
+				<p class="f-note">Search text above also narrows the filter (name or SKU). “Category” = a Game Type and a Type are selected. Texts and bullets are checked in each sheet’s primary language.</p>
+			</section>
+		{/if}
+
+		{#if advActive && advError}
+			<div class="no-results">{advError}</div>
+		{:else if advActive && advResults === null}
+			<div class="no-results">Filtering sheets…</div>
+		{:else if advActive && displayed.length === 0}
+			<div class="no-results">No sheets match these filters.</div>
+		{:else if totalCount === 0}
 			<div class="empty">
 				<div class="empty-icon">
 					<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -230,17 +363,17 @@
 					</a>
 				{/if}
 			</div>
-		{:else if featuredOnly && featuredSheets === null}
+		{:else if !advActive && featuredOnly && featuredSheets === null}
 			<div class="no-results">Loading featured products…</div>
-		{:else if featuredOnly && displayed.length === 0}
+		{:else if !advActive && featuredOnly && displayed.length === 0}
 			<div class="no-results">{query.trim() ? `No featured products match "${query}"` : 'No featured products yet — click the ☆ on a sheet to feature it in the webshop.'}</div>
 		{:else if todo && todoLoading && todoSheets === null}
 			<div class="no-results">Finding sheets that need work…</div>
 		{:else if todo && displayed.length === 0}
 			<div class="no-results">{query.trim() ? `No to-do sheets match "${query}"` : '🎉 Nothing to do — every sheet has age, time, players, a 3D box image, short description and bullets.'}</div>
-		{:else if !featuredOnly && !todo && query.trim() && searchResults !== null && searchResults.length === 0}
+		{:else if !advActive && !featuredOnly && !todo && query.trim() && searchResults !== null && searchResults.length === 0}
 			<div class="no-results">No sheets match "<strong>{query}</strong>"</div>
-		{:else if !featuredOnly && !todo && query.trim() && searchResults === null}
+		{:else if !advActive && !featuredOnly && !todo && query.trim() && searchResults === null}
 			<!-- searching spinner state — grid already shows while debouncing -->
 		{:else}
 			<div class="grid">
@@ -283,6 +416,14 @@
 								</div>
 							</div>
 							<h2>{sheet._display || '(untitled)'}</h2>
+							{#if advActive && sheet.missing}
+								<div class="miss" title={sheet.missing.length ? 'Missing: ' + sheet.missing.map((k) => MISSING_LABEL[k]).join(', ') : 'Nothing missing'}>
+									{#if sheet.missing.length}
+										{#each sheet.missing as k}<span class="miss-chip" class:hit={f.missing.includes(k)}>{MISSING_LABEL[k]}</span>{/each}
+									{:else}<span class="miss-ok">Complete</span>{/if}
+								</div>
+								<div class="mk">{sheet.publisher ?? '—'} · {sheet.markets?.length ? sheet.markets.join(' ') : 'Not published'}</div>
+							{/if}
 							<p class="date">
 								{formatDate(sheet.updated_at)}
 								{#if creatorName(sheet)}<span class="created-by">· {creatorName(sheet)}</span>{/if}
@@ -476,6 +617,32 @@
 	}
 	.btn-todo:hover { border-color: #F57832; color: #B15A12; }
 	.btn-todo.on { background: #F57832; border-color: #F57832; color: #fff; }
+	.btn-todo.open:not(.on) { border-color: #F57832; color: #B15A12; }
+
+	.filters { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px 10px; margin: 0 0 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow); }
+	.f-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; }
+	.f-grp { display: flex; align-items: center; gap: 8px; }
+	.f-grp.wrap { flex-wrap: wrap; }
+	.f-lbl { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: #A89C84; min-width: 62px; }
+	.f-sel { font-family: inherit; font-size: 13px; font-weight: 600; color: #3F3A31; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: #fff; max-width: 220px; }
+	.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 100px; overflow: hidden; }
+	.seg button { border: none; background: #fff; color: #71717A; font-family: inherit; font-size: 12px; font-weight: 700; padding: 5px 11px; cursor: pointer; }
+	.seg button.on { background: #F57832; color: #fff; }
+	.seg.small button { padding: 4px 9px; font-size: 11.5px; }
+	.chip { font-family: inherit; font-size: 12.5px; font-weight: 700; color: #6B6355; background: #FBF7EF; border: 1px solid #EDE6D6; border-radius: 100px; padding: 5px 11px; cursor: pointer; }
+	.chip:hover { border-color: #F4CE7A; }
+	.chip.on { background: #FFE6A5; border-color: #F4CE7A; color: #7B3803; }
+	.chip.warn.on { background: #FDECEC; border-color: #F3B9B0; color: #A2301A; }
+	.f-hint { font-size: 12px; color: #A89C84; font-weight: 600; }
+	.f-end { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+	.f-count { font-size: 13px; font-weight: 700; color: #3F3A31; }
+	.f-clear { font-family: inherit; font-size: 12.5px; font-weight: 700; color: #B15A12; background: none; border: none; cursor: pointer; text-decoration: underline; }
+	.f-note { margin: 0; font-size: 11.5px; color: #A89C84; }
+	.miss { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 2px; }
+	.miss-chip { font-size: 10.5px; font-weight: 700; color: #8A7E68; background: #F4EFE4; border-radius: 100px; padding: 1px 7px; }
+	.miss-chip.hit { background: #FDECEC; color: #A2301A; }
+	.miss-ok { font-size: 10.5px; font-weight: 700; color: #16794C; background: #EAF7EF; border-radius: 100px; padding: 1px 7px; }
+	.mk { font-size: 11px; color: #A89C84; font-weight: 600; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.btn-todo .todo-n { background: rgba(255,255,255,0.3); border-radius: 100px; font-size: 11px; font-weight: 800; padding: 0 7px; }
 	.btn-award-view {
 		display: inline-flex;
