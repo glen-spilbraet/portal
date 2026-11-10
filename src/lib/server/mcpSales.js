@@ -61,10 +61,11 @@ export const SALES_SCHEMA_DOC = {
 		'"Year over year" (YoY) = run the SAME month/day window for each year and compare, e.g. Aug–Oct 2025 vs Aug–Oct 2026. Use close_date >= \'YYYY-08-01\' AND close_date < \'YYYY-11-01\' per year (a conditional SUM with CASE lets you get both years in one query).',
 		'Per-product analysis needs deal_line_items (has sku/quantity/publisher). Per-deal/company revenue can use sales_deals. Segment columns (customer_group/level/country) live on sales_deals, so joining line items to sales_deals is needed to segment products.',
 		'A month range like "August to October" is inclusive of October — use close_date < the FIRST day of the next month (e.g. < \'2026-11-01\').',
+		'PERFORMANCE (enforced): every query on deal_line_items must filter deal_kind AND a close_date range (or a specific publisher / sku / company_id) so an index is used. Queries that would read all ~600k sales lines, or use correlated subqueries over them, are refused with a hint — put the whole period you need into the close_date range (e.g. for YoY: close_date >= the first year\'s start AND < the last year\'s end) and split it with CASE.',
 	],
 	examples: [
 		"Best-selling SKUs by units in 2026: SELECT sku, MAX(name) name, SUM(quantity) units, SUM(amount_dkk) dkk FROM deal_line_items WHERE deal_kind='closed' AND close_date >= '2026-01-01' AND close_date < '2027-01-01' AND sku IS NOT NULL GROUP BY sku ORDER BY units DESC LIMIT 20",
-		"Bookstores' top products Aug–Oct, YoY (2025 vs 2026): SELECT li.sku, MAX(li.name) name, SUM(CASE WHEN li.close_date>='2025-08-01' AND li.close_date<'2025-11-01' THEN li.quantity ELSE 0 END) units_2025, SUM(CASE WHEN li.close_date>='2026-08-01' AND li.close_date<'2026-11-01' THEN li.quantity ELSE 0 END) units_2026 FROM deal_line_items li JOIN sales_deals d ON d.deal_id=li.deal_id WHERE li.deal_kind='closed' AND d.customer_group='Boghandler' GROUP BY li.sku ORDER BY units_2026 DESC LIMIT 25  -- replace 'Boghandler' with the real value from values.customer_group",
+		"Bookstores' top products Aug–Oct, YoY (2025 vs 2026): SELECT li.sku, MAX(li.name) name, SUM(CASE WHEN li.close_date>='2025-08-01' AND li.close_date<'2025-11-01' THEN li.quantity ELSE 0 END) units_2025, SUM(CASE WHEN li.close_date>='2026-08-01' AND li.close_date<'2026-11-01' THEN li.quantity ELSE 0 END) units_2026 FROM deal_line_items li JOIN sales_deals d ON d.deal_id=li.deal_id WHERE li.deal_kind='closed' AND li.close_date >= '2025-08-01' AND li.close_date < '2026-11-01' AND d.customer_group='Boghandler' GROUP BY li.sku ORDER BY units_2026 DESC LIMIT 25  -- replace 'Boghandler' with the real value from values.customer_group",
 		"One publisher's customers: SELECT d.company_name, SUM(li.amount_dkk) dkk FROM deal_line_items li JOIN sales_deals d ON d.deal_id=li.deal_id WHERE li.deal_kind='closed' AND li.publisher='IELLO' GROUP BY d.company_id ORDER BY dkk DESC",
 	],
 };
@@ -87,6 +88,51 @@ export async function salesSchema(sdb) {
 	return { ...SALES_SCHEMA_DOC, values };
 }
 
+/** Big tables an ad-hoc query must reach through an index, never by a full walk. */
+const BIG_TABLES = ['deal_line_items'];
+const NARROW_HINT = 'Narrow it so an index can be used: always add deal_line_items.deal_kind = \'closed\' (or \'forecast\') TOGETHER WITH a close_date range (close_date >= \'YYYY-MM-DD\' AND close_date < \'YYYY-MM-DD\'), or with a specific publisher / sku / company_id. Avoid correlated subqueries over deal_line_items — use GROUP BY or a CTE instead.';
+
+/**
+ * Plan-based cost check for runSalesQuery. Returns an error message to show the
+ * caller, or null when the plan is fine. Fails open if EXPLAIN itself errors
+ * (the real query then reports the SQL error).
+ */
+async function checkPlan(db, sql) {
+	let plan;
+	try {
+		plan = ((await db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all()).results ?? []).map((r) => String(r.detail ?? ''));
+	} catch { return null; }
+	// Names the big tables go by in this query: the table name and any alias.
+	const names = new Set(BIG_TABLES);
+	for (const t of BIG_TABLES) {
+		for (const m of sql.matchAll(new RegExp(`\\b${t}\\s+(?:as\\s+)?([A-Za-z_][A-Za-z0-9_]*)`, 'gi'))) {
+			const a = m[1].toLowerCase();
+			if (!['where', 'join', 'left', 'inner', 'on', 'group', 'order', 'limit', 'cross', 'natural', 'using', 'union'].includes(a)) names.add(a);
+		}
+	}
+	const isBig = (n) => names.has(String(n).toLowerCase());
+	for (const line of plan) {
+		// Full walk of a big table (plain or through a covering index).
+		const scan = line.match(/^SCAN (\S+)/);
+		if (scan && isBig(scan[1])) {
+			return `Query refused: it would read every row of deal_line_items (~600k lines), which can overload the shared production database. ${NARROW_HINT}`;
+		}
+	}
+	// Index used only for deal_kind → every closed line (~500k) is read. A single-
+	// table aggregate over that is a few seconds (allowed); doing per-row work on
+	// top of it — a join or a correlated subquery for each of those lines — is
+	// what can run past D1's CPU limit, so that combination is refused.
+	const kindOnly = plan.some((line) => {
+		const m = line.match(/^SEARCH (\S+) USING (?:COVERING )?INDEX \S+ \((.*)\)$/);
+		return m && isBig(m[1]) && /^deal_kind=\?$/.test(m[2].trim());
+	});
+	const tableLines = plan.filter((line) => /^(SEARCH|SCAN) (?!\(|subquery|CONSTANT)/.test(line) && !/^SCAN \(/.test(line));
+	if (kindOnly && (tableLines.length > 1 || plan.some((l) => /CORRELATED/.test(l)))) {
+		return `Query refused: it would join every closed sales line (~500k) to another table, which can overload the shared production database. ${NARROW_HINT}`;
+	}
+	return null;
+}
+
 /**
  * Guarded read-only SQL over SALES_DB. Accepts a single SELECT/WITH statement,
  * enforces a row cap, and rejects anything that could write or chain statements.
@@ -107,9 +153,22 @@ export async function runSalesQuery(sdb, sqlRaw) {
 	const hasLimit = /\blimit\b\s+\d+/i.test(sql);
 	const finalSql = hasLimit ? sql : `SELECT * FROM (${sql}) LIMIT ${MAX_ROWS + 1}`;
 
+	// Read replica when D1 read replication is on (no-op otherwise): an ad-hoc
+	// report then never competes with the portal on the primary database.
+	let db = sdb;
+	try { if (typeof sdb.withSession === 'function') db = sdb.withSession('first-unconstrained') ?? sdb; } catch { db = sdb; }
+
+	// Cost guard: plan the query first (EXPLAIN QUERY PLAN reads no rows) and
+	// refuse plans that walk all ~600k sales lines. D1 runs one query at a time
+	// per database, and an unbounded ad-hoc query was able to push the shared
+	// production database over its CPU limit (it gets reset → the whole portal
+	// hangs). The message tells the caller how to narrow it.
+	const verdict = await checkPlan(db, finalSql);
+	if (verdict) return { error: verdict };
+
 	let res;
 	try {
-		res = await sdb.prepare(finalSql).all();
+		res = await db.prepare(finalSql).all();
 	} catch (e) {
 		return { error: `SQL error: ${e?.message ?? e}` };
 	}

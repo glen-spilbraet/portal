@@ -14,14 +14,17 @@ export const CATEGORY_LANGS = ['da', 'sv', 'no', 'en', 'pl'];
 /**
  * All groups with their categories and labels, ordered by position.
  * @param {D1} db
+ * @param {{ counts?: boolean }} [opts]
  * @returns {Promise<Group[]>}
  */
-export async function listTaxonomy(db) {
+export async function listTaxonomy(db, { counts: withCounts = true } = {}) {
 	const [g, c, l, n] = await db.batch([
 		db.prepare('SELECT id, position FROM category_group ORDER BY position, created_at'),
 		db.prepare('SELECT id, group_id, position FROM category ORDER BY position, created_at'),
 		db.prepare('SELECT object_type, object_id, language, label FROM category_label'),
-		db.prepare('SELECT category_id, COUNT(*) AS n FROM product_category GROUP BY category_id')
+		// Per-category usage counts scan all of product_category — callers that
+		// don't show counts (the shop feed) skip it.
+		withCounts ? db.prepare('SELECT category_id, COUNT(*) AS n FROM product_category GROUP BY category_id') : db.prepare('SELECT NULL AS category_id, 0 AS n WHERE 0')
 	]);
 	/** @type {Record<string, Record<string, string>>} */
 	const labels = {};

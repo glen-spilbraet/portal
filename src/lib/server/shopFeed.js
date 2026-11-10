@@ -58,6 +58,72 @@ async function loadAwardRows(db, skus) {
 }
 
 /**
+ * The feed's catalogue-wide sections (publisher prefixes/overrides, series,
+ * publisher market licences, every product's webshop publish state). These stay
+ * COMPLETE even in a ?sku= refresh (the shop may rely on that), but reading them
+ * in full on each of the shop's thousands of per-product calls was ~half of all
+ * database load. So for ?sku= calls they come from a short-lived per-isolate
+ * copy (≤ GLOBALS_TTL_MS old), with the requested SKUs' rows always read fresh
+ * (by primary key) and merged in — the product being refreshed is never stale.
+ * The full feed always reads everything fresh.
+ * @param {import('@cloudflare/workers-types').D1Database} salesDb
+ * @param {string[] | null} skuVariants requested SKUs (as given/upper/lower), or null = full feed
+ */
+const GLOBALS_TTL_MS = 5 * 60 * 1000;
+/** @type {{ at: number, data: any } | null} */
+let globalsCache = null;
+async function readGlobals(salesDb, skuVariants) {
+	const where = (col) => (skuVariants ? ` WHERE ${col} IN (${skuVariants.map(() => '?').join(',')})` : '');
+	const v = skuVariants ?? [];
+	const [prefixRes, overrideRes, seriesRes] = await salesDb.batch([
+		salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix ORDER BY prefix'),
+		salesDb.prepare(`SELECT sku, publisher FROM product_publisher_override${where('sku')} ORDER BY sku`).bind(...v),
+		salesDb.prepare(`SELECT ps.sku, s.name AS series, s.publisher
+			FROM product_series ps JOIN series s ON s.id = ps.series_id${where('ps.sku')} ORDER BY ps.sku`).bind(...v)
+	]);
+	// Webshop market licensing: markets allowed per publisher, and each product's
+	// publish state. published_markets NULL = default (all the publisher allows).
+	// Guarded — the tables arrive with migration 0080.
+	/** @type {Record<string, string[]>} */
+	const publisherMarkets = {};
+	/** @type {any[]} */
+	let productWebshop = [];
+	try {
+		const [marketRes, webshopRes] = await salesDb.batch([
+			salesDb.prepare('SELECT publisher, market FROM publisher_market ORDER BY publisher, market'),
+			salesDb.prepare(`SELECT sku, published_markets, override_license FROM product_webshop${where('sku')} ORDER BY sku`).bind(...v)
+		]);
+		for (const r of /** @type {any[]} */ (marketRes.results ?? [])) (publisherMarkets[r.publisher] ??= []).push(r.market);
+		productWebshop = (/** @type {any[]} */ (webshopRes.results ?? [])).map((r) => ({
+			sku: r.sku,
+			published_markets: r.published_markets == null ? null : (() => { try { return JSON.parse(r.published_markets); } catch { return []; } })(),
+			override_license: !!r.override_license
+		}));
+	} catch { /* migration 0080 not applied yet */ }
+	return { prefixes: prefixRes.results ?? [], overrides: overrideRes.results ?? [], series: seriesRes.results ?? [], publisherMarkets, productWebshop };
+}
+async function loadGlobals(salesDb, skuVariants) {
+	if (!skuVariants) return readGlobals(salesDb, null);
+	const now = Date.now();
+	if (!globalsCache || now - globalsCache.at > GLOBALS_TTL_MS) {
+		globalsCache = { at: now, data: await readGlobals(salesDb, null) };
+	}
+	const fresh = await readGlobals(salesDb, skuVariants);
+	const g = globalsCache.data;
+	const keys = new Set(skuVariants.map((x) => x.toLowerCase()));
+	/** @param {any[]} all @param {any[]} upd */
+	const merge = (all, upd) => [...all.filter((r) => !keys.has(String(r.sku).toLowerCase())), ...upd]
+		.sort((x, y) => String(x.sku).localeCompare(String(y.sku)));
+	return {
+		prefixes: fresh.prefixes,                 // tiny — always fresh
+		publisherMarkets: fresh.publisherMarkets, // tiny — always fresh
+		overrides: merge(g.overrides, fresh.overrides),
+		series: merge(g.series, fresh.series),
+		productWebshop: merge(g.productWebshop, fresh.productWebshop),
+	};
+}
+
+/**
  * @param {import('@cloudflare/workers-types').D1Database} db
  * @param {import('@cloudflare/workers-types').D1Database} salesDb
  * @param {string} origin absolute base for image URLs
@@ -69,10 +135,17 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 	const imgUrl = (/** @type {string | null} */ key) => (key ? `${origin}/api/img/${key}` : null);
 	const only = opts.skus?.length ? [...new Set(opts.skus.map((s) => String(s).trim().toLowerCase()).filter(Boolean))] : null;
 	const inList = only ? only.map(() => '?').join(',') : '';
-	const sheetFilter = only ? ` AND lower(trim(sku)) IN (${inList})` : '';
-	const bySheet = only ? ` WHERE sheet_id IN (SELECT id FROM sales_sheets WHERE lower(trim(sku)) IN (${inList}))` : '';
-	const andBySheet = only ? ` AND sheet_id IN (SELECT id FROM sales_sheets WHERE lower(trim(sku)) IN (${inList}))` : '';
+	// Index-friendly SKU matching for the per-product refresh (the shop calls it
+	// thousands of times a day): sheets via the lower(sku) index (migration 0109;
+	// SKUs carry no stray spaces), and the SALES_DB tables by their exact-SKU
+	// primary keys, trying the SKU as given + upper/lower case. (lower(trim(sku))
+	// and lower(sku) on those tables forced a full scan on every call.)
+	const sheetFilter = only ? ` AND lower(sku) IN (${inList})` : '';
+	const bySheet = only ? ` WHERE sheet_id IN (SELECT id FROM sales_sheets WHERE lower(sku) IN (${inList}))` : '';
+	const andBySheet = only ? ` AND sheet_id IN (SELECT id FROM sales_sheets WHERE lower(sku) IN (${inList}))` : '';
 	const b = only ?? [];
+	const variants = only ? [...new Set((opts.skus ?? []).flatMap((x) => { const t = String(x).trim(); return t ? [t, t.toUpperCase(), t.toLowerCase()] : []; }))] : [];
+	const vList = variants.map(() => '?').join(',');
 
 	const [sheetsRes, trRes, imgRes, videoRes, articleRes] = await db.batch([
 		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, preorder_date, restock_date, featured_at, updated_at, awards_updated_at
@@ -212,35 +285,13 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 	for (const p of products) /** @type {any} */ (p).badges = badgesBySku[p.sku.toLowerCase()] ?? [];
 
 	// Category groups/categories with labels, and every SKU's categories.
-	const taxonomy = await listTaxonomy(salesDb);
+	// (Usage counts aren't part of the feed — skip that full product_category scan.)
+	const taxonomy = await listTaxonomy(salesDb, { counts: false });
 	const productCats = await salesDb.prepare(
-		`SELECT sku, category_id FROM product_category${only ? ` WHERE lower(sku) IN (${inList})` : ''} ORDER BY sku`
-	).bind(...b).all();
+		`SELECT sku, category_id FROM product_category${only ? ` WHERE sku IN (${vList})` : ''} ORDER BY sku`
+	).bind(...variants).all();
 
-	const [prefixRes, overrideRes, seriesRes] = await salesDb.batch([
-		salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix ORDER BY prefix'),
-		salesDb.prepare('SELECT sku, publisher FROM product_publisher_override ORDER BY sku'),
-		salesDb.prepare(`SELECT ps.sku, s.name AS series, s.publisher
-			FROM product_series ps JOIN series s ON s.id = ps.series_id ORDER BY ps.sku`)
-	]);
-
-	// Webshop market licensing: markets allowed per publisher, and each product's
-	// publish state. published_markets NULL = default (all the publisher allows).
-	// Guarded — the tables arrive with migration 0080.
-	const publisherMarkets = {};
-	let productWebshop = [];
-	try {
-		const [marketRes, webshopRes] = await salesDb.batch([
-			salesDb.prepare('SELECT publisher, market FROM publisher_market ORDER BY publisher, market'),
-			salesDb.prepare('SELECT sku, published_markets, override_license FROM product_webshop ORDER BY sku')
-		]);
-		for (const r of /** @type {any[]} */ (marketRes.results ?? [])) (publisherMarkets[r.publisher] ??= []).push(r.market);
-		productWebshop = (/** @type {any[]} */ (webshopRes.results ?? [])).map((r) => ({
-			sku: r.sku,
-			published_markets: r.published_markets == null ? null : (() => { try { return JSON.parse(r.published_markets); } catch { return []; } })(),
-			override_license: !!r.override_license
-		}));
-	} catch { /* migration 0080 not applied yet */ }
+	const { prefixes, overrides, series, publisherMarkets, productWebshop } = await loadGlobals(salesDb, only ? variants : null);
 
 	return {
 		generated_at: new Date().toISOString(),
@@ -249,8 +300,8 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 		publishers: {
 			// Resolve a SKU like the sales sync does: override first, else the prefix
 			// equal to the SKU's leading letters, uppercased ("GO919150" → "GO").
-			overrides: overrideRes.results ?? [],
-			prefixes: prefixRes.results ?? []
+			overrides,
+			prefixes
 		},
 		// Webshop market licensing. markets = valid codes. publisher_markets[name]
 		// = licensed markets (absent/empty = none). products[].published_markets:
@@ -259,7 +310,7 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 		markets: ['DK', 'SE', 'NO', 'INT', 'PL'],
 		publisher_markets: publisherMarkets,
 		product_webshop: productWebshop,
-		series: seriesRes.results ?? [],
+		series,
 		categories: {
 			groups: taxonomy.map((g) => ({
 				id: g.id, position: g.position, labels: g.labels,
