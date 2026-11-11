@@ -14,8 +14,8 @@
  *   - awards: nominated / winner only; a win shows only once its
  *     disclosure_date has passed (before that it shows as nominated);
  *     "submitted" and "nothing" are hidden
- *   - press:  sent / used / (legacy entries with no status); "not_used" hidden
- *   - events: everything except cancelled; internal notes/contacts never exposed
+ *   - press:  only "used" with at least one statement (text or score)
+ *   - events: past/done only (no upcoming), never cancelled; internal notes/contacts never exposed
  *
  * Awards/press/events live in the app DB (`DB`, per environment); the
  * publisher mapping + series live in SALES_DB.
@@ -173,15 +173,17 @@ export async function loadInitiatives(db, salesDb, rules) {
 				: null;
 			awards.push({ ...base, category: e.award_category || null, status: shown, badge: img(badge), badgeStyle, quotes });
 		} else {
-			if (e.status === 'not_used') continue;
-			press.push({ ...base, status: e.status || 'used', scale: e.review_scale ?? null, quotes });
+			if (e.status !== 'used' || !quotes.length) continue; // only used coverage with a statement
+			press.push({ ...base, status: 'used', scale: e.review_scale ?? null, quotes });
 		}
 		skus.forEach((s) => usedSkus.add(s));
 	}
 
 	const eventCards = [];
 	const imagesOf = new Map();
-	const evMatched = events.filter((e) => matching(skusOfEvent.get(e.id) ?? []).length);
+	// Upcoming events aren't shown (only ones that have taken place / are done).
+	const isUpcoming = (e) => !!e.event_date && e.event_date >= today && e.status !== 'done';
+	const evMatched = events.filter((e) => !isUpcoming(e) && matching(skusOfEvent.get(e.id) ?? []).length);
 	for (const part of chunk(evMatched.map((e) => e.id), 90)) {
 		const rows = (await db.prepare(
 			`SELECT event_id, r2_key FROM event_asset WHERE kind = 'image' AND category = 'media'
@@ -195,7 +197,6 @@ export async function loadInitiatives(db, salesDb, rules) {
 		eventCards.push({
 			id: e.id, title: e.title || e.type || 'Event', type: e.type || null, date: e.event_date,
 			time: e.start_time ? `${e.start_time}${e.end_time ? '–' + e.end_time : ''}` : null,
-			upcoming: !!e.event_date && e.event_date >= today && e.status !== 'done',
 			venue: e.venue || null, city: e.city || null, country: e.country || null,
 			participants: e.participants_actual ?? null, expected: e.participants_expected ?? null,
 			skus, images: (imagesOf.get(e.id) ?? []).slice(0, 6),

@@ -31,12 +31,15 @@
 	const typeBadge = (i) =>
 		i.kind === 'awards' ? (i.x.status === 'winner' ? { label: 'Award winner', cls: 'win' } : { label: 'Nominee', cls: 'nom' })
 		: i.kind === 'press' ? { label: 'Press', cls: 'press' }
-		: i.x.upcoming ? { label: 'Upcoming event', cls: 'up' } : { label: 'Event', cls: 'event' };
+		: { label: 'Event', cls: 'event' };
 	const empty = $derived(!data.awards.length && !data.press.length && !data.events.length);
+	// Statements: the first one shows; "+N more" expands the rest on that card.
+	let expanded = $state(new Set());
+	const toggleQuotes = (key) => { const n = new Set(expanded); if (n.has(key)) n.delete(key); else n.add(key); expanded = n; };
 </script>
 
 {#snippet products(skus)}
-	<ul class="prods">
+	<ul class="prods foot">
 		{#each skus as s (s)}
 			{@const p = prod(s)}
 			<li>
@@ -53,6 +56,19 @@
 			{#if q.text}<p title={q.text}>“{q.text}”</p>{/if}
 			{#if scoreText(q, scale)}<span class="score">{scoreText(q, scale)}</span>{/if}
 		</blockquote>
+	{/if}
+{/snippet}
+
+{#snippet quotes(key, list, scale)}
+	{@const qs = list.filter((q) => q.text || scoreText(q, scale))}
+	{#if qs.length}
+		{@const open = expanded.has(key)}
+		{#each open ? qs : qs.slice(0, 1) as q}{@render quote(q, scale)}{/each}
+		{#if qs.length > 1}
+			<button type="button" class="q-more" onclick={() => toggleQuotes(key)} aria-expanded={open}>
+				{open ? 'Show less' : `+${qs.length - 1} more ${qs.length - 1 === 1 ? 'statement' : 'statements'}`}
+			</button>
+		{/if}
 	{/if}
 {/snippet}
 
@@ -87,7 +103,7 @@
 				{@const box = boxOf(a.skus)}
 				{@const meta = [a.category ? a.media : null, a.country, fDate(a.date)].filter(Boolean).join(' · ')}
 				<article class="card award" class:win={a.status === 'winner'}>
-					<div class="sq">
+					<div class="sq" class:white={box} class:pat={!box}>
 						{#if box}
 							<div class="box"><img class="box-img" src="{box}?size=1000" alt="" loading="lazy" />
 								{#if a.badge}<img class="ov-badge" src="{a.badge}?size=400" style={a.badgeStyle} alt="{a.media} {tb.label}" loading="lazy" />{/if}
@@ -104,9 +120,9 @@
 					<div class="c-body">
 						<h3 title={a.category ?? a.media}>{a.category ?? a.media}</h3>
 						<p class="meta" title={meta}>{meta}</p>
-						{#each a.quotes as q}{@render quote(q, null)}{/each}
-						{@render products(a.skus)}
+						{@render quotes('a' + a.id, a.quotes, null)}
 						{#if a.link}<a class="more" href={a.link} target="_blank" rel="noopener">View announcement ↗</a>{/if}
+						{@render products(a.skus)}
 					</div>
 				</article>
 			{:else if i.kind === 'press'}
@@ -115,7 +131,7 @@
 				{@const box = boxOf(p.skus)}
 				{@const meta = [p.country, fDate(p.date)].filter(Boolean).join(' · ')}
 				<article class="card press">
-					<div class="sq">
+					<div class="sq" class:white={box} class:pat={!box}>
 						{#if box}<div class="box"><img class="box-img" src="{box}?size=1000" alt="" loading="lazy" /></div>
 						{:else}<span class="trophy press-ico" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h13v14H6a2 2 0 0 1-2-2V5z"/><path d="M17 9h3v8a2 2 0 0 1-2 2M8 9h5M8 13h5"/></svg></span>{/if}
 						<span class="pill {tb.cls}">{tb.label}</span>
@@ -124,9 +140,9 @@
 					<div class="c-body">
 						<h3 title={p.media}>{p.media}</h3>
 						<p class="meta" title={meta}>{meta}</p>
-						{#each p.quotes as q}{#if q.text}<blockquote><p title={q.text}>“{q.text}”</p></blockquote>{/if}{/each}
-						{@render products(p.skus)}
+						{@render quotes('p' + p.id, p.quotes.filter((q) => q.text), null)}
 						{#if p.link}<a class="more" href={p.link} target="_blank" rel="noopener">Read the article ↗</a>{/if}
+						{@render products(p.skus)}
 					</div>
 				</article>
 			{:else}
@@ -134,7 +150,7 @@
 				{@const d = dParts(e.date)}
 				{@const meta = [e.country, e.type].filter(Boolean).join(' · ')}
 				<article class="card event">
-					<div class="sq e-media" class:noimg={!e.images.length}>
+					<div class="sq e-media" class:pat={!e.images.length}>
 						{#if e.images.length}<img class="cover" src="{e.images[0]}?size=1000" alt="" loading="lazy" />{/if}
 						<span class="pill {tb.cls}">{tb.label}</span>
 						{#if d}<div class="cal"><span class="cm">{d.m}</span><span class="cd">{d.d}</span><span class="cy">{d.y}</span></div>{/if}
@@ -148,12 +164,12 @@
 								{#if e.participants}{nf.format(e.participants)} participants{:else}{nf.format(e.expected)} expected{/if}
 							</p>
 						{/if}
-						{@render products(e.skus)}
 						{#if e.images.length > 1}
 							<div class="thumbs">
 								{#each e.images.slice(1, 5) as src}<a href={src} target="_blank" rel="noopener"><img src="{src}?size=300" alt="" loading="lazy" /></a>{/each}
 							</div>
 						{/if}
+						{@render products(e.skus)}
 					</div>
 				</article>
 			{/if}
@@ -200,29 +216,36 @@
 	.pill.nom { background: #FFE6A5; color: #7B3803; }
 	.pill.press { background: #E8EEF9; color: #2B4C7E; }
 	.pill.event { background: #E6F4EC; color: #1E6B45; }
-	.pill.up { background: #F57832; color: #fff; }
 	.pill.inline { align-self: flex-start; }
 
-	.award.win .sq { background: linear-gradient(160deg, #FFF8E4, #FBEBC6); }
+	/* Product box on white, divided from the text; no image → brand orange + pattern. */
+	.sq.white { background: #fff; border-bottom: 1px solid rgba(214,190,150,.45); }
+	.sq.pat { background: #F57832; }
+	.sq.pat::before { content: ''; position: absolute; inset: 0; background: url('/pattern.png') center / 340px auto repeat; filter: brightness(0) invert(1); opacity: .28; pointer-events: none; z-index: 0; }
+	.sq.pat > * { position: relative; z-index: 1; }
+	.sq.pat > .pill, .sq.pat > .cal, .sq.pat > .ring { position: absolute; }
 	.trophy { width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; background: #fff; color: #C98A1E; }
 
 	.ring { flex-shrink: 0; min-width: 52px; height: 52px; border-radius: 50%; border: 3px solid #F57832; display: grid; place-items: center; font-size: 14px; font-weight: 800; color: #7B3803; background: #FFF7EC; padding: 0 4px; }
 
 	blockquote { margin: 2px 0; padding: 10px 12px; background: #FBF7EF; border-radius: 10px; position: relative; }
 	blockquote p { margin: 0; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-family: Georgia, 'Times New Roman', serif; font-style: italic; font-size: 14px; line-height: 1.5; color: #3F3A31; }
+	.q-more { align-self: flex-start; font-family: inherit; font-size: 12px; font-weight: 800; color: #C4581B; background: #FFF1E6; border: none; border-radius: 100px; padding: 4px 11px; cursor: pointer; margin-top: -2px; }
+	.q-more:hover { background: #FFE3CC; }
 	blockquote .score { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 800; color: #7B3803; }
 
 	.prods { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+	/* Products always sit at the bottom of the card, divided by a line. */
+	.prods.foot { margin-top: auto; padding-top: 12px; border-top: 1px solid #F0E6D2; }
 	.prods li { display: flex; align-items: center; gap: 9px; min-width: 0; }
 	.prods img, .prods .ph { width: 36px; height: 36px; border-radius: 8px; object-fit: contain; background: #FBF7EF; flex-shrink: 0; }
 	.pn { font-size: 13px; font-weight: 700; color: #3F3A31; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-	.more { margin-top: auto; padding-top: 4px; font-size: 12.5px; font-weight: 700; color: #C4581B; text-decoration: none; }
+	.more { padding-top: 2px; padding-bottom: 6px; font-size: 12.5px; font-weight: 700; color: #C4581B; text-decoration: none; }
 	.more:hover { text-decoration: underline; }
 
 	.e-media { background: #F3E7D2; place-items: stretch; }
 	.e-media .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-	.e-media.noimg { background: linear-gradient(160deg, #FDEBD2, #F6D1A6); }
 	.cal { z-index: 3; position: absolute; left: 12px; bottom: 12px; background: #fff; border-radius: 10px; width: 54px; text-align: center; padding: 5px 0 6px; box-shadow: 0 4px 14px rgba(0,0,0,.14); display: flex; flex-direction: column; line-height: 1.05; }
 	.cm { font-size: 10.5px; font-weight: 800; color: #F57832; text-transform: uppercase; letter-spacing: .5px; }
 	.cd { font-size: 21px; font-weight: 800; color: #18181B; }

@@ -14,7 +14,7 @@ export async function GET({ params, platform }) {
 	// Cached per rule set until an awards/press/events/publisher-mapping edit
 	// bumps the 'initiatives' version (hooks.server.js), or the day changes
 	// (product names/images from Sheets, "upcoming" flags, disclosure dates).
-	const data = await cachedReport(db, salesDb, { kind: 'initiatives', v: 1, rules: ruleKey(report.rules) },
+	const data = await cachedReport(db, salesDb, { kind: 'initiatives', v: 2, rules: ruleKey(report.rules) },
 		() => loadInitiatives(db, salesDb, report.rules), { stamp: dataVersion(db, 'initiatives') });
 	return json(data, { headers: { 'Cache-Control': 'private, max-age=60' } });
 }
