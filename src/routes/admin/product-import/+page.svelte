@@ -58,7 +58,7 @@
 			for (let i = 0; i < items.length; i += CHUNK) {
 				const res = await fetch('/api/admin/product-import/apply', {
 					method: 'POST', headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ items: items.slice(i, i + CHUNK) })
+					body: JSON.stringify({ items: items.slice(i, i + CHUNK), last: i + CHUNK >= items.length })
 				});
 				if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.message || `Apply failed (${res.status})`);
 				const r = await res.json();

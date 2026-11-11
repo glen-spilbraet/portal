@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
 import { getAllowedUser } from '$lib/db.js';
 import { applyItems } from '$lib/server/productImport.js';
+import { notifyShops } from '$lib/server/shopNotify.js';
 
 async function requireAdmin(cookies, platform) {
 	const email = await verifySession(cookies.get('session') ?? '', platform?.env?.APP_SECRET ?? 'dev-secret');
@@ -12,7 +13,8 @@ async function requireAdmin(cookies, platform) {
 	return email;
 }
 
-/** POST /api/admin/product-import/apply — { items: [...] } (one chunk) → writes them. */
+/** POST /api/admin/product-import/apply — { items: [...], last?: true } (one chunk) → writes them;
+ *  `last` on the final chunk sends the shops a single { type: 'full' } notice. */
 export async function POST({ request, cookies, platform }) {
 	const email = await requireAdmin(cookies, platform);
 	const db = platform?.env?.DB;
@@ -25,5 +27,8 @@ export async function POST({ request, cookies, platform }) {
 	if (items.length > 400) error(400, 'Chunk too large (max 400)');
 
 	const res = await applyItems(db, salesDb, items, email);
+	// A bulk import touches many products: tell the shops ONCE, after the last
+	// chunk, to re-read the full feed (instead of one notice per product).
+	if (body.last === true) await notifyShops(platform, { type: 'full' });
 	return json(res);
 }

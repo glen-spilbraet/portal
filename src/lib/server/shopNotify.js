@@ -1,13 +1,18 @@
 /**
  * Tell the B2B shops about a webshop publishing change the moment it is saved,
  * so visibility updates at once (the shop's full Portal sync is the safety net).
- * The data lives on SALES_DB, shared by both Portal environments, so every
- * Portal notifies both shops.
+ * Both Portal environments notify the same (production) shop by default — see
+ * shopWebhooks() below.
  */
-const SHOP_WEBHOOKS = [
-	'https://shop-9c9.pages.dev/api/portal/webhook',
-	'https://dev.shop-9c9.pages.dev/api/portal/webhook'
-];
+// Production shop only by default. The dev shop reads the same live Portal, so
+// notifying it too doubled every refresh. To include it (or point elsewhere),
+// set SHOP_WEBHOOK_URLS (comma-separated) on the Pages environment.
+const DEFAULT_SHOP_WEBHOOKS = ['https://shop-9c9.pages.dev/api/portal/webhook'];
+/** @param {any} env */
+const shopWebhooks = (env) => {
+	const custom = String(env?.SHOP_WEBHOOK_URLS ?? '').split(',').map((u) => u.trim()).filter((u) => /^https:\/\//.test(u));
+	return custom.length ? custom : DEFAULT_SHOP_WEBHOOKS;
+};
 
 /**
  * @param {any} platform SvelteKit platform (env.SHOP_FEED_KEY, context.waitUntil)
@@ -16,7 +21,7 @@ const SHOP_WEBHOOKS = [
 export async function notifyShops(platform, change) {
 	const key = platform?.env?.SHOP_FEED_KEY;
 	if (!key) return;
-	const send = Promise.allSettled(SHOP_WEBHOOKS.map(async (url) => {
+	const send = Promise.allSettled(shopWebhooks(platform?.env).map(async (url) => {
 		const res = await fetch(url, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'User-Agent': 'spilbraet-portal/1.0' },
