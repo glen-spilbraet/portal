@@ -164,11 +164,6 @@
 								{#if e.participants}{nf.format(e.participants)} participants{:else}{nf.format(e.expected)} expected{/if}
 							</p>
 						{/if}
-						{#if e.images.length > 1}
-							<div class="thumbs">
-								{#each e.images.slice(1, 5) as src}<a href={src} target="_blank" rel="noopener"><img src="{src}?size=300" alt="" loading="lazy" /></a>{/each}
-							</div>
-						{/if}
 						{@render products(e.skus)}
 					</div>
 				</article>
@@ -236,7 +231,7 @@
 
 	.prods { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 	/* Products always sit at the bottom of the card, divided by a line. */
-	.prods.foot { margin-top: auto; padding-top: 12px; border-top: 1px solid #F0E6D2; }
+	.prods.foot { margin: auto -16px 0; padding: 12px 16px 0; border-top: 1px solid #F0E6D2; }
 	.prods li { display: flex; align-items: center; gap: 9px; min-width: 0; }
 	.prods img, .prods .ph { width: 36px; height: 36px; border-radius: 8px; object-fit: contain; background: #FBF7EF; flex-shrink: 0; }
 	.pn { font-size: 13px; font-weight: 700; color: #3F3A31; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -251,8 +246,6 @@
 	.cd { font-size: 21px; font-weight: 800; color: #18181B; }
 	.cy { font-size: 10px; font-weight: 700; color: #a99f8c; }
 	.people { margin: 0; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #524431; }
-	.thumbs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 2px; }
-	.thumbs img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: block; }
 
 	.none { text-align: center; padding: 56px 20px; background: rgba(255,255,255,.7); border: 1px dashed rgba(184,160,120,.6); border-radius: 16px; }
 	.none-t { font-size: 16px; font-weight: 800; color: #18181B; margin: 0 0 4px; }
