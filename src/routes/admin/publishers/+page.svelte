@@ -86,6 +86,48 @@
 		assignVals = { ...assignVals, [prefix]: '' };
 	}
 
+	// ── Apply licences to products with an empty Publication ──────────────────
+	let licOpen = $state(false);
+	let licLoading = $state(false);
+	let licApplying = $state(false);
+	let licMsg = $state('');
+	/** @type {{ groups: {publisher:string, licence:string[], products:{sku:string,name:string|null,sheetId:string|null}[]}[], total:number, unlicensed:number } | null} */
+	let lic = $state(null);
+	let licSel = $state(new Set());
+	let licExpanded = $state(new Set());
+	async function openLicences() {
+		licOpen = true; licLoading = true; licMsg = ''; lic = null;
+		try {
+			const res = await fetch('/api/admin/publishers/apply-licences');
+			if (!res.ok) throw new Error('failed');
+			lic = await res.json();
+			licSel = new Set(lic.groups.flatMap((g) => g.products.map((p) => p.sku)));
+			licExpanded = new Set();
+		} catch { licMsg = 'Could not load — try again'; } finally { licLoading = false; }
+	}
+	const groupState = (g) => {
+		const n = g.products.filter((p) => licSel.has(p.sku)).length;
+		return n === 0 ? 'none' : n === g.products.length ? 'all' : 'some';
+	};
+	function toggleGroup(g) {
+		const next = new Set(licSel);
+		if (groupState(g) === 'all') g.products.forEach((p) => next.delete(p.sku)); else g.products.forEach((p) => next.add(p.sku));
+		licSel = next;
+	}
+	function toggleSku(sku) { const next = new Set(licSel); if (next.has(sku)) next.delete(sku); else next.add(sku); licSel = next; }
+	function toggleExpand(pub) { const next = new Set(licExpanded); if (next.has(pub)) next.delete(pub); else next.add(pub); licExpanded = next; }
+	async function applyLicences() {
+		if (!licSel.size) return;
+		licApplying = true; licMsg = '';
+		try {
+			const res = await fetch('/api/admin/publishers/apply-licences', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skus: [...licSel] }) });
+			if (!res.ok) throw new Error('failed');
+			const r = await res.json();
+			licOpen = false;
+			resolvedMsg = `${r.updated} product${r.updated === 1 ? '' : 's'} now follow their publisher's licence ✓`;
+		} catch { licMsg = 'Failed — try again'; } finally { licApplying = false; }
+	}
+
 	async function resolveAll() {
 		if (!confirm('Re-apply all mappings to every line item? (~3s)')) return;
 		resolving = true; resolvedMsg = '';
@@ -98,7 +140,7 @@
 </script>
 
 <svelte:head><title>Publishers — Admin</title></svelte:head>
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { closeEdit(); addOpen = false; unmappedOpen = false; } }} />
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { closeEdit(); addOpen = false; unmappedOpen = false; licOpen = false; } }} />
 
 <AppNav active="publishers" user={data.user} />
 
@@ -109,6 +151,7 @@
 			<p class="page-sub">All publishers and the SKU prefixes mapped to them. <strong>{data.unmapped.length}</strong> prefix{data.unmapped.length === 1 ? '' : 'es'} still unmapped.</p>
 		</div>
 		<div class="head-btns">
+			<button class="btn-ghost" onclick={openLicences} title="Products with no webshop markets whose publisher now has a licence">Apply licences…</button>
 			<button class="btn-ghost" onclick={resolveAll} disabled={resolving}>{resolving ? 'Applying…' : 'Apply to line items'}</button>
 			<button class="btn-primary" onclick={() => (addOpen = true)}>+ Add publisher</button>
 		</div>
@@ -195,6 +238,56 @@
 			</div>
 			<p class="hint">Adding a prefix already used elsewhere moves it to {editPub.name}.</p>
 			<div class="modal-foot"><button class="btn-ghost" onclick={closeEdit}>Done</button></div>
+		</div>
+	</div>
+{/if}
+
+<!-- Apply licences modal -->
+{#if licOpen}
+	<div class="overlay" onclick={() => (licOpen = false)} role="presentation">
+		<div class="modal wide" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+			<h3 class="modal-title">Apply licences to unpublished products</h3>
+			<p class="modal-sub">Products with <strong>no webshop markets</strong> whose publisher now has a licence. Applying makes them follow the publisher's licence (same markets ticked, and later licence changes follow automatically). Products with markets chosen by hand or "override licence" are never touched. Untick anything that should stay unpublished.</p>
+			{#if licLoading}
+				<p class="empty">Loading…</p>
+			{:else if lic}
+				{#if lic.groups.length === 0}
+					<p class="empty">Nothing to apply — every product with an empty Publication belongs to a publisher without a licence.</p>
+				{:else}
+					<div class="lic-list">
+						{#each lic.groups as g (g.publisher)}
+							{@const st = groupState(g)}
+							<div class="lic-group">
+								<div class="lic-head">
+									<input type="checkbox" checked={st === 'all'} indeterminate={st === 'some'} onchange={() => toggleGroup(g)} aria-label="Select {g.publisher}" />
+									<button type="button" class="lic-name" onclick={() => toggleExpand(g.publisher)}>
+										<span class="caret" class:open={licExpanded.has(g.publisher)}>▸</span>{g.publisher}
+									</button>
+									<span class="lic-count">{g.products.filter((p) => licSel.has(p.sku)).length}/{g.products.length}</span>
+									<span class="lic-mkts">{#each g.licence as m}<span class="mkt-chip on static">{m}</span>{/each}</span>
+								</div>
+								{#if licExpanded.has(g.publisher)}
+									<div class="lic-products">
+										{#each g.products as p (p.sku)}
+											<label class="lic-prod">
+												<input type="checkbox" checked={licSel.has(p.sku)} onchange={() => toggleSku(p.sku)} />
+												<span class="lic-sku">{p.sku}</span>
+												{#if p.sheetId}<a href="/sheet/{p.sheetId}" target="_blank" rel="noopener" onclick={(e) => e.stopPropagation()}>{p.name ?? 'Open sheet'}</a>{:else}<span class="none">{p.name ?? 'no sheet'}</span>{/if}
+											</label>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+					{#if lic.unlicensed}<p class="hint">{lic.unlicensed} other product{lic.unlicensed === 1 ? '' : 's'} with an empty Publication belong to publishers without a licence — they're left as is.</p>{/if}
+				{/if}
+			{/if}
+			{#if licMsg}<p class="lic-err">{licMsg}</p>{/if}
+			<div class="modal-foot">
+				<button class="btn-ghost" onclick={() => (licOpen = false)}>Cancel</button>
+				{#if lic?.groups.length}<button class="btn-primary" onclick={applyLicences} disabled={licApplying || !licSel.size}>{licApplying ? 'Applying…' : `Apply to ${licSel.size} product${licSel.size === 1 ? '' : 's'}`}</button>{/if}
+			</div>
 		</div>
 	</div>
 {/if}
@@ -298,5 +391,21 @@
 	.um-table td { padding: 7px 8px; border-bottom: 1px solid #F5EDD8; }
 	.um-table td.pfx { font-weight: 800; }
 	.assign { display: flex; gap: 6px; }
+	.lic-list { border: 1px solid var(--border); border-radius: 10px; max-height: 50vh; overflow-y: auto; }
+	.lic-group { border-bottom: 1px solid #F5EDD8; }
+	.lic-group:last-child { border-bottom: none; }
+	.lic-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+	.lic-name { flex: 1; text-align: left; background: none; border: none; font-family: inherit; font-size: 13.5px; font-weight: 800; color: #7B3803; cursor: pointer; padding: 0; display: flex; align-items: center; gap: 6px; }
+	.caret { display: inline-block; transition: transform .12s; color: #A89060; font-size: 11px; }
+	.caret.open { transform: rotate(90deg); }
+	.lic-count { font-size: 12px; font-weight: 700; color: #A89060; font-variant-numeric: tabular-nums; }
+	.lic-mkts { display: flex; gap: 3px; }
+	.mkt-chip.static { cursor: default; padding: 2px 6px; font-size: 10px; }
+	.lic-products { padding: 2px 12px 10px 36px; display: flex; flex-direction: column; gap: 4px; }
+	.lic-prod { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
+	.lic-sku { font-weight: 800; min-width: 90px; font-variant-numeric: tabular-nums; }
+	.lic-prod a { color: #3f3a33; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.lic-prod a:hover { text-decoration: underline; }
+	.lic-err { color: #dc2626; font-size: 13px; font-weight: 700; margin: 10px 0 0; }
 	.assign .in { max-width: 180px; }
 </style>

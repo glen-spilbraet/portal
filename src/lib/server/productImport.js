@@ -251,8 +251,14 @@ export async function buildPlan(db, salesDb, rows) {
 		// Preserve PL exactly as it was (only when explicitly set before).
 		if (Array.isArray(existingPublished) && existingPublished.includes('PL')) publishedSet.push('PL');
 		if (missed.length) notMirrored.push({ sku, markets: missed });
+		// No markets in the CSV = "not decided yet": the product follows its
+		// publisher's licence (NULL). A hand-made selection already in the Portal
+		// is kept (undefined = leave untouched); only an empty one is reset.
+		/** @type {string[] | null | undefined} */
+		let published = publishedSet;
+		if (!publishedSet.length) published = Array.isArray(existingPublished) && existingPublished.length ? undefined : null;
 		const prevPublished = Array.isArray(existingPublished) ? [...existingPublished].sort() : null;
-		const publishedChanged = JSON.stringify(prevPublished) !== JSON.stringify([...publishedSet].sort());
+		const publishedChanged = published !== undefined && JSON.stringify(prevPublished) !== JSON.stringify(published == null ? null : [...published].sort());
 		if (publishedChanged) publishedChanges++;
 
 		// ── Categories (sweep the two managed groups, only if CSV has values) ──
@@ -296,7 +302,7 @@ export async function buildPlan(db, salesDb, rows) {
 			name: (r['Produktnavn'] ?? '').trim(),
 			create: willCreate,
 			primaryLanguage: existingSheet?.primary_language ?? primaryLanguageForRow(r),
-			published: publishedSet,
+			published,
 			preorder, restock,
 			catIds,
 			texts: hasText ? texts : null
@@ -376,14 +382,17 @@ export async function applyItems(db, salesDb, items, by) {
 				if (maxBullets > curCount) await updateSheet(db, sheetId, { usp_count: maxBullets });
 			}
 
-			// Published markets (SALES_DB) — full set incl. preserved PL; override untouched
+			// Published markets (SALES_DB) — full set incl. preserved PL; override untouched.
+			// null = follow the publisher licence; undefined = leave as is.
+			if (it.published !== undefined) {
 			const prev = await salesDb.prepare('SELECT override_license FROM product_webshop WHERE lower(sku)=lower(?)').bind(it.sku).first();
 			const overrideLicense = prev ? !!prev.override_license : false;
 			await salesDb.prepare(
 				`INSERT INTO product_webshop (sku, published_markets, override_license, updated_by, updated_at)
 				 VALUES (?, ?, ?, ?, ?)
 				 ON CONFLICT(sku) DO UPDATE SET published_markets=excluded.published_markets, updated_by=excluded.updated_by, updated_at=excluded.updated_at`
-			).bind(it.sku, JSON.stringify(it.published), overrideLicense ? 1 : 0, by ?? null, new Date().toISOString()).run();
+			).bind(it.sku, it.published == null ? null : JSON.stringify(it.published), overrideLicense ? 1 : 0, by ?? null, new Date().toISOString()).run();
+			}
 
 			// Categories — sweep the managed groups only, when CSV had values
 			if (Array.isArray(it.catIds)) {

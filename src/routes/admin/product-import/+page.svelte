@@ -122,7 +122,7 @@
 
 			<div class="card">
 				<h2>Publish not mirrored</h2>
-				<p class="hint">CSV wants these markets published, but the product's publisher isn't licensed — left unpublished (no override).</p>
+				<p class="hint">CSV wants these markets published, but the product's publisher isn't licensed for them yet — the product follows its publisher's licence and picks up markets once the publisher is licensed.</p>
 				{#if plan.reports.notMirrored.length}
 					<ul class="scroll">{#each plan.reports.notMirrored as r}<li><span>{r.sku}</span><b>{r.markets.join(', ')}</b></li>{/each}</ul>
 					{#if plan.reports.notMirroredTruncated}<p class="none">+ {fmt(plan.reports.notMirroredTruncated)} more…</p>{/if}
