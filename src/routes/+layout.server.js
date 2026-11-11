@@ -47,6 +47,7 @@ function sectionForPath(pathname) {
 	if (pathname.startsWith('/credit-notes'))                return 'credit_notes';
 	if (pathname.startsWith('/knowledge'))                   return 'knowledge';
 	if (pathname.startsWith('/awards'))                      return 'awards';
+	if (pathname.startsWith('/initiatives'))                 return 'initiatives';
 	if (pathname.startsWith('/events'))                      return 'events';
 	return null;
 }
@@ -134,6 +135,7 @@ export async function load({ cookies, url, platform }) {
 			['product', '/product'],
 			['forecast', '/forecast'],
 			['awards', '/awards'],
+			['initiatives', '/initiatives'],
 			['events', '/events'],
 			['sheets', '/sheets'],
 			['catalogues', '/catalogues'],

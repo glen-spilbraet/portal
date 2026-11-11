@@ -74,7 +74,7 @@ async function shopTarget(event) {
 }
 
 // Edits under these paths change report Initiatives (see below).
-const INITIATIVE_PATHS = /^\/(api\/)?(awards|events|admin\/publishers|admin\/series)(\/|$)/;
+const INITIATIVE_PATHS = /^\/(api\/)?(awards|events|initiatives|admin\/publishers|admin\/series)(\/|$)/;
 
 /** @type {import('@sveltejs/kit').Handle} */
 export async function handle({ event, resolve }) {

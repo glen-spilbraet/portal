@@ -17,6 +17,9 @@
  *   - press:  only "used" with at least one statement (text or score)
  *   - events: past/done only (no upcoming), never cancelled; internal notes/contacts never exposed
  *
+ * Manual initiatives (table `initiative`, Sales → Initiatives) follow the same
+ * product matching and show among the rest by date.
+ *
  * Awards/press/events live in the app DB (`DB`, per environment); the
  * publisher mapping + series live in SALES_DB.
  */
@@ -135,13 +138,18 @@ export async function loadInitiatives(db, salesDb, rules) {
 		 WHERE e.status != 'cancelled'`
 	).all()).results ?? [];
 	const eventSkus = (await db.prepare('SELECT event_id, sku FROM event_sku ORDER BY sort').all()).results ?? [];
+	// Manual initiatives (Sales → Initiatives). Guarded — migration 0112.
+	/** @type {any[]} */
+	const manual = await db.prepare('SELECT id, image_key, date, tag, header, subheader, country, skus FROM initiative').all()
+		.then((r) => (r.results ?? []).map((x) => ({ ...x, skuList: (() => { try { return JSON.parse(String(x.skus || '[]')); } catch { return []; } })() })))
+		.catch(() => []);
 
 	const skusOfEntry = new Map(entries.map((e) => [e.id, e.sku ? [e.sku] : []]));
 	for (const x of extra) skusOfEntry.get(x.instance_id)?.push(x.sku);
 	const skusOfEvent = new Map(events.map((e) => [e.id, []]));
 	for (const x of eventSkus) skusOfEvent.get(x.event_id)?.push(x.sku);
 
-	const allSkus = [...[...skusOfEntry.values()].flat(), ...[...skusOfEvent.values()].flat()];
+	const allSkus = [...[...skusOfEntry.values()].flat(), ...[...skusOfEvent.values()].flat(), ...manual.flatMap((m) => m.skuList)];
 	const matches = await ruleMatcher(salesDb, rules, allSkus);
 	const matching = (skus) => [...new Set(skus.filter(matches).map(lc))];
 
@@ -203,8 +211,16 @@ export async function loadInitiatives(db, salesDb, rules) {
 		});
 	}
 
+	const custom = [];
+	for (const m of manual) {
+		const skus = matching(m.skuList);
+		if (!skus.length) continue;
+		skus.forEach((s) => usedSkus.add(s));
+		custom.push({ id: m.id, date: m.date, tag: m.tag || null, header: m.header, subheader: m.subheader || null, country: m.country || null, image: img(m.image_key), skus });
+	}
+
 	const byDateDesc = (a, b) => String(b.date ?? '').localeCompare(String(a.date ?? ''));
-	awards.sort(byDateDesc); press.sort(byDateDesc); eventCards.sort(byDateDesc);
+	awards.sort(byDateDesc); press.sort(byDateDesc); eventCards.sort(byDateDesc); custom.sort(byDateDesc);
 
 	const info = await productInfo(db, [...usedSkus]);
 	const products = Object.fromEntries([...usedSkus].map((s) => [s, { sku: s.toUpperCase(), name: info.get(s)?.name ?? s.toUpperCase(), image: info.get(s)?.image ?? null }]));
@@ -212,13 +228,14 @@ export async function loadInitiatives(db, salesDb, rules) {
 	for (const e of entries) if (e.sku && e.product_name && products[lc(e.sku)] && products[lc(e.sku)].name === e.sku.toUpperCase()) products[lc(e.sku)].name = e.product_name;
 
 	return {
-		awards, press, events: eventCards, products,
+		awards, press, events: eventCards, custom, products,
 		summary: {
 			awards: awards.length,
 			wins: awards.filter((a) => a.status === 'winner').length,
 			nominations: awards.filter((a) => a.status === 'nominated').length,
 			press: press.length,
 			events: eventCards.length,
+			custom: custom.length,
 			participants: eventCards.reduce((n, e) => n + (Number(e.participants) || 0), 0),
 			products: usedSkus.size,
 		},

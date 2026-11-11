@@ -2,7 +2,7 @@
 	let { active = 'sheets', user = null } = $props();
 
 	// Permissions — default to full access so the nav never breaks if not provided
-	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true, credit_notes: true, q4_orders: true, warehouse: true });
+	const p = $derived(user?.permissions ?? { sheets: true, catalogues: true, planograms: true, data: true, mail: true, price_lists: true, stats: true, orders: true, product: true, forecast: true, awards: true, rest_check: true, price_sync: true, events: true, order_conf: true, reports: true, knowledge: true, credit_notes: true, q4_orders: true, warehouse: true, initiatives: true });
 
 	const mailActive = $derived(active.startsWith('mail-'));
 	const salesItems = $derived([
@@ -10,6 +10,7 @@
 		p.catalogues   && { href: '/catalogues',   label: 'Catalogues',  key: 'catalogues' },
 		p.planograms   && { href: '/planograms',   label: 'Planograms',  key: 'planograms' },
 		p.awards       && { href: '/awards',       label: 'Awards & Press', key: 'awards' },
+		p.initiatives  && { href: '/initiatives',  label: 'Initiatives', key: 'initiatives' },
 		p.mail         && { href: '/mail/campaigns', label: 'Mail',      key: 'mail' },
 	].filter(Boolean));
 

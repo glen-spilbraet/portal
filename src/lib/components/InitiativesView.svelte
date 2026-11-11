@@ -7,11 +7,13 @@
 	let { data } = $props();
 
 	let filter = $state('all');
+	const custom = $derived(data.custom ?? []); // manual initiatives (older cached payloads lack it)
 	const FILTERS = $derived([
-		{ key: 'all', label: 'All', n: data.awards.length + data.press.length + data.events.length },
+		{ key: 'all', label: 'All', n: data.awards.length + data.press.length + data.events.length + custom.length },
 		{ key: 'awards', label: 'Awards', n: data.awards.length },
 		{ key: 'press', label: 'Press', n: data.press.length },
 		{ key: 'events', label: 'Events', n: data.events.length },
+		{ key: 'custom', label: 'Other', n: custom.length },
 	].filter((f) => f.key === 'all' || f.n > 0));
 
 	const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -25,26 +27,35 @@
 		...data.awards.map((x) => ({ kind: 'awards', x })),
 		...data.press.map((x) => ({ kind: 'press', x })),
 		...data.events.map((x) => ({ kind: 'events', x })),
+		...custom.map((x) => ({ kind: 'custom', x })),
 	].sort((a, b) => String(b.x.date ?? '').localeCompare(String(a.x.date ?? ''))));
 	const boxOf = (skus) => skus.map((s) => prod(s).image).find(Boolean) ?? null;
 	const shown = $derived(filter === 'all' ? items : items.filter((i) => i.kind === filter));
 	const typeBadge = (i) =>
 		i.kind === 'awards' ? (i.x.status === 'winner' ? { label: 'Award winner', cls: 'win' } : { label: 'Nominee', cls: 'nom' })
 		: i.kind === 'press' ? { label: 'Press', cls: 'press' }
+		: i.kind === 'custom' ? { label: i.x.tag ?? '', cls: 'tag' }
 		: { label: 'Event', cls: 'event' };
-	const empty = $derived(!data.awards.length && !data.press.length && !data.events.length);
+	const empty = $derived(!data.awards.length && !data.press.length && !data.events.length && !custom.length);
+	// Products: the first shows; "+N" opens the rest on that card.
+	let prodOpen = $state(new Set());
+	const toggleProds = (key) => { const n = new Set(prodOpen); if (n.has(key)) n.delete(key); else n.add(key); prodOpen = n; };
 	// Statements: the first one shows; "+N more" expands the rest on that card.
 	let expanded = $state(new Set());
 	const toggleQuotes = (key) => { const n = new Set(expanded); if (n.has(key)) n.delete(key); else n.add(key); expanded = n; };
 </script>
 
-{#snippet products(skus)}
+{#snippet products(key, skus)}
+	{@const all = prodOpen.has(key)}
 	<ul class="prods foot">
-		{#each skus as s (s)}
+		{#each all ? skus : skus.slice(0, 1) as s, idx (s)}
 			{@const p = prod(s)}
 			<li>
 				{#if p.image}<img src="{p.image}?size=300" alt="" loading="lazy" />{:else}<span class="ph"></span>{/if}
 				<span class="pn" title={p.name}>{p.name}</span>
+				{#if idx === 0 && skus.length > 1}
+					<button type="button" class="p-more" onclick={() => toggleProds(key)} aria-expanded={all} title={all ? 'Show fewer products' : `${skus.length - 1} more product${skus.length - 1 === 1 ? '' : 's'}`}>{all ? '−' : `+${skus.length - 1}`}</button>
+				{/if}
 			</li>
 		{/each}
 	</ul>
@@ -122,7 +133,7 @@
 						<p class="meta" title={meta}>{meta}</p>
 						{@render quotes('a' + a.id, a.quotes, null)}
 						{#if a.link}<a class="more" href={a.link} target="_blank" rel="noopener">View announcement ↗</a>{/if}
-						{@render products(a.skus)}
+						{@render products('a' + a.id, a.skus)}
 					</div>
 				</article>
 			{:else if i.kind === 'press'}
@@ -142,7 +153,22 @@
 						<p class="meta" title={meta}>{meta}</p>
 						{@render quotes('p' + p.id, p.quotes.filter((q) => q.text), null)}
 						{#if p.link}<a class="more" href={p.link} target="_blank" rel="noopener">Read the article ↗</a>{/if}
-						{@render products(p.skus)}
+						{@render products('p' + p.id, p.skus)}
+					</div>
+				</article>
+			{:else if i.kind === 'custom'}
+				{@const c = i.x}
+				{@const meta = [c.country, fDate(c.date)].filter(Boolean).join(' · ')}
+				<article class="card custom">
+					<div class="sq e-media" class:pat={!c.image}>
+						{#if c.image}<img class="cover" src="{c.image}?size=1000" alt="" loading="lazy" />{/if}
+						{#if tb.label}<span class="pill {tb.cls}">{tb.label}</span>{/if}
+					</div>
+					<div class="c-body">
+						<h3 title={c.header}>{c.header}</h3>
+						{#if c.subheader}<p class="subh" title={c.subheader}>{c.subheader}</p>{/if}
+						<p class="meta" title={meta}>{meta || ' '}</p>
+						{@render products('c' + c.id, c.skus)}
 					</div>
 				</article>
 			{:else}
@@ -164,7 +190,7 @@
 								{#if e.participants}{nf.format(e.participants)} participants{:else}{nf.format(e.expected)} expected{/if}
 							</p>
 						{/if}
-						{@render products(e.skus)}
+						{@render products('e' + e.id, e.skus)}
 					</div>
 				</article>
 			{/if}
@@ -211,6 +237,8 @@
 	.pill.nom { background: #FFE6A5; color: #7B3803; }
 	.pill.press { background: #E8EEF9; color: #2B4C7E; }
 	.pill.event { background: #E6F4EC; color: #1E6B45; }
+	.pill.tag { background: #fff; color: #7B3803; }
+	.subh { margin: -4px 0 0; font-size: 13px; color: #524431; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 	.pill.inline { align-self: flex-start; }
 
 	/* Product box on white, divided from the text; no image → brand orange + pattern. */
@@ -234,7 +262,9 @@
 	.prods.foot { margin: auto -16px 0; padding: 12px 16px 0; border-top: 1px solid #F0E6D2; }
 	.prods li { display: flex; align-items: center; gap: 9px; min-width: 0; }
 	.prods img, .prods .ph { width: 36px; height: 36px; border-radius: 8px; object-fit: contain; background: #FBF7EF; flex-shrink: 0; }
-	.pn { font-size: 13px; font-weight: 700; color: #3F3A31; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.pn { font-size: 13px; font-weight: 700; color: #3F3A31; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+	.p-more { margin-left: auto; flex-shrink: 0; font-family: inherit; font-size: 12px; font-weight: 800; color: #C4581B; background: #FFF1E6; border: none; border-radius: 100px; padding: 4px 10px; min-width: 34px; cursor: pointer; }
+	.p-more:hover { background: #FFE3CC; }
 
 	.more { padding-top: 2px; padding-bottom: 6px; font-size: 12.5px; font-weight: 700; color: #C4581B; text-decoration: none; }
 	.more:hover { text-decoration: underline; }
