@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
 import { getAllowedUser, searchSheets } from '$lib/db.js';
 import { cleanDeal, createDeal, searchParties } from '$lib/server/exclusivity.js';
+import { notifyShops } from '$lib/server/shopNotify.js';
 
 /** Admin gate (role via DB). Agreements live on the shared SALES_DB. */
 async function requireAdmin(cookies, platform) {
@@ -44,5 +45,7 @@ export async function POST({ request, cookies, platform }) {
 	if (!db) error(500, 'Sales DB unavailable');
 	const { value, error: msg } = cleanDeal(await request.json().catch(() => ({})));
 	if (msg) return json({ message: msg }, { status: 400 });
-	return json({ ok: true, id: await createDeal(db, value, email) });
+	const id = await createDeal(db, value, email);
+	await notifyShops(platform, { type: 'exclusivity', skus: [value.sku] });
+	return json({ ok: true, id });
 }

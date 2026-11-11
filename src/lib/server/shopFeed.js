@@ -102,6 +102,61 @@ async function readGlobals(salesDb, skuVariants) {
 	} catch { /* migration 0080 not applied yet */ }
 	return { prefixes: prefixRes.results ?? [], overrides: overrideRes.results ?? [], series: seriesRes.results ?? [], publisherMarkets, productWebshop };
 }
+/**
+ * Exclusivity agreements for the shop (Admin → Exclusivity): in a market with a
+ * running agreement, a product may ONLY be shown to the customers in it.
+ * Expired agreements are left out; upcoming ones are included (the shop applies
+ * start/end dates itself — no webhook fires when a date passes). Customer-group
+ * parties are expanded to their HubSpot company ids (`company_ids`, from the
+ * sales mirror) so the shop only has to know its customer's company id.
+ * Tiny table — read fresh on every call; group expansion only for the groups in play.
+ * @param {import('@cloudflare/workers-types').D1Database} salesDb
+ * @param {string[] | null} skuVariants
+ */
+async function readExclusivity(salesDb, skuVariants) {
+	const today = new Date().toISOString().slice(0, 10);
+	const v = skuVariants ?? [];
+	const skuWhere = skuVariants ? ` AND lower(sku) IN (${[...new Set(v.map((x) => x.toLowerCase()))].map(() => '?').join(',')})` : '';
+	let deals = [];
+	try {
+		deals = (await salesDb.prepare(
+			`SELECT id, sku, market, start_date, end_date FROM exclusivity_deal
+			 WHERE (end_date IS NULL OR end_date >= ?)${skuWhere} ORDER BY sku, market`
+		).bind(today, ...(skuVariants ? [...new Set(v.map((x) => x.toLowerCase()))] : [])).all()).results ?? [];
+	} catch { return []; } // migration 0103 not applied
+	if (!deals.length) return [];
+	const ids = deals.map((d) => d.id);
+	const parties = (await salesDb.prepare(
+		`SELECT deal_id, kind, ref, label FROM exclusivity_party WHERE deal_id IN (${ids.map(() => '?').join(',')})`
+	).bind(...ids).all()).results ?? [];
+	const groups = [...new Set(parties.filter((p) => p.kind === 'group').map((p) => p.ref))];
+	/** @type {Map<string, string[]>} */
+	const members = new Map();
+	if (groups.length) {
+		const rows = (await salesDb.prepare(
+			`SELECT DISTINCT customer_group AS g, company_id AS c FROM sales_deals
+			 WHERE customer_group IN (${groups.map(() => '?').join(',')}) AND company_id IS NOT NULL AND company_id <> ''`
+		).bind(...groups).all()).results ?? [];
+		for (const r of rows) (members.get(r.g) ?? members.set(r.g, []).get(r.g)).push(String(r.c));
+	}
+	const byDeal = new Map();
+	for (const p of parties) (byDeal.get(p.deal_id) ?? byDeal.set(p.deal_id, []).get(p.deal_id)).push(p);
+	return deals.map((d) => {
+		const ps = byDeal.get(d.id) ?? [];
+		const companyIds = new Set();
+		for (const p of ps) {
+			if (p.kind === 'company') companyIds.add(String(p.ref));
+			else for (const c of members.get(p.ref) ?? []) companyIds.add(c);
+		}
+		return {
+			id: d.id, sku: d.sku, market: d.market,
+			start_date: d.start_date ?? null, end_date: d.end_date ?? null,
+			active: (!d.start_date || d.start_date <= today) && (!d.end_date || d.end_date >= today),
+			parties: ps.map((p) => ({ kind: p.kind, ref: String(p.ref), label: p.label ?? p.ref })),
+			company_ids: [...companyIds].sort(),
+		};
+	});
+}
 async function loadGlobals(salesDb, skuVariants) {
 	if (!skuVariants) return readGlobals(salesDb, null);
 	const now = Date.now();
@@ -292,6 +347,7 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 	).bind(...variants).all();
 
 	const { prefixes, overrides, series, publisherMarkets, productWebshop } = await loadGlobals(salesDb, only ? variants : null);
+	const exclusivity = await readExclusivity(salesDb, only ? variants : null);
 
 	return {
 		generated_at: new Date().toISOString(),
@@ -310,6 +366,12 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 		markets: ['DK', 'SE', 'NO', 'INT', 'PL'],
 		publisher_markets: publisherMarkets,
 		product_webshop: productWebshop,
+		// Exclusivity: while an agreement is running (start_date ≤ today ≤ end_date,
+		// null = open), the product must ONLY be shown in that market to customers
+		// whose HubSpot company id is in company_ids — hidden for everyone else,
+		// incl. anonymous visitors. Expired agreements are omitted. In a ?sku=
+		// refresh this holds only the requested SKUs' agreements.
+		exclusivity,
 		series,
 		categories: {
 			groups: taxonomy.map((g) => ({
