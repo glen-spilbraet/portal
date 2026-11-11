@@ -152,9 +152,25 @@
 			const body = await res.json().catch(() => ({}));
 			if (!res.ok) { formError = body.message ?? `Save failed (${res.status})`; return; }
 			open = false;
+			refreshMsg = body.warning ?? '';
 			await invalidateAll();
 		} finally { saving = false; }
 	}
+	// Customers → Rackbeat customer numbers (from HubSpot) — what the shop matches on.
+	let refreshing = $state(false);
+	let refreshMsg = $state('');
+	async function refreshCustomers() {
+		refreshing = true; refreshMsg = '';
+		try {
+			const res = await fetch('/api/admin/exclusivity/refresh', { method: 'POST' });
+			const b = await res.json().catch(() => ({}));
+			if (!res.ok) { refreshMsg = b.message ?? `Refresh failed (${res.status})`; return; }
+			refreshMsg = `Updated ${b.customers} customer${b.customers === 1 ? '' : 's'} on ${b.deals} agreement${b.deals === 1 ? '' : 's'}.`
+				+ (b.missingNumber?.length ? ` No Rackbeat customer number in HubSpot for: ${[...new Set(b.missingNumber.map((m) => m.company))].join(', ')}.` : '');
+			await invalidateAll();
+		} finally { refreshing = false; }
+	}
+	const memberTitle = (d) => (d.members ?? []).map((m) => `${m.company_name ?? m.company_id} — ${m.customer_number ?? 'no Rackbeat no.'}`).join('\n');
 	async function remove() {
 		if (!editId || !confirm('Delete this exclusivity agreement? This cannot be undone.')) return;
 		saving = true;
@@ -183,8 +199,12 @@
 <main>
 	<div class="section-head">
 		<h2>Exclusivity</h2>
-		<button class="new-btn" type="button" onclick={openNew} disabled={!data.ready}>+ New agreement</button>
+		<div class="head-actions">
+			<button class="refresh-btn" type="button" onclick={refreshCustomers} disabled={!data.ready || refreshing} title="Look up every agreement's customers in HubSpot again (customer-group members + Rackbeat customer numbers)">{refreshing ? 'Refreshing…' : 'Refresh customers'}</button>
+			<button class="new-btn" type="button" onclick={openNew} disabled={!data.ready}>+ New agreement</button>
+		</div>
 	</div>
+	{#if refreshMsg}<p class="refresh-msg">{refreshMsg}</p>{/if}
 
 	{#if !data.ready}
 		<div class="empty">
@@ -248,6 +268,12 @@
 											</span>
 										{/each}
 									</div>
+									{#if d.members?.length}
+										{@const missing = d.members.filter((m) => !m.customer_number).length}
+										<span class="members" class:warn={missing} title={memberTitle(d)}>{d.members.length} Rackbeat customer{d.members.length === 1 ? '' : 's'}{#if missing} · {missing} without number{/if}</span>
+									{:else}
+										<span class="members warn" title="Not looked up yet — the shop hides this product from everyone until it is. Use Refresh customers.">Customers not looked up yet</span>
+									{/if}
 								</td>
 								<td class="period">{periodLabel(d)}<span class="hint {h.cls}">{h.text}</span></td>
 								<td><button class="edit" type="button" onclick={() => openEdit(d)} aria-label="Edit agreement" title="Edit">
@@ -447,4 +473,11 @@
 		colgroup { display: none; }
 		.dates { grid-template-columns: 1fr; }
 	}
+	.head-actions { display: flex; gap: 8px; align-items: center; }
+	.refresh-btn { padding: 8px 14px; background: #fff; border: 1px solid var(--border); border-radius: 9px; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; color: #18181B; }
+	.refresh-btn:hover:not(:disabled) { background: #FAFAFA; }
+	.refresh-btn:disabled { opacity: .55; cursor: default; }
+	.refresh-msg { font-size: 13px; font-weight: 600; color: #524431; background: #FBF5E6; border-radius: 9px; padding: 8px 12px; margin: 0 0 12px; }
+	.members { display: block; margin-top: 5px; font-size: 11.5px; font-weight: 600; color: #A89060; cursor: default; }
+	.members.warn { color: #B45309; }
 </style>

@@ -10,6 +10,7 @@
  * mapping from SALES_DB (shared prod), same as everywhere else in the portal.
  */
 import { listTaxonomy } from './categories.js';
+import { membersByDeal } from './exclusivity.js';
 
 const MAX_USP = 8;
 
@@ -109,6 +110,8 @@ async function readGlobals(salesDb, skuVariants) {
  * start/end dates itself — no webhook fires when a date passes). Customer-group
  * parties are expanded to their HubSpot company ids (`company_ids`, from the
  * sales mirror) so the shop only has to know its customer's company id.
+ * customer_numbers = the resolved customers' Rackbeat numbers (exclusivity_member,
+ * filled from HubSpot on save / "Refresh customers") — what the shop matches on.
  * Tiny table — read fresh on every call; group expansion only for the groups in play.
  * @param {import('@cloudflare/workers-types').D1Database} salesDb
  * @param {string[] | null} skuVariants
@@ -141,6 +144,8 @@ async function readExclusivity(salesDb, skuVariants) {
 	}
 	const byDeal = new Map();
 	for (const p of parties) (byDeal.get(p.deal_id) ?? byDeal.set(p.deal_id, []).get(p.deal_id)).push(p);
+	// Resolved customers (HubSpot, incl. group members) with Rackbeat numbers.
+	const resolved = await membersByDeal(salesDb, ids);
 	return deals.map((d) => {
 		const ps = byDeal.get(d.id) ?? [];
 		const companyIds = new Set();
@@ -148,12 +153,19 @@ async function readExclusivity(salesDb, skuVariants) {
 			if (p.kind === 'company') companyIds.add(String(p.ref));
 			else for (const c of members.get(p.ref) ?? []) companyIds.add(c);
 		}
+		const numbers = new Set();
+		for (const m of resolved.get(d.id) ?? []) {
+			companyIds.add(String(m.company_id));
+			const n = Number(String(m.customer_number ?? '').trim());
+			if (m.customer_number != null && Number.isFinite(n)) numbers.add(n);
+		}
 		return {
 			id: d.id, sku: d.sku, market: d.market,
 			start_date: d.start_date ?? null, end_date: d.end_date ?? null,
 			active: (!d.start_date || d.start_date <= today) && (!d.end_date || d.end_date >= today),
 			parties: ps.map((p) => ({ kind: p.kind, ref: String(p.ref), label: p.label ?? p.ref })),
 			company_ids: [...companyIds].sort(),
+			customer_numbers: [...numbers].sort((a, b) => a - b), // Rackbeat customer numbers (groups expanded)
 		};
 	});
 }

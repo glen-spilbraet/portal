@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
 import { getAllowedUser, searchSheets } from '$lib/db.js';
-import { cleanDeal, createDeal, searchParties } from '$lib/server/exclusivity.js';
+import { cleanDeal, createDeal, searchParties, resolveMembers } from '$lib/server/exclusivity.js';
 import { notifyShops } from '$lib/server/shopNotify.js';
 
 /** Admin gate (role via DB). Agreements live on the shared SALES_DB. */
@@ -46,6 +46,12 @@ export async function POST({ request, cookies, platform }) {
 	const { value, error: msg } = cleanDeal(await request.json().catch(() => ({})));
 	if (msg) return json({ message: msg }, { status: 400 });
 	const id = await createDeal(db, value, email);
+	// Customers → Rackbeat customer numbers (what the shop matches on).
+	let warning = null;
+	try {
+		const r = await resolveMembers(db, platform?.env?.HUBSPOT_TOKEN, [id]);
+		if (r.missingNumber.length) warning = `No Rackbeat customer number in HubSpot for: ${r.missingNumber.map((m) => m.company).join(', ')}`;
+	} catch (e) { warning = `Saved, but customers couldn't be looked up in HubSpot (${e instanceof Error ? e.message : e}) — use "Refresh customers".`; }
 	await notifyShops(platform, { type: 'exclusivity', skus: [value.sku] });
-	return json({ ok: true, id });
+	return json({ ok: true, id, warning });
 }

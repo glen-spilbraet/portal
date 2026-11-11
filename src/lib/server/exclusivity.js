@@ -161,3 +161,100 @@ export async function sheetNames(appDb, skus) {
 	} catch { /* fall back to stored snapshot names */ }
 	return m;
 }
+
+// ── Resolved customers (HubSpot → Rackbeat customer numbers) ────────────────
+
+const HS = 'https://api.hubapi.com';
+async function hsPost(token, path, body) {
+	const res = await fetch(`${HS}${path}`, {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify(body),
+		signal: AbortSignal.timeout(15000),
+	});
+	if (!res.ok) throw new Error(`HubSpot ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+	return res.json();
+}
+const PROPS = ['name', 'rackbeat_id'];
+const toMember = (c) => ({ company_id: String(c.id), company_name: c.properties?.name ?? null, customer_number: String(c.properties?.rackbeat_id ?? '').trim() || null });
+
+/** All HubSpot companies in a customer group. */
+async function groupCompanies(token, group) {
+	const out = [];
+	let after;
+	do {
+		const data = await hsPost(token, '/crm/v3/objects/companies/search', {
+			filterGroups: [{ filters: [{ propertyName: 'customer_group', operator: 'EQ', value: group }] }],
+			properties: PROPS, limit: 100, ...(after ? { after } : {}),
+		});
+		for (const c of data.results ?? []) out.push(toMember(c));
+		after = data.paging?.next?.after;
+	} while (after && out.length < 2000);
+	return out;
+}
+/** Single companies by id. */
+async function companiesById(token, ids) {
+	const out = [];
+	for (let i = 0; i < ids.length; i += 100) {
+		const data = await hsPost(token, '/crm/v3/objects/companies/batch/read', { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: PROPS });
+		for (const c of data.results ?? []) out.push(toMember(c));
+	}
+	return out;
+}
+
+/**
+ * Re-resolve the customers of the given agreements (default: every agreement
+ * not yet expired) from HubSpot and store them in exclusivity_member.
+ * @param {D1} db SALES_DB  @param {string | undefined} token HUBSPOT_TOKEN
+ * @param {string[] | null} [dealIds]
+ * @returns {Promise<{ deals: number, customers: number, missingNumber: any[], skus: any[] }>}
+ */
+export async function resolveMembers(db, token, dealIds = null) {
+	if (!token) throw new Error('HUBSPOT_TOKEN is not set');
+	const today = new Date().toISOString().slice(0, 10);
+	const deals = dealIds
+		? (await db.prepare(`SELECT id, sku FROM exclusivity_deal WHERE id IN (${dealIds.map(() => '?').join(',')})`).bind(...dealIds).all()).results ?? []
+		: (await db.prepare('SELECT id, sku FROM exclusivity_deal WHERE end_date IS NULL OR end_date >= ?').bind(today).all()).results ?? [];
+	if (!deals.length) return { deals: 0, customers: 0, missingNumber: [], skus: [] };
+	const parties = (await db.prepare(`SELECT deal_id, kind, ref FROM exclusivity_party WHERE deal_id IN (${deals.map(() => '?').join(',')})`).bind(...deals.map((d) => d.id)).all()).results ?? [];
+
+	const groupCache = new Map();
+	const companyIds = [...new Set(parties.filter((p) => p.kind === 'company').map((p) => String(p.ref)))];
+	const companyMap = new Map((companyIds.length ? await companiesById(token, companyIds) : []).map((m) => [m.company_id, m]));
+	for (const g of new Set(parties.filter((p) => p.kind === 'group').map((p) => p.ref))) groupCache.set(g, await groupCompanies(token, g));
+
+	const now = new Date().toISOString();
+	const stmts = [];
+	const missingNumber = [];
+	let customers = 0;
+	for (const d of deals) {
+		const members = new Map();
+		for (const p of parties.filter((x) => x.deal_id === d.id)) {
+			const list = p.kind === 'group' ? groupCache.get(p.ref) ?? [] : [companyMap.get(String(p.ref)) ?? { company_id: String(p.ref), company_name: null, customer_number: null }];
+			for (const m of list) members.set(m.company_id, m);
+		}
+		stmts.push(db.prepare('DELETE FROM exclusivity_member WHERE deal_id = ?').bind(d.id));
+		for (const m of members.values()) {
+			stmts.push(db.prepare('INSERT INTO exclusivity_member (deal_id, company_id, company_name, customer_number, resolved_at) VALUES (?, ?, ?, ?, ?)')
+				.bind(d.id, m.company_id, m.company_name, m.customer_number, now));
+			customers++;
+			if (!m.customer_number) missingNumber.push({ company: m.company_name ?? m.company_id, deal: d.id, sku: d.sku });
+		}
+	}
+	for (let i = 0; i < stmts.length; i += 90) await db.batch(stmts.slice(i, i + 90));
+	return { deals: deals.length, customers, missingNumber, skus: [...new Set(deals.map((d) => d.sku))] };
+}
+
+/** Resolved customers per agreement: Map(deal_id → [{company_id, company_name, customer_number}]). @param {D1} db */
+export async function membersByDeal(db, dealIds) {
+	const m = new Map();
+	if (!dealIds.length) return m;
+	try {
+		for (let i = 0; i < dealIds.length; i += 90) {
+			const part = dealIds.slice(i, i + 90);
+			const rows = (await db.prepare(`SELECT deal_id, company_id, company_name, customer_number FROM exclusivity_member WHERE deal_id IN (${part.map(() => '?').join(',')})`).bind(...part).all()).results ?? [];
+			for (const r of rows) (m.get(r.deal_id) ?? m.set(r.deal_id, []).get(r.deal_id)).push(r);
+		}
+	} catch { /* migration 0111 not applied yet */ }
+	return m;
+}
