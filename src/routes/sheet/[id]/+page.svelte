@@ -410,6 +410,10 @@
 		await fetch(`/api/images/${id}`, { method: 'DELETE' });
 		flashSaved(); await invalidateAll();
 	}
+	async function clearBox() {
+		if (!confirm(data.sheet.box_flat_image_key ? 'Remove the 3D box photo? The flat front will be used as the default image.' : 'Remove the 3D box photo? The sheet will have no default image.')) return;
+		await putSheet('box_image_key', null); await invalidateAll();
+	}
 	async function clearBoxFlat() { await putSheet('box_flat_image_key', null); await invalidateAll(); }
 	// focal point crop for people-playing (click image → %)
 	async function setFocal(ev, img) {
@@ -688,7 +692,10 @@
 								<span class="box-tag old" title="Uploaded before the box cropper — consider re-cropping">● Legacy photo</span>
 							{/if}
 						{/if}
-						<button class="mini" onclick={() => boxInput.click()} disabled={uploading === 'box'}>{uploading === 'box' ? 'Uploading…' : 'Replace'}</button>
+						<div class="slot-actions">
+							<button class="mini" onclick={() => boxInput.click()} disabled={uploading === 'box'}>{uploading === 'box' ? 'Uploading…' : 'Replace'}</button>
+							{#if data.sheet.box_image_key}<button class="mini danger" onclick={clearBox}>Remove</button>{/if}
+						</div>
 						<input type="file" accept="image/*" bind:this={boxInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'box'); e.currentTarget.value = ''; }} hidden />
 					</div>
 					<div class="box-slot">

@@ -56,7 +56,7 @@ export async function load({ params, url, platform, parent }) {
 		sku: sheet.sku,
 		name,
 		lang,
-		boxImageKey: sheet.box_image_key ?? null,
+		boxImageKey: sheet.box_image_key || sheet.box_flat_image_key || null, // 3D → flat front
 		badges,
 		press,
 		awardsUpdatedAt: sheet.awards_updated_at ?? null,

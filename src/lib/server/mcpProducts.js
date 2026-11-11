@@ -97,7 +97,7 @@ export async function getProductImageBytes(platform, db, sku, which = 'box') {
 	const bucket = platform?.env?.IMAGES;
 	if (!bucket) return { error: 'Image storage unavailable' };
 	const row = await db
-		.prepare('SELECT id, box_image_key FROM sales_sheets WHERE lower(sku) = lower(?) ORDER BY updated_at DESC LIMIT 1')
+		.prepare(`SELECT id, COALESCE(NULLIF(box_image_key, ''), NULLIF(box_flat_image_key, '')) AS box_image_key FROM sales_sheets WHERE lower(sku) = lower(?) ORDER BY updated_at DESC LIMIT 1`)
 		.bind(sku)
 		.first();
 	if (!row) return { error: `No product with SKU ${sku}` };

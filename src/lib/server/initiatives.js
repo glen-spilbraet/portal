@@ -94,7 +94,7 @@ async function productInfo(db, skus) {
 	const m = new Map();
 	for (const part of chunk([...new Set(skus.map(lc).filter(Boolean))], 90)) {
 		const rows = (await db.prepare(
-			`SELECT lower(s.sku) AS sku, s.box_image_key AS img, tr.value AS name
+			`SELECT lower(s.sku) AS sku, COALESCE(NULLIF(s.box_image_key, ''), NULLIF(s.box_flat_image_key, '')) AS img, tr.value AS name
 			 FROM sales_sheets s LEFT JOIN translations tr ON tr.sheet_id = s.id AND tr.key = 'product_name' AND COALESCE(tr.value,'') != ''
 			 WHERE lower(s.sku) IN (${part.map(() => '?').join(',')})
 			 ORDER BY (tr.language = s.primary_language) ASC`

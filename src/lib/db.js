@@ -1,7 +1,10 @@
 /** @param {App.Platform['env']['DB']} db */
 
+/** A sheet's default image: 3D box → flat front → none (never other photos). */
+export const DEFAULT_IMAGE_SQL = `COALESCE(NULLIF(s.box_image_key, ''), NULLIF(s.box_flat_image_key, ''))`;
+
 const SHEET_SELECT = `
-	SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at,
+	SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at,
 	       COALESCE(u.first_name, '') as creator_first_name,
 	       t_en.value as name_en,
 	       t_da.value as name_da,
@@ -40,7 +43,7 @@ export async function countSheets(db) {
  */
 export async function listIncompleteSheets(db) {
 	const rows = await db.prepare(`
-		SELECT s.id, s.sku, s.status, s.box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at,
+		SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.box_image_key AS box_3d_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at,
 		       COALESCE(u.first_name, '') as creator_first_name,
 		       t_en.value as name_en, t_da.value as name_da, t_sv.value as name_sv, t_no.value as name_no,
 		       COALESCE(s.usp_count, 3) as usp_count,
@@ -62,7 +65,7 @@ export async function listIncompleteSheets(db) {
 	};
 	return (rows.results ?? []).filter((s) => {
 		const uspCount = s.usp_count ?? 3;
-		return !s.box_image_key
+		return !s.box_3d_key
 			|| !dataField(s.data_fields, 'age')
 			|| !dataField(s.data_fields, 'time')
 			|| !dataField(s.data_fields, 'players')
@@ -107,7 +110,7 @@ export async function listSheetsNeedingAwardUpdate(db, today = new Date().toISOS
 				  WHERE i.is_winner = 1 AND i.disclosure_date IS NOT NULL AND i.disclosure_date <= ?
 			) GROUP BY skl
 		)
-		SELECT s.id, s.sku, s.box_image_key, s.updated_at, s.awards_updated_at,
+		SELECT s.id, s.sku, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.updated_at, s.awards_updated_at,
 		       t_en.value AS name_en, t_da.value AS name_da, t_sv.value AS name_sv, t_no.value AS name_no,
 		       sig.last_created, sig.cnt AS press_count
 		FROM sales_sheets s
@@ -488,7 +491,7 @@ export async function deleteCatalogue(db, id) {
 
 export async function getCatalogueItems(db, catalogueId) {
 	const rows = await db.prepare(`
-    SELECT ci.*, s.box_image_key, s.data_fields, s.hidden_elements,
+    SELECT ci.*, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.data_fields, s.hidden_elements,
            t_name.value as product_name, t_desc.value as product_description,
            s.primary_language
     FROM catalogue_items ci
@@ -506,7 +509,7 @@ export async function getCatalogueItemsWithTranslations(db, catalogueId, languag
     SELECT ci.id, ci.sheet_id, ci.display_order,
            ci.type, ci.section_image_key, ci.section_crop_x, ci.section_crop_y, ci.section_text,
            ci.section_grid_size, ci.section_grid_items,
-           s.box_image_key, s.data_fields, s.hidden_elements, s.primary_language,
+           ${DEFAULT_IMAGE_SQL} AS box_image_key, s.data_fields, s.hidden_elements, s.primary_language,
            s.usp_count, s.youtube_url,
            COALESCE(t_name_lang.value, t_name_primary.value, '') as product_name,
            COALESCE(t_desc_lang.value, t_desc_primary.value, '') as product_description
@@ -555,7 +558,7 @@ export async function getCatalogueItemsWithTranslations(db, catalogueId, languag
 		if (idList.length > 0) {
 			const placeholders = idList.map(() => '?').join(',');
 			const productRows = await db.prepare(`
-        SELECT s.id, s.box_image_key, s.data_fields,
+        SELECT s.id, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.data_fields,
                COALESCE(t_lang.value, t_primary.value, '') as product_name
         FROM sales_sheets s
         LEFT JOIN translations t_lang ON t_lang.sheet_id = s.id AND t_lang.language = ? AND t_lang.key = 'product_name'
@@ -1239,7 +1242,7 @@ export async function getCampaignSheetsAllTranslations(db, campaignId) {
   const rows = await db.prepare(`
     SELECT
       cs.sheet_id, cs.added_at,
-      s.sku, s.box_image_key, s.share_token, s.data_fields,
+      s.sku, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.share_token, s.data_fields,
       COALESCE(s.usp_count, 3) AS usp_count,
       t.language, t.key, t.value
     FROM campaign_sheets cs

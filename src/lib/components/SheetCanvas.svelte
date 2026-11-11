@@ -90,7 +90,7 @@
 
 	// ── Other sheet state ─────────────────────────────────────────────────
 	let dataFields  = $state(JSON.parse(sheet.data_fields ?? '[]'));
-	let boxImageKey = $state(sheet.box_image_key ?? null);
+	let boxImageKey = $state(sheet.box_image_key || sheet.box_flat_image_key || null); // default image: 3D → flat front
 	let gridImages  = $state([...images]);
 	let uspCount    = $state(sheet.usp_count ?? 3);
 

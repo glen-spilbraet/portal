@@ -57,7 +57,7 @@ export async function filterOptions(salesDb) {
 export async function filterSheets(db, salesDb, f) {
 	// ── Sheets + texts (primary language) + names, one aggregate pass ───────
 	const sheets = (await db.prepare(
-		`SELECT s.id, s.sku, s.box_image_key, s.updated_at, s.featured_at, s.data_fields,
+		`SELECT s.id, s.sku, COALESCE(NULLIF(s.box_image_key, ''), NULLIF(s.box_flat_image_key, '')) AS box_image_key, s.updated_at, s.featured_at, s.data_fields,
 		        s.preorder_date, s.restock_date, COALESCE(s.usp_count, 3) AS usp_count,
 		        MAX(CASE WHEN t.key = 'product_name' AND t.language = 'en' THEN t.value END) AS name_en,
 		        MAX(CASE WHEN t.key = 'product_name' AND t.language = 'da' THEN t.value END) AS name_da,
