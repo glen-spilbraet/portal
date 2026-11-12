@@ -6,16 +6,27 @@ auto-deploys to the dev/preview site; `main` auto-deploys to production.
 ## Git workflow — IMPORTANT
 
 **Commit and push directly to `dev`. Do not open pull requests, and do not
-create feature branches.** This project does not use a PR workflow — changes are
-expected to land on `dev` as soon as they're made, exactly like a normal push.
+push any other branch to GitHub.** This project does not use a PR workflow —
+changes are expected to land on `dev` as soon as they're made, exactly like a
+normal push.
 
 - **Never push to `main`.** Only a human merges `dev` → `main`, and only when
-  explicitly told to. Never do it on your own.
-- **Always start from the latest `dev`** so you don't work off a stale snapshot:
+  explicitly told to ("merge to prod"). Never do it on your own.
+- **One chat per feature, each in its own worktree on its own LOCAL branch.**
+  Several chats work on Portal in parallel. Never check out `dev` itself in a
+  worktree or the main folder you edit in — branches are shared between
+  worktrees, so a second folder on `dev` silently gets its HEAD moved under its
+  files. Start every session from the latest dev on a local branch:
   ```bash
   git fetch origin dev
-  git checkout -B dev origin/dev   # or reset your working branch to origin/dev
+  git switch -c work/<topic> origin/dev   # local only; never pushed by name
   ```
+  The main folder (`~/Documents/Visual Studio Code/portal`) is a clean
+  reference copy — don't edit there.
+- **Migration numbers:** parallel chats can pick the same `NNNN`. Right before
+  committing a new migration, check the highest number on `origin/dev`
+  (`git ls-tree --name-only origin/dev migrations/ | tail -3`) and renumber
+  yours if taken (also any reference to the file name).
 - **Before pushing, verify the build passes:** `npm run build`.
 - **Push flow** (rebase onto latest dev first to avoid non-fast-forward):
   ```bash
