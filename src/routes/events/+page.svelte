@@ -36,7 +36,7 @@
 	}
 
 	// ── Filters ────────────────────────────────────────────────────────────────
-	let fStatus = $state('notdone');   // notdone (default) · done · all
+	let fStatus = $state('notdone');   // notdone (default, excludes done + cancelled) · done · cancelled · all
 	let fType = $state('');            // type_id or ''
 	let fAssets = $state('all');       // all · missing · has
 	let fText = $state('');
@@ -51,8 +51,9 @@
 	const filtered = $derived.by(() => {
 		const q = fText.trim().toLowerCase();
 		return data.events.filter((e) => {
-			if (fStatus === 'notdone' && e.status === 'done') return false;
+			if (fStatus === 'notdone' && (e.status === 'done' || e.status === 'cancelled')) return false;
 			if (fStatus === 'done' && e.status !== 'done') return false;
+			if (fStatus === 'cancelled' && e.status !== 'cancelled') return false;
 			if (fType && e.type_id !== fType) return false;
 			if (fAssets === 'missing' && (e.asset_count ?? 0) > 0) return false;
 			if (fAssets === 'has' && (e.asset_count ?? 0) === 0) return false;
@@ -82,8 +83,9 @@
 		{:else}
 			<div class="filters">
 				<div class="seg-ctrl" role="group" aria-label="Status filter">
-					<button class:active={fStatus === 'notdone'} onclick={() => (fStatus = 'notdone')}>Not done</button>
+					<button class:active={fStatus === 'notdone'} onclick={() => (fStatus = 'notdone')}>Open</button>
 					<button class:active={fStatus === 'done'} onclick={() => (fStatus = 'done')}>Done</button>
+					<button class:active={fStatus === 'cancelled'} onclick={() => (fStatus = 'cancelled')}>Cancelled</button>
 					<button class:active={fStatus === 'all'} onclick={() => (fStatus = 'all')}>All</button>
 				</div>
 				<select class="f-sel" bind:value={fType} aria-label="Filter by type">
