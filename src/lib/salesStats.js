@@ -353,9 +353,9 @@ export async function getSeriesBreakdown(db, windows, publisher) {
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev0,
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev2
-			 FROM deal_line_items li WHERE li.deal_kind = 'closed' AND li.publisher = ? GROUP BY li.series_id`
+			 FROM deal_line_items li WHERE li.deal_kind = 'closed' AND li.publisher = ? AND li.close_date >= ? AND li.close_date < ? GROUP BY li.series_id`
 		)
-		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, publisher)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, publisher, ...windowBounds(windows))
 		.all();
 	return (rows.results ?? [])
 		.map((r) => ({
@@ -384,9 +384,10 @@ export async function getSeriesChildrenByPublisher(db, windows) {
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev2
 			 FROM deal_line_items li
 			 WHERE li.deal_kind = 'closed' AND li.publisher IN (SELECT DISTINCT publisher FROM series)
+			   AND li.close_date >= ? AND li.close_date < ?
 			 GROUP BY li.publisher, li.series_id`
 		)
-		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, ...windowBounds(windows))
 		.all();
 	const out = {};
 	for (const r of rows.results ?? []) {
@@ -416,10 +417,10 @@ export async function getAllSeriesBreakdown(db, windows) {
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev0,
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev2
-			 FROM deal_line_items li JOIN series s ON s.id = li.series_id
-			 WHERE li.deal_kind = 'closed' AND li.series_id IS NOT NULL GROUP BY li.series_id`
+			 FROM series s CROSS JOIN deal_line_items li ON li.series_id = s.id -- CROSS JOIN: series first, then each series' lines by index
+			 WHERE li.deal_kind = 'closed' AND li.close_date >= ? AND li.close_date < ? GROUP BY li.series_id`
 		)
-		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, ...windowBounds(windows))
 		.all();
 	return (rows.results ?? [])
 		.map((r) => ({
@@ -476,9 +477,9 @@ export async function getSeriesCustomers(db, windows, seriesId) {
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev2
 			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
-			 WHERE li.deal_kind = 'closed' AND li.series_id = ? GROUP BY li.company_id`
+			 WHERE li.deal_kind = 'closed' AND li.series_id = ? AND li.close_date >= ? AND li.close_date < ? GROUP BY li.company_id`
 		)
-		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, seriesId)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, seriesId, ...windowBounds(windows))
 		.all();
 	return (rows.results ?? [])
 		.map((r) => ({ key: r.key, name: r.name ?? '(No company)', owner: r.owner, rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0, index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null }))
@@ -494,9 +495,9 @@ export async function getSeriesProducts(db, windows, seriesId) {
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
-			 FROM deal_line_items WHERE deal_kind = 'closed' AND series_id = ? AND sku IS NOT NULL GROUP BY sku`
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND series_id = ? AND close_date >= ? AND close_date < ? AND sku IS NOT NULL GROUP BY sku`
 		)
-		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, seriesId)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, seriesId, ...windowBounds(windows))
 		.all();
 	return (rows.results ?? [])
 		.map((r) => ({ key: r.key, sku: r.key, name: r.name, rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0, index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null }))
