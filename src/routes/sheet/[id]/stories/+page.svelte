@@ -126,6 +126,14 @@
 		if (stories[i].blob) saveBlob(stories[i].blob, fileName(i));
 	}
 
+	// ── Per-story menu (⋯) and photo picker modal ──────────────────────────
+	let menuFor = $state(-1);
+	let pickerFor = $state(-1);
+	function toggleMenu(i, e) { e.stopPropagation(); menuFor = menuFor === i ? -1 : i; }
+	function openPicker(i) { menuFor = -1; pickerFor = i; }
+	function choosePhoto(j) { picks[pickerFor] = j; pickerFor = -1; }
+	function onKey(e) { if (e.key === 'Escape') { menuFor = -1; pickerFor = -1; } }
+
 	let zipping = $state(false);
 	async function downloadZip() {
 		if (!allReady) return;
@@ -143,6 +151,7 @@
 </script>
 
 <svelte:head><title>SoMe Stories — {data.sku}</title></svelte:head>
+<svelte:window onclick={() => (menuFor = -1)} onkeydown={onKey} />
 
 <div class="page">
 	<header class="head">
@@ -188,28 +197,32 @@
 			{#if included.includes(i)}
 				<section class="story">
 					<h2>Story {i + 1} <span>{i < 3 ? `Bullet ${i + 1}` : 'Product'}</span></h2>
-					<div class="frame">
+					<div class="frame" class:menu-open={menuFor === i}>
 						{#if stories[i].url}<img src={stories[i].url} alt="Story {i + 1}" class:dim={stories[i].busy} />{/if}
 						{#if stories[i].busy}<div class="spin">Rendering…</div>{/if}
+						{#if i < 3}
+							<button class="dots" aria-label="Story options" onclick={(e) => toggleMenu(i, e)}>
+								<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/></svg>
+							</button>
+							{#if menuFor === i}
+								<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+								<div class="menu" onclick={(e) => e.stopPropagation()}>
+									<div class="menu-label">Text position</div>
+									<div class="seg">
+										<button class:on={positions[i] === 'top'} onclick={() => (positions[i] = 'top')}>Top</button>
+										<button class:on={positions[i] === 'bottom'} onclick={() => (positions[i] = 'bottom')}>Bottom</button>
+									</div>
+									{#if data.photos.length > 1}
+										<button class="menu-item" onclick={() => openPicker(i)}>
+											<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg>
+											Choose other photo
+										</button>
+									{/if}
+								</div>
+							{/if}
+						{/if}
 					</div>
 					{#if stories[i].error}<p class="err">{stories[i].error}</p>{/if}
-
-					{#if i < 3}
-						<div class="seg">
-							<button class:on={positions[i] === 'top'} onclick={() => (positions[i] = 'top')}>Text top</button>
-							<button class:on={positions[i] === 'bottom'} onclick={() => (positions[i] = 'bottom')}>Text bottom</button>
-						</div>
-						{#if data.photos.length > 1}
-							<div class="thumbs">
-								{#each data.photos as p, j}
-									<button class="thumb" class:sel={picks[i] === j} onclick={() => (picks[i] = j)} title={p.type === 'content' ? 'Content photo' : 'People playing'}>
-										<img src="/api/img/{p.key}?size=300" alt="" loading="lazy" />
-										{#if p.type === 'content'}<span class="tag">Content</span>{/if}
-									</button>
-								{/each}
-							</div>
-						{/if}
-					{/if}
 
 					<div class="actions">
 						{#if canShareFiles}
@@ -229,11 +242,32 @@
 	{/if}
 </div>
 
+{#if pickerFor >= 0}
+	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+	<div class="overlay" onclick={() => (pickerFor = -1)}>
+		<div class="modal" role="dialog" tabindex="-1" aria-label="Choose photo" onclick={(e) => e.stopPropagation()}>
+			<div class="modal-head">
+				<h3>Choose photo for story {pickerFor + 1}</h3>
+				<button class="close" aria-label="Close" onclick={() => (pickerFor = -1)}>×</button>
+			</div>
+			<div class="photo-grid">
+				{#each data.photos as p, j}
+					<button class="photo" class:sel={picks[pickerFor] === j} onclick={() => choosePhoto(j)}>
+						<img src="/api/img/{p.key}?size=400" alt="" loading="lazy" />
+						{#if p.type === 'content'}<span class="tag">Content</span>{/if}
+						{#if picks[pickerFor] === j}<span class="check">✓</span>{/if}
+					</button>
+				{/each}
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.page { max-width: 1240px; margin: 0 auto; padding: 28px 24px 60px; }
 	.head { margin-bottom: 18px; }
 	.crumbs { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
-	.crumbs a { color: #6D5BD0; text-decoration: none; font-weight: 600; }
+	.crumbs a { color: #F57832; text-decoration: none; font-weight: 600; }
 	.crumbs a:hover { text-decoration: underline; }
 	.crumbs .sep { color: #c7c7c7; }
 	.crumbs .current { color: #9a9a9a; font-weight: 600; }
@@ -242,8 +276,8 @@
 	.sku { font-size: 14px; color: #9a9a9a; font-weight: 500; margin-left: 6px; }
 
 	.langs { display: flex; gap: 6px; flex-wrap: wrap; }
-	.lang { border: 1px solid #e2e0ea; background: white; border-radius: 100px; padding: 6px 14px; font: inherit; font-size: 13px; font-weight: 600; color: #555; cursor: pointer; }
-	.lang.on { background: #6D5BD0; border-color: #6D5BD0; color: white; }
+	.lang { border: 1px solid #ece6df; background: white; border-radius: 100px; padding: 6px 14px; font: inherit; font-size: 13px; font-weight: 600; color: #555; cursor: pointer; }
+	.lang.on { background: #F57832; border-color: #F57832; color: white; }
 
 	.savebar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; background: white; border: 1px solid #ececec; border-radius: 14px; padding: 12px 16px; margin-bottom: 18px; }
 	.hint { font-size: 12.5px; color: #888; }
@@ -262,21 +296,36 @@
 	.frame img.dim { opacity: 0.4; }
 	.spin { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #666; }
 
-	.seg { display: flex; margin-top: 10px; border: 1px solid #e2e0ea; border-radius: 100px; overflow: hidden; width: max-content; }
-	.seg button { border: 0; background: white; padding: 6px 14px; font: inherit; font-size: 12.5px; font-weight: 600; color: #555; cursor: pointer; }
-	.seg button.on { background: #6D5BD0; color: white; }
+	/* ⋯ menu on bullet stories (shown on hover; always on touch screens) */
+	.dots { position: absolute; top: 10px; right: 10px; width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(255, 255, 255, 0.92); color: #333; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); opacity: 0; transition: opacity 0.15s; }
+	.frame:hover .dots, .frame.menu-open .dots, .dots:focus-visible { opacity: 1; }
+	@media (hover: none) { .dots { opacity: 1; } }
+	.menu { position: absolute; top: 50px; right: 10px; z-index: 5; background: white; border-radius: 12px; padding: 12px; min-width: 190px; box-shadow: 0 10px 34px rgba(0, 0, 0, 0.22); }
+	.menu-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #999; margin-bottom: 6px; }
+	.seg { display: flex; border: 1px solid #ece6df; border-radius: 100px; overflow: hidden; }
+	.seg button { flex: 1; border: 0; background: white; padding: 6px 14px; font: inherit; font-size: 12.5px; font-weight: 600; color: #555; cursor: pointer; }
+	.seg button.on { background: #F57832; color: white; }
+	.menu-item { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 10px; padding: 8px 6px; border: 0; border-top: 1px solid #f1ece6; background: none; font: inherit; font-size: 13px; font-weight: 600; color: #333; cursor: pointer; text-align: left; border-radius: 0; }
+	.menu-item:hover { color: #F57832; }
 
-	.thumbs { display: flex; gap: 6px; overflow-x: auto; margin-top: 10px; padding-bottom: 4px; }
-	.thumb { position: relative; flex: 0 0 56px; height: 56px; padding: 0; border: 2px solid transparent; border-radius: 8px; overflow: hidden; cursor: pointer; background: none; opacity: 0.6; }
-	.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-	.thumb.sel { border-color: #F57832; opacity: 1; }
-	.thumb:hover { opacity: 1; }
-	.tag { position: absolute; left: 0; right: 0; bottom: 0; font-size: 9px; font-weight: 700; color: white; background: rgba(0, 0, 0, 0.55); text-align: center; }
+	/* Photo picker modal */
+	.overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+	.modal { background: white; border-radius: 16px; width: min(760px, 100%); max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); }
+	.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 10px; }
+	.modal-head h3 { margin: 0; font-size: 15px; }
+	.close { border: 0; background: none; font-size: 26px; line-height: 1; color: #888; cursor: pointer; }
+	.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 6px 18px 18px; overflow-y: auto; }
+	.photo { position: relative; aspect-ratio: 1; padding: 0; border: 3px solid transparent; border-radius: 10px; overflow: hidden; cursor: pointer; background: #eee; }
+	.photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+	.photo:hover { border-color: #FBD3B8; }
+	.photo.sel { border-color: #F57832; }
+	.check { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%; background: #F57832; color: white; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+	.tag { position: absolute; left: 0; right: 0; bottom: 0; font-size: 10px; font-weight: 700; color: white; background: rgba(0, 0, 0, 0.55); text-align: center; padding: 2px 0; }
 
 	.actions { display: flex; gap: 8px; margin-top: 12px; }
-	.btn { padding: 8px 18px; border: none; border-radius: 100px; cursor: pointer; background: #6D5BD0; color: white; font: inherit; font-size: 13px; font-weight: 600; }
-	.btn:hover:not(:disabled) { background: #5B49BE; }
+	.btn { padding: 8px 18px; border: none; border-radius: 100px; cursor: pointer; background: #F57832; color: white; font: inherit; font-size: 13px; font-weight: 600; }
+	.btn:hover:not(:disabled) { background: #DD6420; }
 	.btn:disabled { opacity: 0.5; cursor: default; }
-	.btn.ghost { background: white; color: #6D5BD0; border: 1px solid #ddd9f0; }
-	.btn.ghost:hover:not(:disabled) { background: #f6f4fd; }
+	.btn.ghost { background: white; color: #F57832; border: 1px solid #FBD3B8; }
+	.btn.ghost:hover:not(:disabled) { background: #FFF5D2; }
 </style>
