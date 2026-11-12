@@ -79,6 +79,27 @@ function pubExpr(mode, a = '') {
 }
 
 /**
+ * Index-friendly filter for ONE publisher. Same meaning as `pubExpr(mode) = ?`,
+ * but the SKU view is turned into the publisher's concrete prefixes first
+ * (the prefixes mapped to it, plus its own name when that is an unmapped raw
+ * prefix), so `sku_prefix IN (…)` can use idx_dli_kind_prefix_close instead of
+ * computing every line's publisher (a full scan of all closed lines per query).
+ * @returns {Promise<{ sql: string, binds: string[] }>}
+ */
+async function pubFilter(db, mode, publisher, a = '') {
+	if (mode === 'mapped') return { sql: `${a}publisher = ?`, binds: [publisher] };
+	const [mapped, own] = await Promise.all([
+		db.prepare('SELECT prefix FROM publisher_prefix WHERE publisher = ?').bind(publisher).all(),
+		db.prepare('SELECT 1 AS x FROM publisher_prefix WHERE prefix = ?').bind(publisher).first(),
+	]);
+	const prefixes = [...new Set([...(mapped.results ?? []).map((r) => String(r.prefix)), ...(own ? [] : [publisher])])];
+	return { sql: `${a}sku_prefix IN (${prefixes.map(() => '?').join(',')})`, binds: prefixes };
+}
+
+/** Earliest start / latest end across the three windows (bounds the scan; the CASEs pick the window). */
+const windowBounds = ({ y0, y1, y2 }) => [[y0.start, y1.start, y2.start].sort()[0], [y0.end, y1.end, y2.end].sort().at(-1)];
+
+/**
  * Publisher breakdown from line items across three same-shaped windows
  * (oldest→newest). Groups closed line items by the chosen publisher view; index
  * is YoY (y2 vs y1). Company-wide (Product view is not owner-scoped).
@@ -86,18 +107,31 @@ function pubExpr(mode, a = '') {
  */
 export async function getPublisherBreakdown(db, windows, mode = 'sku') {
 	const { y0, y1, y2 } = windows;
-	const key = pubExpr(mode);
-	const rows = await db
-		.prepare(
-			`SELECT COALESCE(${key}, '—') AS key, COALESCE(${key}, '—') AS label,
+	const [from, to] = windowBounds(windows);
+	// Group by the stored column (prefix or mapped publisher) — no per-line
+	// lookup — within the windows only; the SKU view maps prefix → publisher here.
+	const col = mode === 'mapped' ? 'publisher' : 'sku_prefix';
+	const [res, pfx] = await Promise.all([
+		db.prepare(
+			`SELECT ${col} AS k,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
-			 FROM deal_line_items WHERE deal_kind = 'closed' GROUP BY key`
-		)
-		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end)
-		.all();
-	return (rows.results ?? [])
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND close_date >= ? AND close_date < ? GROUP BY k`
+		).bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, from, to).all(),
+		mode === 'mapped' ? Promise.resolve({ results: [] }) : db.prepare('SELECT prefix, publisher FROM publisher_prefix').all(),
+	]);
+	const pmap = new Map((pfx.results ?? []).map((r) => [String(r.prefix), r.publisher]));
+	/** @type {Map<string, any>} */
+	const agg = new Map();
+	for (const r of /** @type {any[]} */ (res.results ?? [])) {
+		const key = (mode === 'mapped' ? r.k : (r.k == null ? null : pmap.get(String(r.k)) ?? r.k)) ?? '—';
+		const g = agg.get(key) ?? { key, label: key, rev0: 0, rev1: 0, rev2: 0 };
+		g.rev0 += r.rev0 || 0; g.rev1 += r.rev1 || 0; g.rev2 += r.rev2 || 0;
+		agg.set(key, g);
+	}
+	return [...agg.values()]
+		.filter((r) => r.rev0 || r.rev1 || r.rev2)
 		.map((r) => ({
 			key: r.key, label: r.label ?? r.key,
 			rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0,
@@ -108,14 +142,15 @@ export async function getPublisherBreakdown(db, windows, mode = 'sku') {
 
 /** Market totals (DKK) for ONE publisher over a window. Joins line items → deals for market. */
 export async function getPublisherMarketTotals(db, startIncl, endExcl, publisher, mode = 'sku') {
+	const f = await pubFilter(db, mode, publisher, 'li.');
 	const rows = await db
 		.prepare(
 			`SELECT d.market AS market, COALESCE(SUM(li.amount_dkk), 0) AS dkk
 			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
-			 WHERE li.deal_kind = 'closed' AND ${pubExpr(mode, 'li.')} = ? AND li.close_date >= ? AND li.close_date < ?
+			 WHERE li.deal_kind = 'closed' AND ${f.sql} AND li.close_date >= ? AND li.close_date < ?
 			 GROUP BY d.market`
 		)
-		.bind(publisher, startIncl, endExcl)
+		.bind(...f.binds, startIncl, endExcl)
 		.all();
 	const byMarket = {};
 	for (const m of MARKETS) byMarket[m] = { dkk: 0 };
@@ -130,12 +165,13 @@ export async function getPublisherMarketTotals(db, startIncl, endExcl, publisher
 
 /** Monthly DKK for ONE publisher in a year (12-element array). */
 export async function getPublisherMonthly(db, year, publisher, mode = 'sku') {
+	const f = await pubFilter(db, mode, publisher);
 	const rows = await db
 		.prepare(
 			`SELECT CAST(strftime('%m', close_date) AS INTEGER) AS m, COALESCE(SUM(amount_dkk), 0) AS rev
-			 FROM deal_line_items WHERE deal_kind = 'closed' AND ${pubExpr(mode)} = ? AND close_date >= ? AND close_date < ? GROUP BY m`
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND ${f.sql} AND close_date >= ? AND close_date < ? GROUP BY m`
 		)
-		.bind(publisher, `${year}-01-01`, `${year + 1}-01-01`)
+		.bind(...f.binds, `${year}-01-01`, `${year + 1}-01-01`)
 		.all();
 	const months = Array(12).fill(0);
 	for (const r of rows.results ?? []) if (r.m >= 1 && r.m <= 12) months[r.m - 1] = r.rev || 0;
@@ -145,6 +181,8 @@ export async function getPublisherMonthly(db, year, publisher, mode = 'sku') {
 /** Per-customer 3-window breakdown for ONE publisher (company name + owner via deals). */
 export async function getPublisherCustomers(db, windows, publisher, mode = 'sku') {
 	const { y0, y1, y2 } = windows;
+	const f = await pubFilter(db, mode, publisher, 'li.');
+	const [from, to] = windowBounds(windows);
 	const rows = await db
 		.prepare(
 			`SELECT li.company_id AS key, MAX(d.company_name) AS name, MAX(d.owner_name) AS owner,
@@ -152,9 +190,9 @@ export async function getPublisherCustomers(db, windows, publisher, mode = 'sku'
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN li.close_date >= ? AND li.close_date < ? THEN li.amount_dkk ELSE 0 END) AS rev2
 			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
-			 WHERE li.deal_kind = 'closed' AND ${pubExpr(mode, 'li.')} = ? GROUP BY li.company_id`
+			 WHERE li.deal_kind = 'closed' AND ${f.sql} AND li.close_date >= ? AND li.close_date < ? GROUP BY li.company_id`
 		)
-		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, publisher)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, ...f.binds, from, to)
 		.all();
 	return (rows.results ?? [])
 		.map((r) => ({ key: r.key, name: r.name ?? '(No company)', owner: r.owner, rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0, index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null }))
@@ -164,15 +202,17 @@ export async function getPublisherCustomers(db, windows, publisher, mode = 'sku'
 /** Per-product (SKU) 3-window breakdown for ONE publisher. */
 export async function getPublisherProducts(db, windows, publisher, mode = 'sku') {
 	const { y0, y1, y2 } = windows;
+	const f = await pubFilter(db, mode, publisher);
+	const [from, to] = windowBounds(windows);
 	const rows = await db
 		.prepare(
 			`SELECT sku AS key, MAX(name) AS name,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
-			 FROM deal_line_items WHERE deal_kind = 'closed' AND ${pubExpr(mode)} = ? AND sku IS NOT NULL GROUP BY sku`
+			 FROM deal_line_items WHERE deal_kind = 'closed' AND ${f.sql} AND close_date >= ? AND close_date < ? AND sku IS NOT NULL GROUP BY sku`
 		)
-		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, publisher)
+		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, ...f.binds, from, to)
 		.all();
 	return (rows.results ?? [])
 		.map((r) => ({ key: r.key, sku: r.key, name: r.name, rev0: r.rev0 || 0, rev1: r.rev1 || 0, rev2: r.rev2 || 0, index: r.rev1 > 0 ? Math.round((r.rev2 / r.rev1) * 100) : null }))
