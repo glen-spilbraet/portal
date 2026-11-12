@@ -1,7 +1,8 @@
 import { notifyShops } from '$lib/server/shopNotify.js';
 import { bumpDataVersion } from '$lib/server/reportCache.js';
 import { d1WithRetry } from '$lib/server/d1Retry.js';
-import { logError, describe, newRef } from '$lib/server/errorLog.js';
+import { logError, describe, newRef, rawDb } from '$lib/server/errorLog.js';
+import { perfActive, recordRequest } from '$lib/server/perfLog.js';
 import { verifySession } from '$lib/auth.js';
 
 /** Signed-in user's email for the error log (null if anonymous). @param {import('@sveltejs/kit').RequestEvent} event */
@@ -78,6 +79,7 @@ const INITIATIVE_PATHS = /^\/(api\/)?(awards|events|initiatives|admin\/publisher
 
 /** @type {import('@sveltejs/kit').Handle} */
 export async function handle({ event, resolve }) {
+	const startedAt = Date.now();
 	// Browsers ask for /favicon.ico (and an old link pointed at /favicon.png);
 	// neither file exists, so each one rendered a 404 page — layout + DB lookups —
 	// on every page view. Answer from the real icon, before touching the DB.
@@ -92,11 +94,17 @@ export async function handle({ event, resolve }) {
 		try {
 			const retries = /** @type {any[]} */ ([]);
 			const onRetry = (/** @type {any} */ info) => retries.push(info);
+			// Performance log (Admin → Performance) — only while switched on.
+			const perf = platform.env.DB && !event.url.pathname.startsWith('/admin/performance') && !event.url.pathname.startsWith('/api/admin/performance')
+				? await perfActive(rawDb(platform.env.DB)) : null;
+			const queries = /** @type {any[]} */ ([]);
+			const onQuery = perf ? (/** @type {any} */ q) => queries.push(q) : undefined;
 			const env = { ...platform.env };
-			if (env.DB) env.DB = d1WithRetry(env.DB, onRetry);
-			if (env.SALES_DB) env.SALES_DB = d1WithRetry(env.SALES_DB, onRetry);
+			if (env.DB) env.DB = d1WithRetry(env.DB, onRetry, onQuery, 'DB');
+			if (env.SALES_DB) env.SALES_DB = d1WithRetry(env.SALES_DB, onRetry, onQuery, 'SALES_DB');
 			/** @type {any} */ (platform).env = env; // plain per-request object at runtime
 			/** @type {any} */ (event.locals).__retries = retries;
+			if (perf) /** @type {any} */ (event.locals).__perf = { threshold: perf.threshold, queries };
 		} catch (e) { console.warn('D1 retry wrapper not applied', e); }
 	}
 
@@ -123,6 +131,19 @@ export async function handle({ event, resolve }) {
 		} catch { /* body not readable — fine */ }
 		logError(platform, { source: 'server', status: response.status, ...reqInfo(event), user: await userOf(event),
 			message: detail ? `HTTP ${response.status}: ${detail}` : `HTTP ${response.status} response`, stack: '' });
+	}
+	// Performance log: one row for a request slower than the threshold.
+	const perfInfo = locals.__perf;
+	if (perfInfo && platform?.env?.DB) {
+		const totalMs = Date.now() - startedAt;
+		if (totalMs >= perfInfo.threshold) {
+			const work = (async () => recordRequest(rawDb(platform.env.DB), {
+				startedAt, totalMs, method: event.request.method, path: event.url.pathname + event.url.search,
+				route: event.route?.id ?? null, status: response.status, user: await userOf(event), queries: perfInfo.queries,
+			}))().catch((e) => console.warn('perf log failed', e));
+			const ctx = /** @type {any} */ (platform).context;
+			if (ctx?.waitUntil) ctx.waitUntil(work); else await work;
+		}
 	}
 	// Retries: one row per request (only when something actually had to retry).
 	const retries = locals.__retries ?? [];
