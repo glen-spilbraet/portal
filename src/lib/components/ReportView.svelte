@@ -4,12 +4,10 @@
 
 	let info = $state(null); // { title, body } shown in the info modal, or null
 	const STORES_INFO = {
-		title: 'About the “Stores” figure',
+		title: 'About the “Customers” figure',
 		body: [
-			'This counts the distinct customer accounts that bought the product in the period.',
-			'A number lower than last year does not necessarily mean fewer shops carry the product. When a product gets listed with a larger key account, that chain often starts ordering through a single central account instead of each individual store — so several shops can be served through one account.',
-			'In other words, you may actually have gained presence in more shops even though this figure goes down, because the buying has moved to a central account.',
-			'So treat this as a helpful indicator of reach, but keep in mind that central-buying setups can move the number for reasons unrelated to the product’s actual presence in stores.',
+			'This is the number of customers who bought the product in the period.',
+			'Note that one customer can cover several stores. This is usually the case for our larger customers, where a chain buys centrally for all its shops.',
 		],
 	};
 
@@ -108,7 +106,7 @@
 		{#if showRevenue}{@render tile('rev', 'Revenue', money(data.totals.revenue), money(data.totals.revenuePrev), data.totals.revenue, data.totals.revenuePrev)}{/if}
 		{#if showUnits}{@render tile('units', 'Units sold', units(data.totals.units), units(data.totals.unitsPrev), data.totals.units, data.totals.unitsPrev)}{/if}
 		{@render tile('skus', 'SKUs', units(data.totals.skus), units(data.totals.skusPrev), data.totals.skus, data.totals.skusPrev)}
-		{@render tile('stores', 'Stores', units(data.totals.stores), units(data.totals.storesPrev), data.totals.stores, data.totals.storesPrev, STORES_INFO)}
+		{@render tile('stores', 'Customers', units(data.totals.stores), units(data.totals.storesPrev), data.totals.stores, data.totals.storesPrev, STORES_INFO)}
 	</div>
 
 	<!-- By market: four widgets side by side -->
