@@ -501,6 +501,7 @@
 		<div class="right">
 			<span class="save" class:on={saveStatus === 'saving'}><span class="dot"></span>{saveStatus === 'saving' ? 'Saving…' : 'Saved'}</span>
 			<a class="btn ghost" href="/sheet/{sheetId}/award?lang={language}">Award View</a>
+			<a class="btn ghost" href="/sheet/{sheetId}/stories?lang={language}">SoMe Stories</a>
 			<a class="btn primary" href="/sheet/{sheetId}/preview?lang={language}" target="_blank">Preview</a>
 		</div>
 	</header>
