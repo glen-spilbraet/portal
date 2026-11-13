@@ -66,7 +66,27 @@
 	let editName = $state(null);
 	let newPrefix = $state('');
 	const editPub = $derived(editName ? data.publishers.find((p) => p.name === editName) : null);
-	function openEdit(name) { editName = name; newPrefix = ''; }
+	let renameVal = $state('');
+	let renameErr = $state('');
+	let renaming = $state(false);
+	function openEdit(name) { editName = name; newPrefix = ''; renameVal = name; renameErr = ''; }
+	async function renamePub() {
+		const to = renameVal.trim();
+		if (!editName || !to || to === editName || renaming) return;
+		if (!confirm(`Rename "${editName}" to "${to}"?\n\nUpdates prefixes, SKU mappings, series, webshop markets, shop page, sales figures and report rules.`)) return;
+		renaming = true; renameErr = '';
+		try {
+			const res = await fetch(`/api/admin/publishers/${encodeURIComponent(editName)}`, {
+				method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: to })
+			});
+			const body = await res.json().catch(() => ({}));
+			if (!res.ok) { renameErr = body.message ?? `Rename failed (${res.status})`; return; }
+			const old = editName;
+			if (pubMarkets[old]) { const { [old]: m, ...rest } = pubMarkets; pubMarkets = { ...rest, [body.name]: m }; }
+			await invalidateAll();
+			editName = body.name;
+		} finally { renaming = false; }
+	}
 	function closeEdit() { editName = null; }
 	async function addPrefix() {
 		const pfx = newPrefix.trim().toUpperCase();
@@ -202,7 +222,7 @@
 						<td class="num">{p.mapped_count || '—'}</td>
 						<td class="actions">
 							<div class="row-actions">
-								<button class="btn-sm" onclick={() => openEdit(p.name)}>Prefixes</button>
+								<button class="btn-sm" onclick={() => openEdit(p.name)}>Edit</button>
 								<a class="btn-sm" href="/admin/publishers/{encodeURIComponent(p.name)}">Map SKUs</a>
 								<a class="btn-sm" href="/admin/publishers/{encodeURIComponent(p.name)}/shop-page">Shop page</a>
 								<button class="btn-del icon" onclick={() => deletePublisher(p.name)} title="Remove publisher" aria-label="Remove {p.name}">
@@ -233,7 +253,14 @@
 {#if editPub}
 	<div class="overlay" onclick={closeEdit} role="presentation">
 		<div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-			<h3 class="modal-title">Prefixes → <span class="pub-name">{editPub.name}</span></h3>
+			<h3 class="modal-title">Edit <span class="pub-name">{editPub.name}</span></h3>
+			<p class="sub-head">Name</p>
+			<div class="add-row">
+				<input class="in" bind:value={renameVal} onkeydown={(e) => e.key === 'Enter' && renamePub()} aria-label="Publisher name" />
+				<button class="btn-primary" onclick={renamePub} disabled={renaming || !renameVal.trim() || renameVal.trim() === editPub.name}>{renaming ? 'Renaming…' : 'Rename'}</button>
+			</div>
+			{#if renameErr}<p class="rename-err">{renameErr}</p>{/if}
+			<p class="sub-head">Prefixes</p>
 			<p class="modal-sub">SKU prefixes that count as this publisher under the SKU-publisher view.</p>
 			<div class="chips">
 				{#each editPub.prefixes as x (x.prefix)}
@@ -388,6 +415,8 @@
 	.modal { background: #fff; border-radius: 16px; padding: 24px; max-width: 460px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
 	.modal.wide { max-width: 640px; max-height: 85vh; overflow-y: auto; }
 	.modal-title { font-size: 18px; font-weight: 800; margin: 0 0 4px; }
+	.sub-head { font-size: 12px; font-weight: 800; color: #52525B; text-transform: uppercase; letter-spacing: 0.3px; margin: 16px 0 6px; }
+	.rename-err { font-size: 13px; color: #dc2626; margin: 6px 0 0; }
 	.pub-name, .pub { color: #7B3803; }
 	.modal-sub { font-size: 13px; color: #A1A1AA; margin: 0 0 16px; }
 	.in { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; font-size: 14px; font-family: inherit; outline: none; }

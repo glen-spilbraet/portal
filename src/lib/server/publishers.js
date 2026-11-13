@@ -41,6 +41,45 @@ export async function deletePublisher(db, name) {
 	await deleteBrandPage(db, 'publisher', name);
 }
 
+/**
+ * Rename a publisher everywhere its name is stored, in one transaction per DB.
+ * SALES_DB: registry, SKU prefixes, per-SKU mappings, series, webshop markets,
+ * shop-page content and the resolved name on sales lines. App DB (this
+ * environment): custom-report publisher rules. The hubspot-sales-sync worker
+ * resolves from the same tables, so later syncs keep the new name.
+ * @param {any} salesDb @param {any} appDb @param {string} from @param {string} to
+ */
+export async function renamePublisher(salesDb, appDb, from, to) {
+	const old = (from ?? '').trim();
+	const next = (to ?? '').trim();
+	if (!old || !next) throw new Error('Name required');
+	if (old === next) return;
+	const exists = await salesDb.prepare('SELECT name FROM publisher WHERE name = ?').bind(old).first();
+	if (!exists) throw new Error(`Unknown publisher "${old}"`);
+	// A case-only change ("Kosmos" → "KOSMOS") is fine; another publisher with that name is not.
+	const clash = await salesDb.prepare('SELECT name FROM publisher WHERE lower(name) = lower(?) AND name != ?').bind(next, old).first();
+	if (clash) throw new Error(`A publisher named "${clash.name}" already exists`);
+
+	await salesDb.batch([
+		salesDb.prepare('UPDATE publisher SET name = ? WHERE name = ?').bind(next, old),
+		salesDb.prepare('UPDATE publisher_prefix SET publisher = ? WHERE publisher = ?').bind(next, old),
+		salesDb.prepare('UPDATE product_publisher_override SET publisher = ? WHERE publisher = ?').bind(next, old),
+		salesDb.prepare('UPDATE series SET publisher = ? WHERE publisher = ?').bind(next, old),
+		salesDb.prepare('UPDATE publisher_market SET publisher = ? WHERE publisher = ?').bind(next, old),
+		salesDb.prepare("UPDATE brand_page SET ref = ? WHERE kind = 'publisher' AND ref = ?").bind(next, old),
+		salesDb.prepare("UPDATE brand_page_text SET ref = ? WHERE kind = 'publisher' AND ref = ?").bind(next, old),
+		// Per deal_kind so the (deal_kind, publisher) index is used.
+		salesDb.prepare("UPDATE deal_line_items SET publisher = ? WHERE deal_kind = 'closed' AND publisher = ?").bind(next, old),
+		salesDb.prepare("UPDATE deal_line_items SET publisher = ? WHERE deal_kind = 'forecast' AND publisher = ?").bind(next, old),
+		salesDb.prepare("UPDATE deal_line_items SET publisher = ? WHERE deal_kind NOT IN ('closed','forecast') AND publisher = ?").bind(next, old)
+	]);
+	// Report rules (their cached results are keyed by the rules, so they recompute).
+	if (appDb) {
+		await appDb.prepare("UPDATE report_rule SET value = ? WHERE kind IN ('publisher_sku','publisher_mapped') AND value = ?")
+			.bind(next, old).run();
+	}
+}
+
 // Canonical product name for a SKU, from the sheets catalog (sales_sheets +
 // translations) — the source of truth, independent of rep-edited line text.
 // Prefers the sheet's primary language, else any filled product_name. NULL if
