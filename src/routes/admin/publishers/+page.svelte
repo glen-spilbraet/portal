@@ -8,6 +8,8 @@
 	const dkkFmt = (n) => numFmt.format(Math.round(n ?? 0)) + ' kr';
 
 	let search = $state('');
+	/** Publishers whose full prefix list is shown. @type {Record<string, boolean>} */
+	let expanded = $state({});
 	let resolving = $state(false);
 	let resolvedMsg = $state('');
 
@@ -168,7 +170,7 @@
 	<div class="card">
 		<table>
 			<thead>
-				<tr><th>Publisher</th><th>Prefixes</th><th>Webshop markets</th><th class="num">Mapped SKUs</th><th></th></tr>
+				<tr><th>Publisher</th><th>Prefixes</th><th>Webshop markets</th><th class="num nowrap">Mapped SKUs</th><th></th></tr>
 			</thead>
 			<tbody>
 				{#each filtered as p (p.name)}
@@ -177,7 +179,14 @@
 						<td>
 							<div class="prefixes">
 								{#if p.prefixes.length}
-									{#each p.prefixes as x}<span class="pfx-chip">{x.prefix}</span>{/each}
+									{@const shown = expanded[p.name] ? p.prefixes : p.prefixes.slice(0, 1)}
+									{#each shown as x}<span class="pfx-chip">{x.prefix}</span>{/each}
+									{#if p.prefixes.length > 1}
+										<button type="button" class="pfx-more" onclick={() => (expanded = { ...expanded, [p.name]: !expanded[p.name] })}
+											title={expanded[p.name] ? 'Show fewer' : p.prefixes.slice(1).map((x) => x.prefix).join(', ')}>
+											{expanded[p.name] ? 'Less' : `+${p.prefixes.length - 1}`}
+										</button>
+									{/if}
 								{:else}
 									<span class="none">— no prefix</span>
 								{/if}
@@ -351,6 +360,9 @@
 	td.pub a { font-weight: 800; color: #7B3803; text-decoration: none; }
 	td.pub a:hover { text-decoration: underline; }
 	.prefixes { display: flex; flex-wrap: wrap; gap: 4px; }
+	.pfx-more { font-size: 11px; font-weight: 800; color: #7B3803; background: #FFF3E2; border: 1px solid #F5D9B8; border-radius: 6px; padding: 1px 7px; cursor: pointer; font-family: inherit; }
+	.pfx-more:hover { background: #FDE6C8; }
+	th.nowrap { white-space: nowrap; }
 	.pfx-chip { font-size: 11px; font-weight: 800; color: #18181B; background: #F4F4F5; border-radius: 6px; padding: 2px 7px; font-variant-numeric: tabular-nums; }
 	.mkt-chips { display: flex; flex-wrap: nowrap; gap: 4px; }
 	td.markets { white-space: nowrap; }
@@ -359,13 +371,14 @@
 	.mkt-chip.on { color: #fff; background: #F57832; border-color: #F57832; }
 	.none { color: #C4B998; font-size: 12px; font-style: italic; }
 	.actions { text-align: right; }
-	.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+	.row-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: nowrap; }
+	td.actions { white-space: nowrap; width: 1%; }
 	.empty { text-align: center; color: #A1A1AA; padding: 20px; }
 
 	.btn-primary { padding: 9px 16px; background: #F57832; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer; white-space: nowrap; }
 	.btn-primary:disabled { opacity: 0.55; cursor: default; }
 	.btn-ghost { padding: 9px 16px; background: #fff; border: 1px solid var(--border); border-radius: 9px; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; }
-	.btn-sm { padding: 5px 11px; background: #fff; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; text-decoration: none; color: #18181B; }
+	.btn-sm { padding: 5px 11px; background: #fff; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; text-decoration: none; color: #18181B; white-space: nowrap; }
 	.btn-sm:hover { background: #FAFAFA; }
 	.btn-del { padding: 5px 11px; border: 1px solid #fecaca; color: #dc2626; background: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
 	.btn-del:hover { background: #FEF2F2; }
