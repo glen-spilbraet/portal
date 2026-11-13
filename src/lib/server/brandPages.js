@@ -26,7 +26,7 @@ export function slugify(/** @type {string} */ s) {
  */
 export async function getBrandPage(db, kind, ref) {
 	const [pageRes, textRes] = await db.batch([
-		db.prepare('SELECT image_key, updated_by, updated_at FROM brand_page WHERE kind = ? AND ref = ?').bind(kind, ref),
+		db.prepare('SELECT image_key, show_in_shop, updated_by, updated_at FROM brand_page WHERE kind = ? AND ref = ?').bind(kind, ref),
 		db.prepare('SELECT language, subheader, body FROM brand_page_text WHERE kind = ? AND ref = ?').bind(kind, ref)
 	]);
 	const page = /** @type {any} */ (pageRes.results?.[0]) ?? {};
@@ -34,22 +34,22 @@ export async function getBrandPage(db, kind, ref) {
 	const texts = {};
 	for (const l of BRAND_LANGS) texts[l] = { subheader: '', body: '' };
 	for (const r of /** @type {any[]} */ (textRes.results ?? [])) texts[r.language] = { subheader: r.subheader ?? '', body: r.body ?? '' };
-	return { image_key: page.image_key ?? null, updated_by: page.updated_by ?? null, updated_at: page.updated_at ?? null, texts };
+	return { image_key: page.image_key ?? null, show_in_shop: !!page.show_in_shop, updated_by: page.updated_by ?? null, updated_at: page.updated_at ?? null, texts };
 }
 
 /** Which languages have any text, per ref — for the overview dots. @param {any} db @param {string} kind @param {string[]} refs */
 export async function brandPageStatus(db, kind, refs) {
-	/** @type {Record<string, {image: boolean, langs: string[]}>} */
+	/** @type {Record<string, {image: boolean, show: boolean, langs: string[]}>} */
 	const out = {};
 	if (!refs.length) return out;
 	const ph = refs.map(() => '?').join(',');
 	const [pages, texts] = await db.batch([
-		db.prepare(`SELECT ref, image_key FROM brand_page WHERE kind = ? AND ref IN (${ph})`).bind(kind, ...refs),
+		db.prepare(`SELECT ref, image_key, show_in_shop FROM brand_page WHERE kind = ? AND ref IN (${ph})`).bind(kind, ...refs),
 		db.prepare(`SELECT ref, language FROM brand_page_text WHERE kind = ? AND ref IN (${ph})
 			AND (trim(COALESCE(subheader,'')) != '' OR trim(COALESCE(body,'')) != '')`).bind(kind, ...refs)
 	]);
-	for (const r of /** @type {any[]} */ (pages.results ?? [])) (out[r.ref] ??= { image: false, langs: [] }).image = !!r.image_key;
-	for (const r of /** @type {any[]} */ (texts.results ?? [])) (out[r.ref] ??= { image: false, langs: [] }).langs.push(r.language);
+	for (const r of /** @type {any[]} */ (pages.results ?? [])) { const o = (out[r.ref] ??= { image: false, show: false, langs: [] }); o.image = !!r.image_key; o.show = !!r.show_in_shop; }
+	for (const r of /** @type {any[]} */ (texts.results ?? [])) (out[r.ref] ??= { image: false, show: false, langs: [] }).langs.push(r.language);
 	return out;
 }
 
@@ -71,6 +71,14 @@ export async function saveBrandTexts(db, kind, ref, texts, by) {
 			: db.prepare('DELETE FROM brand_page_text WHERE kind = ? AND ref = ? AND language = ?').bind(kind, ref, lang));
 	}
 	await db.batch(stmts);
+}
+
+/** Turn the shop landing page on/off. @param {any} db @param {string} kind @param {string} ref @param {boolean} show @param {string} by */
+export async function setBrandShow(db, kind, ref, show, by) {
+	await db.batch([
+		touch(db, kind, ref, by),
+		db.prepare('UPDATE brand_page SET show_in_shop = ? WHERE kind = ? AND ref = ?').bind(show ? 1 : 0, kind, ref)
+	]);
 }
 
 /** Set (or clear, with null) the image. Returns the previous key. @param {any} db @param {string} kind @param {string} ref @param {string|null} key @param {string} by */
@@ -99,8 +107,9 @@ function touch(db, kind, ref, by) {
 
 /**
  * Every publisher and series with its landing-page content, for the shop.
- * Lists ALL of them (content or not) so the shop can make a page for each;
- * `has_content` says whether anything was filled in.
+ * Lists ALL of them; the shop builds a landing page only where `show_in_shop`
+ * is true (and removes it when switched off). `has_content` says whether
+ * anything was filled in.
  * @param {any} db SALES_DB
  * @param {string} origin e.g. https://portal…  (image URLs)
  * @param {{ publisher?: string | null }} [opts]
@@ -116,7 +125,7 @@ export async function buildBrandFeed(db, origin, opts = {}) {
 				FROM series s WHERE s.publisher = ? ORDER BY s.name COLLATE NOCASE`).bind(only)
 			: db.prepare(`SELECT s.id, s.publisher, s.name, (SELECT COUNT(*) FROM product_series ps WHERE ps.series_id = s.id) AS product_count
 				FROM series s ORDER BY s.publisher COLLATE NOCASE, s.name COLLATE NOCASE`),
-		db.prepare('SELECT kind, ref, image_key, updated_at FROM brand_page'),
+		db.prepare('SELECT kind, ref, image_key, show_in_shop, updated_at FROM brand_page'),
 		db.prepare('SELECT kind, ref, language, subheader, body FROM brand_page_text'),
 		db.prepare('SELECT prefix, publisher FROM publisher_prefix ORDER BY prefix')
 	]);
@@ -144,6 +153,7 @@ export async function buildBrandFeed(db, origin, opts = {}) {
 		for (const l of BRAND_LANGS) byLang[l] = t[l] ?? { subheader: null, text: null };
 		const image = imgUrl(page?.image_key ?? null);
 		return {
+			show_in_shop: !!page?.show_in_shop, // only build a landing page when true
 			image, // 4:3 original (PNG if transparent, else JPEG)
 			image_cdn: page?.image_key ? `https://img.spilbraet.dk/${page.image_key}` : null, // WebP, append ?w=300|600|1000|1600
 			texts: byLang,

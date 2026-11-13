@@ -3,14 +3,14 @@ import { buildBrandFeed } from '$lib/server/brandPages.js';
 import { requireShopKey } from '$lib/server/shopFeedAuth.js';
 
 /**
- * GET /api/shop/brands — landing-page content for EVERY publisher and series,
- * so the shop can build a page for each (also those with no content yet:
- * `has_content: false`).
+ * GET /api/shop/brands — landing-page content for EVERY publisher and series.
+ * Build a landing page only where `show_in_shop` is true (toggled per
+ * publisher/series in the Portal); remove it when it turns false.
  *
  *   { generated_at, languages: ['da','sv','no','en','pl'],
- *     publishers: [{ name, slug, sku_prefixes, image, image_cdn, has_content, updated_at,
+ *     publishers: [{ name, slug, sku_prefixes, show_in_shop, image, image_cdn, has_content, updated_at,
  *                    texts: { da: { subheader, text }, … },
- *                    series: [{ id, name, slug, product_count, image, image_cdn, has_content, updated_at, texts }] }] }
+ *                    series: [{ id, name, slug, product_count, show_in_shop, image, image_cdn, has_content, updated_at, texts }] }] }
  *
  * image = the 4:3 original; image_cdn = WebP via img.spilbraet.dk (append ?w=300|600|1000|1600).
  * Which products belong where: the /api/shop/products feed (`publishers` + `series`).

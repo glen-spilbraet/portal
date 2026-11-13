@@ -39,6 +39,7 @@
 						<span class="s-name">{s.name}</span>
 						<span class="s-count">{s.mapped_count} product{s.mapped_count === 1 ? '' : 's'}</span>
 						<span class="status">
+							<span class="pill" class:shop={st?.show}>{st?.show ? 'In shop' : 'Hidden'}</span>
 							<span class="pill" class:ok={st?.image}>{st?.image ? 'Image' : 'No image'}</span>
 							{#each LANGS as l (l)}<span class="lang" class:ok={st?.langs.includes(l)}>{l.toUpperCase()}</span>{/each}
 						</span>
@@ -83,6 +84,7 @@
 	.status { display: inline-flex; gap: 4px; align-items: center; }
 	.pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 100px; background: #F4F4F5; color: #A1A1AA; }
 	.pill.ok { background: #E9F7EC; color: #16a34a; }
+	.pill.shop { background: #16a34a; color: #fff; }
 	.lang { font-size: 10px; font-weight: 700; padding: 2px 5px; border-radius: 5px; background: #F4F4F5; color: #C4C4CC; }
 	.lang.ok { background: #E9F7EC; color: #16a34a; }
 	.row-body { padding: 4px 18px 18px 36px; }

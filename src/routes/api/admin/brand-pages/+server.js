@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
 import { getAllowedUser } from '$lib/db.js';
-import { getBrandPage, saveBrandTexts, setBrandImage, BRAND_KINDS } from '$lib/server/brandPages.js';
+import { getBrandPage, saveBrandTexts, setBrandImage, setBrandShow, BRAND_KINDS } from '$lib/server/brandPages.js';
 import { warmImageWidths } from '$lib/server/imageCdn.js';
 import { notifyShops } from '$lib/server/shopNotify.js';
 
@@ -10,6 +10,7 @@ import { notifyShops } from '$lib/server/shopNotify.js';
  *   GET  ?kind=publisher|series&ref=…           → content
  *   POST JSON { kind, ref, texts }               → save texts (per language)
  *   POST JSON { kind, ref, op: 'clear_image' }   → remove the image
+ *   POST JSON { kind, ref, op: 'show', show }    → "Show in shop" on/off
  *   PUT  multipart { kind, ref, file }           → upload the (already 4:3-cropped) image
  * ref = publisher name, or series id.
  */
@@ -57,6 +58,7 @@ export async function POST({ request, cookies, platform }) {
 	const b = await request.json().catch(() => ({}));
 	const publisher = await resolve(db, b.kind, b.ref);
 	if (b.op === 'clear_image') await setBrandImage(db, b.kind, b.ref, null, email);
+	else if (b.op === 'show') await setBrandShow(db, b.kind, b.ref, !!b.show, email);
 	else await saveBrandTexts(db, b.kind, b.ref, b.texts ?? {}, email);
 	await notifyShops(platform, { type: 'brands', kind: b.kind, ref: b.ref, publisher });
 	return json(await getBrandPage(db, b.kind, b.ref));

@@ -17,6 +17,8 @@
 
 	let loaded = $state(false);
 	let imageKey = $state(/** @type {string | null} */ (null));
+	let show = $state(false);
+	let toggling = $state(false);
 	let updatedAt = $state(/** @type {string | null} */ (null));
 	let updatedBy = $state(/** @type {string | null} */ (null));
 	/** @type {Record<string, {subheader: string, body: string}>} */
@@ -37,6 +39,7 @@
 	/** @param {any} d */
 	function apply(d) {
 		imageKey = d.image_key ?? null;
+		show = !!d.show_in_shop;
 		updatedAt = d.updated_at ?? null;
 		updatedBy = d.updated_by ?? null;
 		const t = blank();
@@ -68,6 +71,22 @@
 			setTimeout(() => { if (msg === 'Saved') msg = ''; }, 2000);
 		} catch (e) { msg = 'Save failed: ' + (e instanceof Error ? e.message : String(e)); }
 		finally { saving = false; }
+	}
+
+	async function toggleShow() {
+		const next = !show;
+		show = next; toggling = true; msg = '';
+		try {
+			const res = await fetch('/api/admin/brand-pages', {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ kind, ref, op: 'show', show: next })
+			});
+			if (!res.ok) throw new Error(await res.text());
+			const d = await res.json();
+			show = !!d.show_in_shop; updatedAt = d.updated_at; updatedBy = d.updated_by;
+			onsaved();
+		} catch (e) { show = !next; msg = 'Could not change: ' + (e instanceof Error ? e.message : String(e)); }
+		finally { toggling = false; }
 	}
 
 	function pick() { fileEl?.click(); }
@@ -115,6 +134,13 @@
 	{#if !loaded}
 		<p class="muted">Loading…</p>
 	{:else}
+		<div class="show-row">
+			<button type="button" class="switch" class:on={show} role="switch" aria-checked={show} onclick={toggleShow} disabled={toggling}>
+				<span class="knob"></span>
+			</button>
+			<span class="show-label">Show in shop</span>
+			<span class="show-hint">{show ? 'The shop shows this landing page.' : 'Hidden — the shop has no landing page for it.'}</span>
+		</div>
 		<div class="grid">
 			<div class="img-col">
 				<div class="img-box" class:empty={!imageKey}>
@@ -162,6 +188,14 @@
 {/if}
 
 <style>
+	.show-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+	.switch { position: relative; width: 40px; height: 22px; border-radius: 100px; border: none; background: #D4D4D8; cursor: pointer; padding: 0; transition: background .15s; flex: none; }
+	.switch.on { background: #16a34a; }
+	.switch:disabled { opacity: .6; cursor: default; }
+	.knob { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: left .15s; }
+	.switch.on .knob { left: 21px; }
+	.show-label { font-size: 14px; font-weight: 800; color: #18181B; }
+	.show-hint { font-size: 12px; color: #A1A1AA; }
 	.muted { color: #A1A1AA; font-size: 13px; margin: 0; }
 	.grid { display: grid; grid-template-columns: 220px 1fr; gap: 20px; }
 	@media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
