@@ -9,6 +9,8 @@
  * series mapping change here, and on a publisher mapping change (publishers.js).
  */
 
+import { deleteBrandPage } from './brandPages.js';
+
 const chunk = (a, n) => { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };
 
 // Re-resolve the stored series_id for ONE sku, guarded by the publisher match.
@@ -68,6 +70,7 @@ export async function deleteSeries(db, id) {
 	await db.prepare('DELETE FROM product_series WHERE series_id = ?').bind(id).run();
 	for (const b of chunk(skus, 40)) await db.batch(b.map((r) => db.prepare(REAPPLY_SERIES_ONE).bind(r.sku)));
 	await db.prepare('DELETE FROM series WHERE id = ?').bind(id).run();
+	await deleteBrandPage(db, 'series', id);
 }
 
 /** Map a SKU into a series (one per SKU) and re-resolve its series_id. */

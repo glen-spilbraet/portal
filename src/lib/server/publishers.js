@@ -11,6 +11,7 @@
  */
 
 import { REAPPLY_SERIES_ONE } from './series.js';
+import { deleteBrandPage } from './brandPages.js';
 
 // Re-resolve the stored publisher for ONE sku after its mapping changes.
 const REAPPLY_ONE = `UPDATE deal_line_items SET publisher = COALESCE(
@@ -37,6 +38,7 @@ export async function createPublisher(db, name) {
 
 export async function deletePublisher(db, name) {
 	await db.prepare('DELETE FROM publisher WHERE name = ?').bind(name).run();
+	await deleteBrandPage(db, 'publisher', name);
 }
 
 // Canonical product name for a SKU, from the sheets catalog (sales_sheets +

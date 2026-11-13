@@ -73,6 +73,7 @@
 
 <main class="page">
 	<a class="back" href="/admin/publishers/{encodeURIComponent(data.name)}">← Map SKUs</a>
+	<a class="back shop" href="/admin/publishers/{encodeURIComponent(data.name)}/shop-page">Shop page texts &amp; images →</a>
 	<h1 class="page-title">Series under <span class="pub">{data.name}</span></h1>
 	<p class="page-sub">Create sub-series (e.g. EXIT, Catan) and map this publisher's products into them. Only products mapped to <strong>{data.name}</strong> can be added.</p>
 
@@ -143,6 +144,7 @@
 	.page { max-width: 760px; margin: 0 auto; padding: 32px 28px 80px; }
 	.back { font-size: 13px; font-weight: 600; color: #71717A; text-decoration: none; }
 	.back:hover { color: #18181B; }
+	.back.shop { margin-left: 16px; }
 	.page-title { font-size: 24px; font-weight: 800; color: #18181B; letter-spacing: -0.5px; margin: 10px 0 4px; }
 	.pub { color: #7B3803; }
 	.page-sub { font-size: 14px; color: #A89060; font-weight: 500; margin: 0 0 20px; }
