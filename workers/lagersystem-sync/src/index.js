@@ -15,12 +15,13 @@
  *                  fetched in full each run (small) -> the live inbound queue.
  *
  * Triggers:
- *   - nightly cron: run (+ forced stock snapshot) → SKU activity rollup →
+ *   - nightly cron: run (+ forced stock snapshot) → goods receipts → SKU activity rollup →
  *     warm the portals' Warehouse cache
  *   - HTTP GET/POST with `Authorization: Bearer <SYNC_SECRET>`:
  *       (default)      incremental run (orders only, like before)
  *       ?nightly=1     the full nightly sequence, same as the cron
  *       ?activity=1    only rebuild wms_sku_activity
+ *       ?receipts=1    only sync goods receipts (stock log) into wms_receipts
  *       ?warm=1        only warm the portals' Warehouse cache
  *       ?full=1        ignore stored cutoff, backfill BACKFILL_DAYS of FINISHED
  *       ?days=N        backfill N days of FINISHED this run
@@ -69,6 +70,7 @@ export default {
 
 		try {
 			if (url.searchParams.get('nightly') === '1') return json({ ok: true, ...(await nightly(env)) });
+			if (url.searchParams.get('receipts') === '1') return json({ ok: true, receipts: await syncReceipts(env) });
 			if (url.searchParams.get('activity') === '1') return json({ ok: true, activity: await refreshSkuActivity(env) });
 			if (url.searchParams.get('warm') === '1') return json({ ok: true, warm: await warmPortals(env) });
 		} catch (e) {
@@ -98,6 +100,8 @@ async function nightly(env) {
 	const out = {};
 	try { out.sync = await run(env, { stock: true }); }
 	catch (e) { out.sync = { error: e instanceof Error ? e.message : String(e) }; console.error('nightly: sync failed', e); }
+	try { out.receipts = await syncReceipts(env); }
+	catch (e) { out.receipts = { error: e instanceof Error ? e.message : String(e) }; console.error('nightly: receipts failed', e); }
 	try { out.activity = await refreshSkuActivity(env); }
 	catch (e) { out.activity = { error: e instanceof Error ? e.message : String(e) }; console.error('nightly: activity failed', e); }
 	try { out.warm = await warmPortals(env); }
@@ -109,7 +113,8 @@ async function nightly(env) {
 /**
  * Rebuild wms_sku_activity — one row per SKU in the stock snapshot with its
  * last sale and units shipped over 90/180/365 days. One aggregate pass over
- * the order lines, done entirely inside D1 (DELETE + INSERT…SELECT in one
+ * the order lines (+ last restock from wms_receipts and units shipped since),
+ * done entirely inside D1 (DELETE + INSERT…SELECT in one
  * batch, so readers never see a half-built table). Feeds the Warehouse
  * "Slow movers / Dead stock" tab, which then never touches order history.
  */
@@ -118,16 +123,25 @@ async function refreshSkuActivity(env) {
 	const run = async () => env.DB.batch([
 		env.DB.prepare('DELETE FROM wms_sku_activity'),
 		env.DB.prepare(
-			`INSERT INTO wms_sku_activity (item_number, title, category, vendor, stock, last_sale, units_90, units_180, units_365, computed_at)
+			`INSERT INTO wms_sku_activity (item_number, title, category, vendor, stock, last_sale, units_90, units_180, units_365,
+			                               last_restock, restock_qty, units_since_restock, computed_at)
 			 SELECT s.item_number, s.title, s.category, s.vendor, s.stock, a.last_sale,
-			        COALESCE(a.u90, 0), COALESCE(a.u180, 0), COALESCE(a.u365, 0), datetime('now')
+			        COALESCE(a.u90, 0), COALESCE(a.u180, 0), COALESCE(a.u365, 0),
+			        r.last_restock, rq.qty, COALESCE(a.usr, 0), datetime('now')
 			 FROM wms_stock s
+			 LEFT JOIN (SELECT item_number, MAX(date) AS last_restock FROM wms_receipts WHERE quantity > 0 GROUP BY item_number) r
+			   ON r.item_number = s.item_number
+			 LEFT JOIN (SELECT item_number, date, SUM(quantity) AS qty FROM wms_receipts WHERE quantity > 0 GROUP BY item_number, date) rq
+			   ON rq.item_number = s.item_number AND rq.date = r.last_restock
 			 LEFT JOIN (
 			   SELECT l.item_number, MAX(o.done_date) AS last_sale,
 			          SUM(CASE WHEN o.done_date >= date('now','-90 day')  THEN l.amount_delivered ELSE 0 END) AS u90,
 			          SUM(CASE WHEN o.done_date >= date('now','-180 day') THEN l.amount_delivered ELSE 0 END) AS u180,
-			          SUM(CASE WHEN o.done_date >= date('now','-365 day') THEN l.amount_delivered ELSE 0 END) AS u365
+			          SUM(CASE WHEN o.done_date >= date('now','-365 day') THEN l.amount_delivered ELSE 0 END) AS u365,
+			          SUM(CASE WHEN o.done_date >= lr.last_restock THEN l.amount_delivered ELSE 0 END) AS usr
 			   FROM wms_order_lines l JOIN wms_orders o ON o.order_id = l.order_id
+			   LEFT JOIN (SELECT item_number, MAX(date) AS last_restock FROM wms_receipts WHERE quantity > 0 GROUP BY item_number) lr
+			     ON lr.item_number = l.item_number
 			   WHERE o.done_date IS NOT NULL AND l.item_number IS NOT NULL
 			   GROUP BY l.item_number
 			 ) a ON a.item_number = s.item_number`
@@ -469,6 +483,69 @@ async function resolveVanished(env, activeStart) {
 		}
 	}
 	return out;
+}
+
+/**
+ * Mirror goods receipts (restocks) from the Lagersystem stock log into
+ * wms_receipts: GET /api/stock/log?action=Varemodtagelse (+ receipt movements).
+ * Incremental from the newest stored receipt date minus a few days' overlap
+ * (INSERT OR IGNORE on the movement id), cold start from RECEIPTS_FROM — the
+ * stock log has real data from Mar 2025. Feeds "units since last restock" in
+ * the SKU-activity rollup.
+ */
+const RECEIPTS_FROM = '2025-01-01';
+async function syncReceipts(env) {
+	const t = Date.now();
+	const newest = (await env.DB.prepare(`SELECT MAX(date) AS d FROM wms_receipts`).first().catch(() => null))?.d;
+	const from = newest ? shiftYmd(newest, -OVERLAP_DAYS) : RECEIPTS_FROM;
+	const to = daysAgoYmd(-1);
+	const seen = new Map();
+	let total = null;
+	// Page indexing isn't documented — start at 0 and stop on an empty page past
+	// the first, on reaching `total`, or when a page adds nothing new.
+	for (let page = 0; page < 400; page++) {
+		const q = new URLSearchParams({ action: 'Varemodtagelse', dateFrom: from, dateTo: to, page: String(page), pageSize: '500' });
+		const { status: http, body } = await lagerGet(env, `/api/stock/log?${q}`);
+		if (http && http >= 400) throw new Error(`stock log HTTP ${http}`);
+		const list = Array.isArray(body?.movements) ? body.movements : Array.isArray(body?.res?.movements) ? body.res.movements : [];
+		total = Number(body?.total ?? body?.res?.total ?? total ?? 0);
+		let added = 0;
+		for (const m of list) {
+			if (m?.id == null || !m.itemNumber) continue;
+			if (m.actionType && m.actionType !== 'Varemodtagelse') continue;
+			const date = ymdOf(m.timestamp);
+			if (!date || seen.has(m.id)) continue;
+			seen.set(m.id, [Number(m.id), String(m.itemNumber), toInt(m.quantity), date, m.timestamp == null ? null : String(m.timestamp)]);
+			added++;
+		}
+		if (total && seen.size >= total) break;
+		if (!list.length && page > 0) break;
+		if (list.length && !added) break;
+	}
+	const rows = [...seen.values()];
+	const stmts = [];
+	for (let i = 0; i < rows.length; i += 20) {
+		const part = rows.slice(i, i + 20);
+		stmts.push(env.DB.prepare(
+			`INSERT OR IGNORE INTO wms_receipts (id, item_number, quantity, date, ts) VALUES ${part.map(() => '(?,?,?,?,?)').join(',')}`
+		).bind(...part.flat()));
+	}
+	await batchSafe(env, stmts);
+	return { from, to, fetched: rows.length, total, ms: Date.now() - t };
+}
+
+/** Lagersystem timestamp (ISO / "Y-m-d H:i:s" / unix s or ms) → YYYY-MM-DD, or null. */
+function ymdOf(ts) {
+	if (ts == null || ts === '') return null;
+	if (typeof ts === 'number' || /^\d+$/.test(String(ts))) {
+		const n = Number(ts);
+		const d = new Date(n < 1e12 ? n * 1000 : n);
+		return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+	}
+	const m = String(ts).match(/^(\d{4}-\d{2}-\d{2})/);
+	if (m) return m[1];
+	const d = new Date(String(ts));
+	return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
 /** Snapshot every product's stock (+ category, supplier, colli, min level) into wms_stock. */

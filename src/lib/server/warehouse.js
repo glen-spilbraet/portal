@@ -277,21 +277,51 @@ async function loadScorecard(db, to, first) {
 
 // ── Slow movers / dead stock ─────────────────────────────────────────────────
 // Reads ONLY the nightly wms_sku_activity summary (worker-computed), never the
-// order history. Returns SKUs in stock that either had no sale in the last 90
-// days or sold less than their stock over the last 12 months (> 12 mo cover);
-// the tab filters further (90/180/365 / slow movers) client-side.
+// order history. Movement is measured from the LAST RESTOCK (goods receipt from
+// the Lagersystem stock log), so a product that was sold out for months and was
+// just restocked isn't flagged for the months it had nothing to sell:
+//   - SKUs restocked within the last RESTOCK_GRACE days are left out entirely;
+//   - "idle" = days since the later of last sale / last restock;
+//   - pace  = units shipped since last restock ÷ days since it → cover = stock ÷ pace.
+//     No logged restock (stock older than the log) → 12-month window as before.
+//   - the Marketing category is excluded (not sold like normal products).
+// Returns SKUs idle ≥ 90 days or with > 12 months' cover; the tab filters
+// further (90/180/365 / slow movers) client-side.
+const RESTOCK_GRACE = 30;
+const EXCLUDED_CATEGORY = /marketing/i;
 export async function loadDeadStock(db, appDb) {
-	const rows = (await db.prepare(
-		`SELECT item_number AS sku, title, category, vendor, stock, last_sale, units_90, units_180, units_365, computed_at
-		 FROM wms_sku_activity
-		 WHERE stock > 0 AND (last_sale IS NULL OR last_sale < date('now','-90 day') OR units_365 < stock)
-		 ORDER BY stock DESC`
-	).all()).results ?? [];
+	// SELECT * so this keeps working before migration 0117 adds the restock columns.
+	const all = (await db.prepare(`SELECT * FROM wms_sku_activity WHERE stock > 0 ORDER BY stock DESC`).all()).results ?? [];
+	const first = (await db.prepare(`SELECT MIN(done_date) AS d FROM wms_orders`).first().catch(() => null))?.d ?? null;
+	const today = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+	const daysSince = (d) => (d ? Math.round((today - Date.parse(String(d).slice(0, 10) + 'T00:00:00Z')) / 86400000) : null);
+	const trackedDays = Math.max(1, Math.min(365, daysSince(first) ?? 365));
+	let restocked = 0, marketing = 0;
+	const rows = [];
+	for (const r of all) {
+		if (EXCLUDED_CATEGORY.test(r.category ?? '')) { marketing++; continue; }
+		const sinceRestock = daysSince(r.last_restock);
+		if (sinceRestock != null && sinceRestock < RESTOCK_GRACE) { restocked++; continue; }
+		const stock = Number(r.stock) || 0;
+		const sold = sinceRestock != null ? Number(r.units_since_restock) || 0 : Number(r.units_365) || 0;
+		const window = sinceRestock != null ? Math.max(1, sinceRestock) : trackedDays;
+		const cover = sold > 0 ? stock / (sold / window) : Infinity;
+		const idleFrom = [r.last_sale, r.last_restock].filter(Boolean).sort().at(-1) ?? null;
+		const idle = idleFrom ? daysSince(idleFrom) : Infinity;
+		if (!(idle >= 90 || cover > 365)) continue;
+		rows.push({
+			sku: r.item_number, title: r.title, category: r.category, vendor: r.vendor, stock,
+			last_sale: r.last_sale, last_restock: r.last_restock ?? null, restock_qty: r.restock_qty ?? null,
+			idle, sold, window, cover: Number.isFinite(cover) ? cover : null,
+		});
+	}
 	const names = await catalogNames(appDb);
 	for (const r of rows) r.name = names.get(String(r.sku).toLowerCase()) ?? r.title;
 	const meta = await db.prepare(`SELECT last_run, orders_seen FROM wms_sync_meta WHERE id = 3`).first().catch(() => null);
-	const first = (await db.prepare(`SELECT MIN(done_date) AS d FROM wms_orders`).first().catch(() => null))?.d ?? null;
-	return { rows, computed: meta?.last_run ?? rows[0]?.computed_at ?? null, products: meta?.orders_seen ?? null, trackingStart: first };
+	return {
+		rows, computed: meta?.last_run ?? all[0]?.computed_at ?? null, products: meta?.orders_seen ?? null, trackingStart: first,
+		hasRestocks: all.some((r) => r.last_restock), excluded: { restocked, marketing }, grace: RESTOCK_GRACE,
+	};
 }
 
 // ── Product names from Sheets (app DB) ──────────────────────────────────────

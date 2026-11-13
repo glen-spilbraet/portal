@@ -300,28 +300,19 @@
 		if (dsSortKey === k) dsSortDir = dsSortDir === 'asc' ? 'desc' : 'asc';
 		else { dsSortKey = k; dsSortDir = ['sku', 'name', 'vendor'].includes(k) ? 'asc' : 'desc'; }
 	}
-	const todayMs = Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
-	const dsAll = $derived((ds?.rows ?? []).map((r) => {
-		const since = r.last_sale ? Math.round((todayMs - Date.parse(r.last_sale + 'T00:00:00Z')) / 86400000) : Infinity;
-		const stock = Number(r.stock) || 0;
-		const u365 = Number(r.units_365) || 0;
-		return {
-			sku: r.sku, name: r.name || r.title || r.sku, vendor: r.vendor || '', category: r.category || '', stock,
-			last: r.last_sale, since,
-			u90: Number(r.units_90) || 0, u180: Number(r.units_180) || 0, u365,
-			cover: u365 > 0 ? stock / (u365 / 365) : Infinity,
-		};
-	}));
-	// Units sold in the selected window (no-sales modes are 0 by definition, so
-	// slow movers show the 12-month figure).
-	const dsPeriodKey = $derived(dsMode === '90' ? 'u90' : dsMode === '180' ? 'u180' : 'u365');
-	const dsPeriodLabel = $derived(dsMode === '90' ? 'Sold 90d' : dsMode === '180' ? 'Sold 180d' : 'Sold 12 mo');
+	// Rows arrive pre-computed (idle days, units sold since last restock, cover)
+	// from loadDeadStock — see $lib/server/warehouse.js for the rules.
+	const dsAll = $derived((ds?.rows ?? []).map((r) => ({
+		sku: r.sku, name: r.name || r.title || r.sku, vendor: r.vendor || '', category: r.category || '',
+		stock: Number(r.stock) || 0, last: r.last_sale, restock: r.last_restock, restockQty: r.restock_qty, restockSort: r.last_restock || '',
+		idle: r.idle ?? Infinity, sold: Number(r.sold) || 0, cover: r.cover ?? Infinity,
+	})));
 	const dsRows = $derived.by(() => {
 		const q = dsSearch.trim().toLowerCase();
-		let out = dsAll.filter((r) => (dsMode === 'slow' ? r.u365 > 0 && r.cover > 365 : r.since >= Number(dsMode)));
+		let out = dsAll.filter((r) => (dsMode === 'slow' ? r.sold > 0 && r.cover > 365 : r.idle >= Number(dsMode)));
 		if (q) out = out.filter((r) => [r.sku, r.name, r.vendor, r.category].some((s) => String(s).toLowerCase().includes(q)));
 		const dir = dsSortDir === 'asc' ? 1 : -1;
-		const key = dsSortKey === 'last' ? 'since' : dsSortKey === 'period' ? dsPeriodKey : dsSortKey;
+		const key = dsSortKey === 'last' ? 'idle' : dsSortKey === 'restock' ? 'restockSort' : dsSortKey;
 		out.sort((a, b) => {
 			const av = a[key], bv = b[key];
 			if (typeof av === 'string') return av.toLowerCase() < bv.toLowerCase() ? -dir : av.toLowerCase() > bv.toLowerCase() ? dir : 0;
@@ -334,8 +325,8 @@
 	const coverLabel = (c) => (!Number.isFinite(c) ? '—' : c >= 60 ? `${Math.round(c / 30.4)} mo` : `${Math.round(c)} d`);
 	function dsExport() {
 		const esc = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-		const lines = [`SKU,Product Name,Supplier,Category,Stock,Last sale,Days since,${dsPeriodLabel},Cover (days)`];
-		for (const r of dsRows) lines.push([esc(r.sku), esc(r.name), esc(r.vendor), esc(r.category), r.stock, r.last ?? '', Number.isFinite(r.since) ? r.since : '', r[dsPeriodKey], Number.isFinite(r.cover) ? Math.round(r.cover) : ''].join(','));
+		const lines = ['SKU,Product Name,Supplier,Category,Stock,Last restock,Restock qty,Last sale,Days idle,Sold since restock,Cover (days)'];
+		for (const r of dsRows) lines.push([esc(r.sku), esc(r.name), esc(r.vendor), esc(r.category), r.stock, r.restock ?? '', r.restockQty ?? '', r.last ?? '', Number.isFinite(r.idle) ? r.idle : '', r.sold, Number.isFinite(r.cover) ? Math.round(r.cover) : ''].join(','));
 		const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
 		const a = document.createElement('a');
 		a.href = url; a.download = `slow-dead-stock-${dsMode}.csv`; a.click();
@@ -480,6 +471,14 @@
 				{#if ds?.computed}computed {relTime(ds.computed)} · {/if}{fmt(dsRows.length)} SKUs · {fmt(dsUnits)} units in stock
 			</span>
 		</div>
+		{#if ds && !ds.missing}
+			<p class="ds-note">
+				{#if ds.hasRestocks}Movement is counted from each product’s <b>last restock</b>: days idle since the later of last sale / last restock, and cover from the sales pace since the restock.
+				Products restocked in the last {ds.grace} days are left out{#if ds.excluded?.restocked} ({fmt(ds.excluded.restocked)}){/if}.
+				{:else}Restock dates aren’t synced yet — movement uses the last 12 months until the next nightly sync.{/if}
+				The Marketing category is excluded{#if ds.excluded?.marketing} ({fmt(ds.excluded.marketing)}){/if}.
+			</p>
+		{/if}
 		{#if dsLoading}
 			<div class="empty"><p class="muted">Loading…</p></div>
 		{:else if dsError}
@@ -520,12 +519,12 @@
 				<div class="table-scroll">
 					<table>
 						<colgroup>
-							<col style="width:120px" /><col /><col style="width:90px" />
-							<col style="width:120px" /><col style="width:96px" /><col style="width:104px" /><col style="width:84px" />
+							<col style="width:120px" /><col /><col style="width:84px" /><col style="width:112px" />
+							<col style="width:112px" /><col style="width:84px" /><col style="width:104px" /><col style="width:84px" />
 						</colgroup>
 						<thead>
 							<tr>
-								{#each [['sku', 'SKU', false], ['name', 'Product Name', false], ['stock', 'Stock', true], ['last', 'Last sale', true], ['since', 'Days since', true], ['period', dsPeriodLabel, true], ['cover', 'Cover', true]] as [k, lbl, isNum]}
+								{#each [['sku', 'SKU', false], ['name', 'Product Name', false], ['stock', 'Stock', true], ['restock', 'Last restock', true], ['last', 'Last sale', true], ['idle', 'Days idle', true], ['sold', 'Sold since restock', true], ['cover', 'Cover', true]] as [k, lbl, isNum]}
 									<th class="th-sort" class:num={isNum} class:sorted={dsSortKey === k} onclick={() => dsSetSort(k)}>{lbl}{#if dsSortKey === k}<span class="caret">{dsSortDir === 'asc' ? '▲' : '▼'}</span>{/if}</th>
 								{/each}
 							</tr>
@@ -537,16 +536,20 @@
 									<td class="name">{r.name}{#if r.category || r.vendor}<span class="ds-cat">{[r.category, r.vendor].filter(Boolean).join(' · ')}</span>{/if}</td>
 									<td class="num">{fmt(r.stock)}</td>
 									<td class="num">
+										{#if r.restock}{shortDate(r.restock)} {r.restock.slice(0, 4)}{#if r.restockQty}<span class="ds-ago">+{fmt(r.restockQty)}</span>{/if}
+										{:else}<span class="ds-ago">—</span>{/if}
+									</td>
+									<td class="num">
 										{#if r.last}{shortDate(r.last)} {r.last.slice(0, 4)}
 										{:else}<span class="ds-never">None since {shortDate(ds.trackingStart)} {ds.trackingStart?.slice(0, 4)}</span>{/if}
 									</td>
-									<td class="num">{Number.isFinite(r.since) ? fmt(r.since) : '—'}</td>
-									<td class="num">{fmt(r[dsPeriodKey])}</td>
+									<td class="num">{Number.isFinite(r.idle) ? fmt(r.idle) : '—'}</td>
+									<td class="num">{fmt(r.sold)}{#if !r.restock}<span class="ds-ago" title="No restock logged — last 12 months">12 mo</span>{/if}</td>
 									<td class="num">{coverLabel(r.cover)}</td>
 								</tr>
 							{/each}
 							{#if dsRows.length === 0}
-								<tr><td colspan="7" class="empty-row">Nothing matches this filter.</td></tr>
+								<tr><td colspan="8" class="empty-row">Nothing matches this filter.</td></tr>
 							{/if}
 						</tbody>
 					</table>
@@ -989,6 +992,8 @@
 
 	/* Slow & dead stock */
 	.ds-head { margin-top: 4px; }
+	.ds-note { font-size: 12.5px; color: #8A8276; margin: -6px 0 14px; line-height: 1.5; }
+	.ds-note b { color: #52525B; }
 	.ds-wrap { margin-top: 0; }
 	.ds-cat { display: block; font-size: 11.5px; font-weight: 500; color: #A89C84; margin-top: 1px; }
 	.ds-ven { color: #6b5e4e; font-size: 12.5px; }
