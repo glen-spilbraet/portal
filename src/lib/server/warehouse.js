@@ -284,11 +284,11 @@ async function loadScorecard(db, to, first) {
 //   - "idle" = days since the later of last sale / last restock;
 //   - pace  = units shipped since last restock ÷ days since it → cover = stock ÷ pace.
 //     No logged restock (stock older than the log) → 12-month window as before.
-//   - the Marketing category is excluded (not sold like normal products).
+//   - the Marketing group ("Markedsføring*" categories) is excluded (not sold like normal products).
 // Returns SKUs idle ≥ 90 days or with > 12 months' cover; the tab filters
 // further (90/180/365 / slow movers) client-side.
 const RESTOCK_GRACE = 30;
-const EXCLUDED_CATEGORY = /marketing/i;
+const EXCLUDED_CATEGORY = /marketing|markedsf/i; // Lagersystem: "Markedsføring" (+ "- MED LAGERTRÆK")
 export async function loadDeadStock(db, appDb) {
 	// SELECT * so this keeps working before migration 0117 adds the restock columns.
 	const all = (await db.prepare(`SELECT * FROM wms_sku_activity WHERE stock > 0 ORDER BY stock DESC`).all()).results ?? [];

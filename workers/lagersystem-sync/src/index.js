@@ -22,6 +22,7 @@
  *       ?nightly=1     the full nightly sequence, same as the cron
  *       ?activity=1    only rebuild wms_sku_activity
  *       ?receipts=1    only sync goods receipts (stock log) into wms_receipts
+ *                      (&from=YYYY-MM-DD to re-pull/backfill from that date)
  *       ?warm=1        only warm the portals' Warehouse cache
  *       ?full=1        ignore stored cutoff, backfill BACKFILL_DAYS of FINISHED
  *       ?days=N        backfill N days of FINISHED this run
@@ -70,7 +71,7 @@ export default {
 
 		try {
 			if (url.searchParams.get('nightly') === '1') return json({ ok: true, ...(await nightly(env)) });
-			if (url.searchParams.get('receipts') === '1') return json({ ok: true, receipts: await syncReceipts(env) });
+			if (url.searchParams.get('receipts') === '1') return json({ ok: true, receipts: await syncReceipts(env, url.searchParams.get('from')) });
 			if (url.searchParams.get('activity') === '1') return json({ ok: true, activity: await refreshSkuActivity(env) });
 			if (url.searchParams.get('warm') === '1') return json({ ok: true, warm: await warmPortals(env) });
 		} catch (e) {
@@ -494,16 +495,18 @@ async function resolveVanished(env, activeStart) {
  * the SKU-activity rollup.
  */
 const RECEIPTS_FROM = '2025-01-01';
-async function syncReceipts(env) {
+async function syncReceipts(env, fromOverride = null) {
 	const t = Date.now();
 	const newest = (await env.DB.prepare(`SELECT MAX(date) AS d FROM wms_receipts`).first().catch(() => null))?.d;
-	const from = newest ? shiftYmd(newest, -OVERLAP_DAYS) : RECEIPTS_FROM;
+	const from = /^\d{4}-\d{2}-\d{2}$/.test(fromOverride ?? '') ? fromOverride : newest ? shiftYmd(newest, -OVERLAP_DAYS) : RECEIPTS_FROM;
 	const to = daysAgoYmd(-1);
 	const seen = new Map();
-	let total = null;
-	// Page indexing isn't documented — start at 0 and stop on an empty page past
-	// the first, on reaching `total`, or when a page adds nothing new.
+	let total = null, stale = 0, pages = 0;
+	// Page indexing isn't documented (0 and 1 may return the same rows) — start at
+	// 0 and stop on an empty page past the first, on reaching `total`, or after
+	// two pages in a row that add nothing new.
 	for (let page = 0; page < 400; page++) {
+		pages++;
 		const q = new URLSearchParams({ action: 'Varemodtagelse', dateFrom: from, dateTo: to, page: String(page), pageSize: '500' });
 		const { status: http, body } = await lagerGet(env, `/api/stock/log?${q}`);
 		if (http && http >= 400) throw new Error(`stock log HTTP ${http}`);
@@ -520,7 +523,8 @@ async function syncReceipts(env) {
 		}
 		if (total && seen.size >= total) break;
 		if (!list.length && page > 0) break;
-		if (list.length && !added) break;
+		stale = added ? 0 : stale + 1;
+		if (stale >= 2) break;
 	}
 	const rows = [...seen.values()];
 	const stmts = [];
@@ -531,7 +535,7 @@ async function syncReceipts(env) {
 		).bind(...part.flat()));
 	}
 	await batchSafe(env, stmts);
-	return { from, to, fetched: rows.length, total, ms: Date.now() - t };
+	return { from, to, fetched: rows.length, total, pages, ms: Date.now() - t };
 }
 
 /** Lagersystem timestamp (ISO / "Y-m-d H:i:s" / unix s or ms) → YYYY-MM-DD, or null. */
