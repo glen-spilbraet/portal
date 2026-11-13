@@ -147,6 +147,12 @@
 	const handledTotal = $derived(sum(data.handled));
 	const inboundSite = $derived(bySite(data.inbound));
 	const handledSite = $derived(bySite(data.handled));
+	// Net status: caught up (handled ≥ inbound) · a bit behind (≤ 10 % of inbound
+	// left over) · a lot behind. Relative to inbound so it reads the same at any range.
+	const net = $derived(inboundTotal - handledTotal);
+	const netPct = $derived(inboundTotal ? (net / inboundTotal) * 100 : 0);
+	const netStatus = $derived(net <= 0 ? 'ok' : netPct <= 10 ? 'warn' : 'bad');
+	const NET_LABEL = { ok: 'Caught up', warn: 'Slightly behind', bad: 'Falling behind' };
 
 	// ── Breakdown table (handled only): Products / Customers / Countries ────────
 	const DIMS = [
@@ -207,7 +213,6 @@
 		{ key: 'median', label: 'Median handling time', kind: 'days', better: 'down' },
 		{ key: 'within1', label: 'Handled within 1 day', kind: 'pct', better: 'up' },
 		{ key: 'backlog', label: 'Open orders at week end', kind: 'n', better: 'down' },
-		{ key: 'fill', label: 'Fill rate (units shipped ÷ ordered)', kind: 'pct', better: 'up' },
 	];
 	const scWeeks = $derived(data.scorecard?.weeks ?? []);
 	const scCur = $derived(scWeeks.at(-1));
@@ -216,7 +221,7 @@
 	function scVal(v, kind) {
 		if (v == null) return '—';
 		if (kind === 'pct') return `${v.toFixed(1)}%`;
-		if (kind === 'days') return v === 0 ? 'same day' : `${v} ${v === 1 ? 'day' : 'days'}`;
+		if (kind === 'days') return `${v} ${v === 1 ? 'day' : 'days'}`;
 		return fmt(v);
 	}
 	function scDelta(cur, prev, row) {
@@ -582,10 +587,10 @@
 				<span class="k-val">{fmt(handledTotal)}</span>
 				<span class="k-sites">DK {fmt(handledSite[1])} · SE {fmt(handledSite[2])} · NO {fmt(handledSite[3])}</span>
 			</div>
-			<div class="kpi net">
-				<span class="k-label">Net (in − handled)</span>
-				<span class="k-val" class:pos={inboundTotal - handledTotal > 0}>{inboundTotal - handledTotal > 0 ? '+' : ''}{fmt(inboundTotal - handledTotal)}</span>
-				<span class="k-sites">{grain} · {days.length} days</span>
+			<div class="kpi net {netStatus}">
+				<span class="k-label">Net (in − handled) <span class="net-pill">{NET_LABEL[netStatus]}</span></span>
+				<span class="k-val">{net > 0 ? '+' : ''}{fmt(net)}</span>
+				<span class="k-sites">{#if net > 0}{netPct.toFixed(0)}% of inbound not yet handled{:else if inboundTotal}Handled {Math.round((handledTotal / inboundTotal) * 100)}% of inbound{:else}No inbound in range{/if} · {days.length} days</span>
 			</div>
 		</div>
 
@@ -860,9 +865,19 @@
 	.kpi.inbound { border-left: 4px solid #D4B977; }
 	.kpi.handled { border-left: 4px solid var(--accent); }
 	.kpi.net { border-left: 4px solid #D4CBB8; }
+	.kpi.net .k-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+	.net-pill { font-size: 11px; font-weight: 800; letter-spacing: .02em; text-transform: none; padding: 2px 9px; border-radius: 100px; color: #fff; }
+	.kpi.net.ok { background: #EAF6EE; border-color: #CBE7D4; border-left-color: #2F9E5B; }
+	.kpi.net.ok .k-val, .kpi.net.ok .k-sites { color: #1E6B3C; }
+	.kpi.net.ok .net-pill { background: #2F9E5B; }
+	.kpi.net.warn { background: #FDF5DD; border-color: #F1E0A8; border-left-color: #E0A82E; }
+	.kpi.net.warn .k-val, .kpi.net.warn .k-sites { color: #8A5E0B; }
+	.kpi.net.warn .net-pill { background: #E0A82E; }
+	.kpi.net.bad { background: #FCEBE8; border-color: #F2CBC4; border-left-color: #D2483A; }
+	.kpi.net.bad .k-val, .kpi.net.bad .k-sites { color: #A52A1E; }
+	.kpi.net.bad .net-pill { background: #D2483A; }
 	.k-label { font-size: 12px; font-weight: 700; color: #9A8A6A; text-transform: uppercase; letter-spacing: .04em; }
 	.k-val { font-size: 30px; font-weight: 800; color: #18181B; line-height: 1.1; }
-	.k-val.pos { color: #B4611A; }
 	.k-sites { font-size: 12px; color: #8A8276; }
 
 	.ht-banner { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; background: #FBF4E2; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 13px 18px; margin-bottom: 18px; }

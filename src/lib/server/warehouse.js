@@ -207,11 +207,6 @@ async function scoreSpan(db, start, end, weekEnds) {
 		 FROM wms_orders WHERE done_date BETWEEN ? AND ? AND received_date IS NOT NULL AND delivery_date IS NULL
 		 GROUP BY w, d`
 	).bind(start, end).all()).results ?? [];
-	const fill = (await db.prepare(
-		`SELECT ${WK('o.done_date')} AS w, COALESCE(SUM(l.amount_delivered),0) AS dl, COALESCE(SUM(l.amount),0) AS am
-		 FROM wms_order_lines l JOIN wms_orders o ON o.order_id = l.order_id
-		 WHERE o.done_date BETWEEN ? AND ? GROUP BY w`
-	).bind(start, end).all()).results ?? [];
 	// Open orders at each week end (received by then, not yet handled or gone).
 	// One read of only the orders that could be open in the span — everything
 	// handled/gone before the first week end is skipped — then counted in JS.
@@ -229,13 +224,13 @@ async function scoreSpan(db, start, end, weekEnds) {
 	}));
 
 	const by = (rows, k = 'w') => new Map(rows.map((r) => [r[k], r]));
-	const recvM = by(recv), handM = by(hand), fillM = by(fill), backM = by(backlog, 'e');
+	const recvM = by(recv), handM = by(hand), backM = by(backlog, 'e');
 	const histM = new Map();
 	for (const r of hist) {
 		if (r.d == null || r.d < 0) continue;
 		(histM.get(r.w) ?? histM.set(r.w, []).get(r.w)).push([Number(r.d), Number(r.c)]);
 	}
-	return { recvM, handM, fillM, backM, histM };
+	return { recvM, handM, backM, histM };
 }
 
 function weekStats(span, monday) {
@@ -249,7 +244,6 @@ function weekStats(span, monday) {
 		for (const [d, c] of hist) { cum += c; if (cum >= n / 2) { median = d; break; } }
 		within1 = (hist.filter(([d]) => d <= 1).reduce((s, [, c]) => s + c, 0) / n) * 100;
 	}
-	const f = span.fillM.get(monday);
 	const b = span.backM.get(sunday);
 	return {
 		monday, sunday, week: isoWeek(monday),
@@ -258,7 +252,6 @@ function weekStats(span, monday) {
 		units: h?.units ?? 0,
 		lines: h?.lines ?? 0,
 		median, within1,
-		fill: f && f.am > 0 ? (f.dl / f.am) * 100 : null,
 		backlog: b ? b.open : null,
 	};
 }
