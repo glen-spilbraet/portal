@@ -194,7 +194,7 @@
 			</thead>
 			<tbody>
 				{#each filtered as p (p.name)}
-					<tr>
+					<tr class="pub-row">
 						<td class="pub"><a href="/admin/publishers/{encodeURIComponent(p.name)}">{p.name}</a></td>
 						<td>
 							<div class="prefixes">
@@ -385,6 +385,8 @@
 	th.num, td.num { text-align: right; }
 	tbody td { padding: 10px 18px; border-bottom: 1px solid #F5EDD8; color: #3f3a33; vertical-align: middle; }
 	tbody tr:last-child td { border-bottom: none; }
+	tr.pub-row { transition: background 0.1s; }
+	tr.pub-row:hover { background: #F4F4F5; }
 	td.pub a { font-weight: 800; color: #7B3803; text-decoration: none; }
 	td.pub a:hover { text-decoration: underline; }
 	.prefixes { display: flex; flex-wrap: wrap; gap: 4px; }
