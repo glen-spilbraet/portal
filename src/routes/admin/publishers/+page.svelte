@@ -224,7 +224,8 @@
 							<div class="row-actions">
 								<button class="btn-sm" onclick={() => openEdit(p.name)}>Edit</button>
 								<a class="btn-sm" href="/admin/publishers/{encodeURIComponent(p.name)}">Map SKUs</a>
-								<a class="btn-sm" href="/admin/publishers/{encodeURIComponent(p.name)}/shop-page">Shop page</a>
+								<a class="btn-sm shop-btn" class:live={p.in_shop} href="/admin/publishers/{encodeURIComponent(p.name)}/shop-page"
+									title={p.in_shop ? 'Shown in the shop' : 'Not shown in the shop'}><span class="shop-dot"></span>Shop page</a>
 								<button class="btn-del icon" onclick={() => deletePublisher(p.name)} title="Remove publisher" aria-label="Remove {p.name}">
 									<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
 								</button>
@@ -407,6 +408,11 @@
 	.btn-ghost { padding: 9px 16px; background: #fff; border: 1px solid var(--border); border-radius: 9px; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; }
 	.btn-sm { padding: 5px 11px; background: #fff; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; text-decoration: none; color: #18181B; white-space: nowrap; }
 	.btn-sm:hover { background: #FAFAFA; }
+	.shop-btn { display: inline-flex; align-items: center; gap: 6px; color: #71717A; }
+	.shop-dot { width: 7px; height: 7px; border-radius: 50%; background: #D4D4D8; flex: none; }
+	.shop-btn.live { background: #E9F7EC; border-color: #86D19A; color: #166534; }
+	.shop-btn.live:hover { background: #DCF2E1; }
+	.shop-btn.live .shop-dot { background: #16a34a; }
 	.btn-del { padding: 5px 11px; border: 1px solid #fecaca; color: #dc2626; background: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
 	.btn-del:hover { background: #FEF2F2; }
 	.btn-del.icon { display: inline-flex; align-items: center; justify-content: center; padding: 6px; }

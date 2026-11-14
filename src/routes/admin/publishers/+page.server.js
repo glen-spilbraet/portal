@@ -8,7 +8,7 @@ export async function load({ parent, platform }) {
 	const db = platform?.env?.SALES_DB;
 	if (!db) error(500, 'Database unavailable');
 
-	const [registry, prefixRows, ovr, vol] = await Promise.all([
+	const [registry, prefixRows, ovr, vol, shown] = await Promise.all([
 		db.prepare('SELECT name FROM publisher').all(),
 		db.prepare('SELECT prefix, publisher FROM publisher_prefix').all(),
 		db.prepare('SELECT publisher, COUNT(*) AS c FROM product_publisher_override GROUP BY publisher').all(),
@@ -16,6 +16,7 @@ export async function load({ parent, platform }) {
 			`SELECT sku_prefix AS prefix, COUNT(*) AS lines, ROUND(SUM(amount_dkk)) AS dkk
 			 FROM deal_line_items WHERE sku_prefix IS NOT NULL AND sku_prefix != '' GROUP BY sku_prefix`
 		).all(),
+		db.prepare("SELECT ref FROM brand_page WHERE kind = 'publisher' AND show_in_shop = 1").all(),
 	]);
 	const marketsByPublisher = await listPublisherMarkets(db);
 
@@ -23,6 +24,9 @@ export async function load({ parent, platform }) {
 	const pfxRows = /** @type {any[]} */ (prefixRows.results ?? []);
 	const ovrRows = /** @type {any[]} */ (ovr.results ?? []);
 	const volRows = /** @type {any[]} */ (vol.results ?? []);
+
+	/** Publishers whose shop landing page is switched on. */
+	const inShop = new Set((/** @type {any[]} */ (shown.results ?? [])).map((r) => r.ref));
 
 	/** @type {Record<string, {lines:number,dkk:number}>} */
 	const volMap = {};
@@ -46,7 +50,7 @@ export async function load({ parent, platform }) {
 	const publishers = [...names]
 		.map((name) => {
 			const prefixes = (byPub[name] ?? []).sort((a, b) => b.dkk - a.dkk);
-			return { name, prefixes, mapped_count: ocMap[name] ?? 0, dkk: prefixes.reduce((s, p) => s + p.dkk, 0) };
+			return { name, prefixes, mapped_count: ocMap[name] ?? 0, in_shop: inShop.has(name), dkk: prefixes.reduce((s, p) => s + p.dkk, 0) };
 		})
 		.sort((a, b) => b.dkk - a.dkk || a.name.localeCompare(b.name));
 
