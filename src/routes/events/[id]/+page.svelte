@@ -154,6 +154,60 @@
 		await invalidateAll();
 	}
 
+	// ── Photo product tags ──────────────────────────────────────────────────────
+	/** sku → { name, box } for products linked to this event */
+	const productBySku = $derived(Object.fromEntries(data.products.map((p) => [p.sku, p])));
+	const skuLabel = (sku) => productBySku[sku]?.name ?? sku;
+
+	/** @type {any} */
+	let tagAsset = $state(null);
+	/** @type {string[]} */
+	let tagSkus = $state([]);
+	let tagQuery = $state('');
+	/** @type {{sku:string,name:string}[]} */
+	let tagOthers = $state([]);
+	let tagSaving = $state(false);
+	/** @type {any} */
+	let tagTimer;
+
+	function openTags(a) { tagAsset = a; tagSkus = [...(a.skus ?? [])]; tagQuery = ''; tagOthers = []; }
+	function closeTags() { tagAsset = null; }
+
+	// Default: the event's own products, filtered locally by the query.
+	const tagEventMatches = $derived.by(() => {
+		const q = tagQuery.trim().toLowerCase();
+		return data.products.filter((p) => !q || p.sku.toLowerCase().includes(q) || (p.name ?? '').toLowerCase().includes(q));
+	});
+
+	// Also search all sales sheets (2+ chars); products already on the event are listed above instead.
+	function searchTagOthers() {
+		clearTimeout(tagTimer);
+		const q = tagQuery.trim();
+		if (q.length < 2) { tagOthers = []; return; }
+		tagTimer = setTimeout(async () => {
+			const res = await fetch(`/api/events/products?q=${encodeURIComponent(q)}`);
+			const rows = res.ok ? await res.json() : [];
+			if (tagQuery.trim() === q) tagOthers = rows.filter((r) => !productBySku[r.sku]);
+		}, 250);
+	}
+
+	async function toggleTag(sku) {
+		const next = tagSkus.includes(sku) ? tagSkus.filter((s) => s !== sku) : [...tagSkus, sku];
+		const prev = tagSkus;
+		tagSkus = next;
+		tagSaving = true;
+		try {
+			const res = await fetch(`/api/events/assets/${tagAsset.id}/skus`, {
+				method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ skus: next })
+			});
+			if (!res.ok) throw new Error('Failed to save tags');
+			const out = await res.json();
+			await invalidateAll(); // refresh photo tags (and products if a new one got mapped)
+			if (out.mapped?.length) tagOthers = tagOthers.filter((r) => !out.mapped.includes(r.sku));
+		} catch (err) { tagSkus = prev; alert(err instanceof Error ? err.message : String(err)); }
+		finally { tagSaving = false; }
+	}
+
 	// ── Share link ──────────────────────────────────────────────────────────────
 	let copied = $state(false);
 	function copyLink() {
@@ -416,7 +470,60 @@
 	</div>
 {/if}
 
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape') closeAdd(); }} />
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { closeAdd(); closeTags(); } }} />
+
+{#if tagAsset}
+	<div class="modal-overlay" onclick={closeTags} role="presentation">
+		<div class="modal tag-modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Tag products">
+			<button class="modal-x" onclick={closeTags} aria-label="Close">✕</button>
+			<h3 class="modal-title">Products on this {tagAsset.kind === 'video' ? 'video' : 'photo'}</h3>
+			<div class="tag-preview">
+				{#if tagAsset.kind === 'image'}<img src="/api/img/{tagAsset.r2_key}" alt={tagAsset.filename} />
+				{:else}<video src="/api/img/{tagAsset.r2_key}" controls><track kind="captions" /></video>{/if}
+			</div>
+
+			<div class="ptags sel">
+				{#if tagSkus.length === 0}<span class="muted">No products tagged yet.</span>{/if}
+				{#each tagSkus as sku (sku)}
+					<span class="ptag on" title={sku}>{skuLabel(sku)} <button onclick={() => toggleTag(sku)} disabled={tagSaving} aria-label="Remove {sku}">✕</button></span>
+				{/each}
+			</div>
+
+			<input class="tag-search" placeholder="Filter event products, or search all sheets…" bind:value={tagQuery} oninput={searchTagOthers} />
+
+			<div class="tag-sec">At this event</div>
+			{#if data.products.length === 0}
+				<p class="empty">No products on this event yet — search all sheets above.</p>
+			{:else if tagEventMatches.length === 0}
+				<p class="empty">No event products match.</p>
+			{:else}
+				<div class="pick-list">
+					{#each tagEventMatches as p (p.sku)}
+						<label class="pick"><input type="checkbox" checked={tagSkus.includes(p.sku)} onchange={() => toggleTag(p.sku)} disabled={tagSaving} /> <span class="strong">{p.name}</span> <span class="muted">{p.sku}</span></label>
+					{/each}
+				</div>
+			{/if}
+
+			{#if tagQuery.trim().length >= 2}
+				<div class="tag-sec">All sheets <span class="muted">· picking one also adds it to the event</span></div>
+				{#if tagOthers.length === 0}
+					<p class="empty">No other products match.</p>
+				{:else}
+					<div class="pick-list">
+						{#each tagOthers as r (r.sku)}
+							<label class="pick"><input type="checkbox" checked={tagSkus.includes(r.sku)} onchange={() => toggleTag(r.sku)} disabled={tagSaving} /> <span class="strong">{r.name}</span> <span class="muted">{r.sku}</span></label>
+						{/each}
+					</div>
+				{/if}
+			{/if}
+
+			<div class="modal-foot">
+				<span class="muted save-state">{tagSaving ? 'Saving…' : 'Saved automatically'}</span>
+				<button class="btn" onclick={closeTags}>Done</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 {#snippet assetList(assets, showSource)}
 	{#if assets.length === 0}
@@ -436,6 +543,12 @@
 						<span class="asset-name" title={a.filename}>{a.filename ?? a.kind}</span>
 						{#if showSource && a.source === 'venue'}<span class="tag venue">venue</span>{/if}
 					</div>
+					{#if showSource && (a.kind === 'image' || a.kind === 'video')}
+						<div class="ptags">
+							{#each a.skus ?? [] as sku (sku)}<span class="ptag" title={sku}>{skuLabel(sku)}</span>{/each}
+							<button class="ptag-btn" onclick={() => openTags(a)}>{a.skus?.length ? 'Edit' : '+ Tag products'}</button>
+						</div>
+					{/if}
 					<button class="link-del asset-del" onclick={() => deleteAsset(a.id)}>✕</button>
 				</div>
 			{/each}
@@ -527,6 +640,19 @@
 	.asset-name { font-size: 11px; color: #71717A; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 	.tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 100px; }
 	.tag.venue { background: #EEF2FF; color: #4338ca; }
+	.ptags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+	.ptag { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 100px; background: #FFF4ED; color: #c2551b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.ptag.on { font-size: 12px; padding: 3px 4px 3px 9px; }
+	.ptag.on button { border: none; background: none; color: inherit; cursor: pointer; font-size: 11px; padding: 0 3px; }
+	.ptag-btn { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 100px; border: 1px dashed var(--border); background: white; color: #71717A; cursor: pointer; font-family: inherit; }
+	.ptag-btn:hover { color: #18181B; border-color: #A1A1AA; }
+	.tag-modal { max-width: 600px; }
+	.tag-preview { background: #FAFAFA; border-radius: 10px; overflow: hidden; margin-bottom: 12px; }
+	.tag-preview img, .tag-preview video { display: block; width: 100%; max-height: 300px; object-fit: contain; }
+	.ptags.sel { margin: 0 0 12px; min-height: 22px; align-items: center; }
+	.tag-search { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; }
+	.tag-sec { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #71717A; margin: 14px 0 6px; }
+	.save-state { margin-right: auto; align-self: center; }
 	.asset-del { top: 4px; right: 4px; }
 
 	.contact-picks { display: flex; flex-direction: column; gap: 6px; }

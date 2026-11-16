@@ -129,15 +129,22 @@ export async function getEvent(db, id) {
 		 WHERE e.id = ?`
 	).bind(id).first();
 	if (!event) return null;
-	const [skus, assets, contacts] = await Promise.all([
+	const [skus, assets, contacts, tags] = await Promise.all([
 		db.prepare('SELECT sku FROM event_sku WHERE event_id = ? ORDER BY sort, sku').bind(id).all(),
 		db.prepare('SELECT * FROM event_asset WHERE event_id = ? ORDER BY created_at').bind(id).all(),
 		db.prepare('SELECT contact_id FROM event_contact WHERE event_id = ?').bind(id).all(),
+		db.prepare(
+			`SELECT t.asset_id, t.sku FROM event_asset_sku t JOIN event_asset a ON a.id = t.asset_id
+			 WHERE a.event_id = ? ORDER BY t.created_at, t.sku`
+		).bind(id).all(),
 	]);
+	/** @type {Record<string, string[]>} */
+	const tagsByAsset = {};
+	for (const t of tags.results ?? []) (tagsByAsset[t.asset_id] ??= []).push(t.sku);
 	return {
 		...event,
 		skus: (skus.results ?? []).map((r) => r.sku),
-		assets: assets.results ?? [],
+		assets: (assets.results ?? []).map((a) => ({ ...a, skus: tagsByAsset[a.id] ?? [] })),
 		contact_ids: (contacts.results ?? []).map((r) => r.contact_id),
 	};
 }
@@ -189,6 +196,7 @@ export async function updateEvent(db, id, patch) {
 export async function deleteEvent(db, id) {
 	await db.batch([
 		db.prepare('DELETE FROM event_sku WHERE event_id = ?').bind(id),
+		db.prepare('DELETE FROM event_asset_sku WHERE asset_id IN (SELECT id FROM event_asset WHERE event_id = ?)').bind(id),
 		db.prepare('DELETE FROM event_asset WHERE event_id = ?').bind(id),
 		db.prepare('DELETE FROM event WHERE id = ?').bind(id),
 	]);
@@ -305,5 +313,32 @@ export async function getAsset(db, id) {
 }
 
 export async function deleteAsset(db, id) {
-	await db.prepare('DELETE FROM event_asset WHERE id = ?').bind(id).run();
+	await db.batch([
+		db.prepare('DELETE FROM event_asset_sku WHERE asset_id = ?').bind(id),
+		db.prepare('DELETE FROM event_asset WHERE id = ?').bind(id),
+	]);
+}
+
+// ── Asset ↔ SKU tags (which products are on a photo) ─────────────────────────
+
+/**
+ * Replace the product tags on one asset. Any tagged SKU not yet linked to the
+ * asset's event is appended to event_sku, so tagging also maps the product.
+ * @returns {Promise<{ skus: string[], mapped: string[] }>} final tags + SKUs newly added to the event
+ */
+export async function setAssetSkus(db, assetId, skus) {
+	const asset = await db.prepare('SELECT id, event_id FROM event_asset WHERE id = ?').bind(assetId).first();
+	if (!asset) return null;
+	const clean = [...new Set((skus ?? []).map((s) => String(s).trim()).filter(Boolean))];
+
+	const existing = await db.prepare('SELECT sku, sort FROM event_sku WHERE event_id = ?').bind(asset.event_id).all();
+	const onEvent = new Set((existing.results ?? []).map((r) => r.sku));
+	let nextSort = Math.max(-1, ...(existing.results ?? []).map((r) => r.sort ?? 0)) + 1;
+	const mapped = clean.filter((s) => !onEvent.has(s));
+
+	const stmts = [db.prepare('DELETE FROM event_asset_sku WHERE asset_id = ?').bind(assetId)];
+	for (const sku of clean) stmts.push(db.prepare('INSERT INTO event_asset_sku (asset_id, sku) VALUES (?,?)').bind(assetId, sku));
+	for (const sku of mapped) stmts.push(db.prepare('INSERT OR IGNORE INTO event_sku (event_id, sku, sort) VALUES (?,?,?)').bind(asset.event_id, sku, nextSort++));
+	await db.batch(stmts);
+	return { skus: clean, mapped };
 }
