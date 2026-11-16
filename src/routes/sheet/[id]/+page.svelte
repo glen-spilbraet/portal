@@ -531,7 +531,7 @@
 						{#if f.key !== STOCK_KEY && !GAME_KEYS.includes(f.key)}
 							<div class="info-row"><span class="k">{fieldLabel(f)}</span>
 								{#if RO_KEYS.includes(f.key)}
-									<span class="v ro" title="Correct in Rackbeat, then Refresh">{f.value || '—'}</span>
+									<span class="v ro" title="From Rackbeat — correct it there; syncs to the sheet automatically (hourly)">{f.value || '—'}</span>
 								{:else}
 									<input class="v" bind:value={dataFields[i].value} onblur={saveDataFields} />
 								{/if}

@@ -17,7 +17,8 @@
  *       ?since=2025       full refresh from that year onward
  *       ?incremental=1    sweep deals modified since last run (?modifiedSince=ISO to override)
  *       ?reconcile=1      full re-sync of all years
- *       ?stock=1          Rackbeat stock → sales_sheets.rb_* now (also hourly cron)
+ *       ?stock=1          Rackbeat stock + data fields → sales_sheets now (also hourly cron);
+ *                         &dry=1 previews without writing, &chunk=N game-field slice size
  */
 
 const HS = 'https://api.hubapi.com';
@@ -118,7 +119,9 @@ export default {
 				return json(out);
 			}
 			if (url.searchParams.get('stock') === '1') {
-				return json({ ok: true, ...(await syncRackbeatStock(env)) });
+				const dry = url.searchParams.get('dry') === '1';
+				const chunk = url.searchParams.has('chunk') ? Number(url.searchParams.get('chunk')) : undefined;
+				return json({ ok: true, ...(await syncRackbeatStock(env, { dry, chunk })) });
 			}
 			if (url.searchParams.get('forecast') === '1') {
 				return json({ ok: true, ...(await syncForecastDeals(env)) });
@@ -1771,91 +1774,233 @@ async function processDealPricing(env, dealId, { apply = false, userEmail = null
 	}
 }
 
-// ── Rackbeat stock → Sales Sheets ───────────────────────────────────────────
-// Rackbeat is master for stock. The product list (fields=…, 1000/page) covers
-// the whole catalogue in ~12 calls, so this runs hourly. Values land in
-// sales_sheets.rb_* of BOTH app databases (DB = prod portal-db, DEV_DB =
-// portal-db-dev), matched on SKU. Only rows whose numbers changed are written,
-// and updated_at is never touched (the webshop feed reads it as "content
-// changed"). SKUs missing in Rackbeat get NULLs.
+// ── Rackbeat → Sales Sheets (stock + Rackbeat-owned data fields) ────────────
+// Rackbeat is master. Runs hourly (and via ?stock=1, add &dry=1 to preview):
+//  1. Product list (fields=…, 1000/page ≈ 12 calls for the whole catalogue):
+//     stock → sales_sheets.rb_* (only changed rows, updated_at untouched — the
+//     webshop feed reads it as "content changed"); EAN / weight / height /
+//     width / depth → data_fields (read-only on the sheet).
+//  2. Game fields (age / time / players / pieces) live in Rackbeat custom fields,
+//     one call per product, so each run refreshes the next FIELD_CHUNK sheets
+//     (cursor in rb_sync_meta id=2 on the prod DB) → every sheet ≈ once a day.
+// data_fields changes DO bump updated_at (real content change for the shop).
+// Same rules as the sheet's manual Refresh: an empty Rackbeat value never
+// blanks a sheet value. Game values use the sheet editor's canonical format and
+// are compared by their digits, so "2+" vs "2" or "30-60'" spacing never churns.
+// Both app DBs: DB = prod portal-db, DEV_DB = portal-db-dev.
 
-const RB_STOCK_FIELDS = 'number,available_quantity,stock_quantity,in_order_quantity,purchased_quantity';
+const RB_LIST_FIELDS = 'number,available_quantity,stock_quantity,in_order_quantity,purchased_quantity,barcode,physical';
+const FIELD_CHUNK = 200;
+const STD_KEYS = ['ean', 'weight', 'height', 'width', 'depth'];
+const GAME_KEYS = ['age', 'time', 'players', 'pieces'];
 
 function numOrNull(v) {
 	if (v == null || v === '') return null;
 	const n = Number(v);
 	return Number.isFinite(n) ? n : null;
 }
+const skuKey = (s) => String(s ?? '').trim().toUpperCase();
+const digitsOf = (v) => String(v ?? '').match(/\d+/g) || [];
+/** Digits of a game value, with an equal-ends range collapsed ("1-1" ≡ "1"). */
+const gameCanon = (v) => { const d = digitsOf(v); return (d.length === 2 && d[0] === d[1] ? [d[0]] : d).join('-'); };
+function rangeStr(a, b) {
+	const x = (a ?? '').toString().trim(), y = (b ?? '').toString().trim();
+	if (!x) return y;
+	if (!y || x === y) return x;
+	return `${x}-${y}`;
+}
 
-async function syncRackbeatStock(env) {
-	const started = new Date().toISOString();
-	const dbs = [['prod', env.DB], ['dev', env.DEV_DB]].filter(([, db]) => db);
-	try {
-		if (!env.RACKBEAT_API_KEY) throw new Error('No RACKBEAT_API_KEY on worker');
-		const stock = new Map();
-		let pages = 1;
-		for (let page = 1; page <= pages && page <= 60; page++) {
-			const body = await rbGet(env, `/products?limit=1000&page=${page}&fields=${RB_STOCK_FIELDS}`);
-			if (!body || !Array.isArray(body.products)) throw new Error(`Rackbeat product list page ${page} failed`);
-			pages = Number(body.pages) || 1;
-			for (const p of body.products) {
-				const sku = String(p.number ?? '').trim().toUpperCase();
-				if (!sku) continue;
-				stock.set(sku, {
+/** Standard (list) fields → sheet data_fields values, same format as the manual Refresh. */
+function stdValues(p) {
+	const ph = p.physical ?? {};
+	const su = ph.size_unit || 'cm';
+	const wu = ph.weight_unit || 'g';
+	const dim = (v, u) => (Number(v) ? `${v} ${u}` : '');
+	return {
+		ean: String(p.barcode ?? '').trim(),
+		weight: dim(ph.weight, wu),
+		height: dim(ph.height, su),
+		width: dim(ph.width, su),
+		depth: dim(ph.depth, su),
+	};
+}
+
+/** Rackbeat custom field_values → game values in the sheet editor's format. */
+function gameValues(fieldValues) {
+	const by = {};
+	let pieces = '';
+	for (const fv of fieldValues ?? []) {
+		const f = fv.field ?? {};
+		let v = fv.value;
+		if (f.type === 'dropdown' && Array.isArray(f.options) && f.options.length) {
+			const m = f.options.find((o) => String(o.value) === String(v) || String(o.id) === String(v));
+			if (m?.label) v = m.label;
+		}
+		v = v == null ? '' : String(v);
+		if (f.slug) by[f.slug] = v;
+		if (/pieces/i.test(f.name ?? '')) pieces = v;
+	}
+	const dur = digitsOf(by['duration']);
+	const time = dur.length ? `${rangeStr(dur[0], dur[1])}'` : '';
+	return {
+		age: digitsOf(by['age-minimum'])[0] ?? '',
+		time,
+		players: rangeStr(digitsOf(by['player-count-minimum'])[0], digitsOf(by['player-count-maximum'])[0]),
+		pieces: digitsOf(pieces)[0] ?? '',
+	};
+}
+
+/** Merge Rackbeat values into a data_fields array → { next, changes } (changes empty = no write). */
+function mergeFields(dataFieldsJson, values) {
+	let arr;
+	try { arr = JSON.parse(dataFieldsJson || '[]'); } catch { return { next: null, changes: [] }; }
+	if (!Array.isArray(arr)) return { next: null, changes: [] };
+	const changes = [];
+	const next = arr.map((f) => ({ ...f }));
+	for (const [key, val] of Object.entries(values)) {
+		if (!val) continue; // Rackbeat empty → keep the sheet value
+		const i = next.findIndex((f) => f?.key === key);
+		const cur = i >= 0 ? String(next[i].value ?? '') : '';
+		const same = GAME_KEYS.includes(key)
+			? gameCanon(cur) === gameCanon(val)
+			: cur.trim() === val;
+		if (same) continue;
+		changes.push({ key, from: cur, to: val });
+		if (i >= 0) next[i] = { ...next[i], value: val };
+		else next.push({ key, label: key, value: val });
+	}
+	return { next, changes };
+}
+
+async function rbListAll(env) {
+	const list = new Map();
+	let pages = 1;
+	for (let page = 1; page <= pages && page <= 60; page++) {
+		const body = await rbGet(env, `/products?limit=1000&page=${page}&fields=${RB_LIST_FIELDS}`);
+		if (!body || !Array.isArray(body.products)) throw new Error(`Rackbeat product list page ${page} failed`);
+		pages = Number(body.pages) || 1;
+		for (const p of body.products) {
+			const sku = skuKey(p.number);
+			if (!sku) continue;
+			list.set(sku, {
+				stock: {
 					available: numOrNull(p.available_quantity),
 					stock: numOrNull(p.stock_quantity),
 					in_order: numOrNull(p.in_order_quantity),
 					purchased: numOrNull(p.purchased_quantity),
-				});
-			}
+				},
+				std: stdValues(p),
+			});
 		}
-		// Guard against a partial/empty answer wiping every sheet to NULL.
-		if (stock.size < 1000) throw new Error(`only ${stock.size} Rackbeat products returned — not applied`);
+	}
+	// Guard against a partial/empty answer wiping every sheet to NULL.
+	if (list.size < 1000) throw new Error(`only ${list.size} Rackbeat products returned — not applied`);
+	return list;
+}
 
-		const out = { products: stock.size };
+/** Custom fields for a set of SKUs (5 at a time) → Map sku → game values. Failed calls are skipped. */
+async function rbGameFor(env, skus) {
+	const out = new Map();
+	for (let i = 0; i < skus.length; i += 5) {
+		await Promise.all(skus.slice(i, i + 5).map(async (sku) => {
+			const body = await rbGet(env, `/products/${encodeURIComponent(sku)}/fields`);
+			if (body && Array.isArray(body.field_values)) out.set(sku, gameValues(body.field_values));
+		}));
+	}
+	return out;
+}
+
+async function syncRackbeatStock(env, { dry = false, chunk = FIELD_CHUNK } = {}) {
+	const started = new Date().toISOString();
+	const dbs = [['prod', env.DB], ['dev', env.DEV_DB]].filter(([, db]) => db);
+	try {
+		if (!env.RACKBEAT_API_KEY) throw new Error('No RACKBEAT_API_KEY on worker');
+		const list = await rbListAll(env);
+
+		// Sheets of both DBs, read once.
+		const sheets = {};
+		for (const [name, db] of dbs) {
+			sheets[name] = (await db.prepare(
+				`SELECT id, sku, data_fields, rb_available, rb_stock, rb_in_order, rb_purchased FROM sales_sheets WHERE trim(sku) != ''`
+			).all()).results ?? [];
+		}
+
+		// Next slice of SKUs (in Rackbeat, union of both DBs, sorted) for the game fields.
+		const allSkus = [...new Set(Object.values(sheets).flat().map((r) => skuKey(r.sku)))].filter((s) => list.has(s)).sort();
+		const cursorRow = await env.DB.prepare(`SELECT message FROM rb_sync_meta WHERE id = 2`).first().catch(() => null);
+		const cursor = cursorRow?.message || '';
+		let start = allSkus.findIndex((s) => s > cursor);
+		if (start < 0) start = 0; // wrapped
+		const n = Math.min(Math.max(Number(chunk) || 0, 0), allSkus.length);
+		const slice = [];
+		for (let k = 0; k < n; k++) slice.push(allSkus[(start + k) % allSkus.length]);
+		const game = await rbGameFor(env, slice);
+
+		const out = { products: list.size, game_checked: slice.length, game_ok: game.size };
 		for (const [name, db] of dbs) {
 			try {
-				out[name] = await applyRackbeatStock(db, stock, started);
+				out[name] = await applyRackbeat(db, sheets[name], list, game, started, dry);
 			} catch (e) {
 				out[name] = { error: e?.message ?? String(e) };
-				await setRbMeta(db, { last_run: started, status: 'error', message: out[name].error }).catch(() => {});
+				if (!dry) await setRbMeta(db, 1, { last_run: started, status: 'error', message: out[name].error }).catch(() => {});
 			}
 		}
+		if (!dry && slice.length) {
+			await setRbMeta(env.DB, 2, { last_run: started, status: 'ok', message: slice[slice.length - 1], products: slice.length, matched: game.size }).catch(() => {});
+		}
+		if (dry) out.dry = true;
 		return out;
 	} catch (e) {
 		const message = e?.message ?? String(e);
-		for (const [, db] of dbs) await setRbMeta(db, { last_run: started, status: 'error', message }).catch(() => {});
+		if (!dry) for (const [, db] of dbs) await setRbMeta(db, 1, { last_run: started, status: 'error', message }).catch(() => {});
 		return { error: message };
 	}
 }
 
-async function applyRackbeatStock(db, stock, now) {
-	const rows = (await db.prepare(
-		`SELECT id, sku, rb_available, rb_stock, rb_in_order, rb_purchased FROM sales_sheets WHERE trim(sku) != ''`
-	).all()).results ?? [];
+async function applyRackbeat(db, rows, list, game, now, dry) {
 	const same = (a, b) => (a == null ? null : Number(a)) === (b == null ? null : Number(b));
 	const stmts = [];
-	let matched = 0;
+	let matched = 0, stockChanged = 0, fieldsChanged = 0;
+	const byKey = {};
+	const samples = [];
 	for (const r of rows) {
-		const v = stock.get(String(r.sku).trim().toUpperCase()) ?? null;
-		if (v) matched++;
-		const next = v ?? { available: null, stock: null, in_order: null, purchased: null };
-		if (same(r.rb_available, next.available) && same(r.rb_stock, next.stock)
-			&& same(r.rb_in_order, next.in_order) && same(r.rb_purchased, next.purchased)) continue;
-		stmts.push(db.prepare(
-			`UPDATE sales_sheets SET rb_available = ?, rb_stock = ?, rb_in_order = ?, rb_purchased = ?, rb_changed_at = ? WHERE id = ?`
-		).bind(next.available, next.stock, next.in_order, next.purchased, now, r.id));
+		const sku = skuKey(r.sku);
+		const rb = list.get(sku) ?? null;
+		if (rb) matched++;
+
+		// Stock (updated_at untouched).
+		const s = rb?.stock ?? { available: null, stock: null, in_order: null, purchased: null };
+		if (!(same(r.rb_available, s.available) && same(r.rb_stock, s.stock) && same(r.rb_in_order, s.in_order) && same(r.rb_purchased, s.purchased))) {
+			stockChanged++;
+			stmts.push(db.prepare(
+				`UPDATE sales_sheets SET rb_available = ?, rb_stock = ?, rb_in_order = ?, rb_purchased = ?, rb_changed_at = ? WHERE id = ?`
+			).bind(s.available, s.stock, s.in_order, s.purchased, now, r.id));
+		}
+
+		// Rackbeat-owned data fields (bumps updated_at).
+		if (!rb) continue;
+		const values = { ...rb.std, ...(game.get(sku) ?? {}) };
+		const { next, changes } = mergeFields(r.data_fields, values);
+		if (!next || !changes.length) continue;
+		fieldsChanged++;
+		for (const c of changes) byKey[c.key] = (byKey[c.key] ?? 0) + 1;
+		if (samples.length < 25) samples.push({ sku: r.sku, changes });
+		stmts.push(db.prepare(`UPDATE sales_sheets SET data_fields = ?, updated_at = unixepoch() WHERE id = ?`).bind(JSON.stringify(next), r.id));
 	}
+	const res = { sheets: rows.length, matched, changed: stockChanged, fields_changed: fieldsChanged, fields_by_key: byKey };
+	if (dry) return { ...res, samples };
 	for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
-	const res = { sheets: rows.length, matched, changed: stmts.length };
-	await setRbMeta(db, { last_run: now, status: 'ok', message: null, products: stock.size, ...res });
+	await setRbMeta(db, 1, { last_run: now, status: 'ok', message: null, products: list.size, matched, changed: stockChanged });
 	return res;
 }
 
-async function setRbMeta(db, m) {
+async function setRbMeta(db, id, m) {
 	await db.prepare(
-		`INSERT INTO rb_sync_meta (id, last_run, status, message, products, matched, changed) VALUES (1, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO rb_sync_meta (id, last_run, status, message, products, matched, changed) VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET last_run = excluded.last_run, status = excluded.status, message = excluded.message,
 		   products = COALESCE(excluded.products, products), matched = COALESCE(excluded.matched, matched), changed = COALESCE(excluded.changed, changed)`
-	).bind(m.last_run, m.status, m.message ?? null, m.products ?? null, m.matched ?? null, m.changed ?? null).run();
+	).bind(id, m.last_run, m.status, m.message ?? null, m.products ?? null, m.matched ?? null, m.changed ?? null).run();
 }
+
+// Pure helpers, exported for local dry-run checks.
+export { stdValues, gameValues, mergeFields };
