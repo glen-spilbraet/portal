@@ -17,10 +17,12 @@
  *       ?since=2025       full refresh from that year onward
  *       ?incremental=1    sweep deals modified since last run (?modifiedSince=ISO to override)
  *       ?reconcile=1      full re-sync of all years
+ *       ?stock=1          Rackbeat stock → sales_sheets.rb_* now (also hourly cron)
  */
 
 const HS = 'https://api.hubapi.com';
 const MONTHLY_CRON = '0 3 1 * *';
+const STOCK_CRON = '15 * * * *';
 
 /** Shift a YYYY-MM-DD string by n days (UTC). */
 function addDaysYmd(s, n) {
@@ -75,6 +77,12 @@ function hsYmd(v) {
 
 export default {
 	async scheduled(event, env, ctx) {
+		// Hourly Rackbeat stock → Sales Sheets. Kept apart from the sales-sync
+		// alerting (that checks sales_sync_meta and would re-alert every hour).
+		if (event?.cron === STOCK_CRON) {
+			ctx.waitUntil(syncRackbeatStock(env));
+			return;
+		}
 		ctx.waitUntil(runScheduledWithAlert(event, env));
 	},
 
@@ -108,6 +116,9 @@ export default {
 				if (!dealId) return json({ error: 'deal_id required' }, 400);
 				const out = await processDealPricing(env, dealId, { apply: body.apply === true, userEmail: body.user_email || null });
 				return json(out);
+			}
+			if (url.searchParams.get('stock') === '1') {
+				return json({ ok: true, ...(await syncRackbeatStock(env)) });
 			}
 			if (url.searchParams.get('forecast') === '1') {
 				return json({ ok: true, ...(await syncForecastDeals(env)) });
@@ -1758,4 +1769,93 @@ async function processDealPricing(env, dealId, { apply = false, userEmail = null
 		try { await saveDealPriceLog(env, rec); } catch { /* ignore */ }
 		return psResult(rec, lines);
 	}
+}
+
+// ── Rackbeat stock → Sales Sheets ───────────────────────────────────────────
+// Rackbeat is master for stock. The product list (fields=…, 1000/page) covers
+// the whole catalogue in ~12 calls, so this runs hourly. Values land in
+// sales_sheets.rb_* of BOTH app databases (DB = prod portal-db, DEV_DB =
+// portal-db-dev), matched on SKU. Only rows whose numbers changed are written,
+// and updated_at is never touched (the webshop feed reads it as "content
+// changed"). SKUs missing in Rackbeat get NULLs.
+
+const RB_STOCK_FIELDS = 'number,available_quantity,stock_quantity,in_order_quantity,purchased_quantity';
+
+function numOrNull(v) {
+	if (v == null || v === '') return null;
+	const n = Number(v);
+	return Number.isFinite(n) ? n : null;
+}
+
+async function syncRackbeatStock(env) {
+	const started = new Date().toISOString();
+	const dbs = [['prod', env.DB], ['dev', env.DEV_DB]].filter(([, db]) => db);
+	try {
+		if (!env.RACKBEAT_API_KEY) throw new Error('No RACKBEAT_API_KEY on worker');
+		const stock = new Map();
+		let pages = 1;
+		for (let page = 1; page <= pages && page <= 60; page++) {
+			const body = await rbGet(env, `/products?limit=1000&page=${page}&fields=${RB_STOCK_FIELDS}`);
+			if (!body || !Array.isArray(body.products)) throw new Error(`Rackbeat product list page ${page} failed`);
+			pages = Number(body.pages) || 1;
+			for (const p of body.products) {
+				const sku = String(p.number ?? '').trim().toUpperCase();
+				if (!sku) continue;
+				stock.set(sku, {
+					available: numOrNull(p.available_quantity),
+					stock: numOrNull(p.stock_quantity),
+					in_order: numOrNull(p.in_order_quantity),
+					purchased: numOrNull(p.purchased_quantity),
+				});
+			}
+		}
+		// Guard against a partial/empty answer wiping every sheet to NULL.
+		if (stock.size < 1000) throw new Error(`only ${stock.size} Rackbeat products returned — not applied`);
+
+		const out = { products: stock.size };
+		for (const [name, db] of dbs) {
+			try {
+				out[name] = await applyRackbeatStock(db, stock, started);
+			} catch (e) {
+				out[name] = { error: e?.message ?? String(e) };
+				await setRbMeta(db, { last_run: started, status: 'error', message: out[name].error }).catch(() => {});
+			}
+		}
+		return out;
+	} catch (e) {
+		const message = e?.message ?? String(e);
+		for (const [, db] of dbs) await setRbMeta(db, { last_run: started, status: 'error', message }).catch(() => {});
+		return { error: message };
+	}
+}
+
+async function applyRackbeatStock(db, stock, now) {
+	const rows = (await db.prepare(
+		`SELECT id, sku, rb_available, rb_stock, rb_in_order, rb_purchased FROM sales_sheets WHERE trim(sku) != ''`
+	).all()).results ?? [];
+	const same = (a, b) => (a == null ? null : Number(a)) === (b == null ? null : Number(b));
+	const stmts = [];
+	let matched = 0;
+	for (const r of rows) {
+		const v = stock.get(String(r.sku).trim().toUpperCase()) ?? null;
+		if (v) matched++;
+		const next = v ?? { available: null, stock: null, in_order: null, purchased: null };
+		if (same(r.rb_available, next.available) && same(r.rb_stock, next.stock)
+			&& same(r.rb_in_order, next.in_order) && same(r.rb_purchased, next.purchased)) continue;
+		stmts.push(db.prepare(
+			`UPDATE sales_sheets SET rb_available = ?, rb_stock = ?, rb_in_order = ?, rb_purchased = ?, rb_changed_at = ? WHERE id = ?`
+		).bind(next.available, next.stock, next.in_order, next.purchased, now, r.id));
+	}
+	for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
+	const res = { sheets: rows.length, matched, changed: stmts.length };
+	await setRbMeta(db, { last_run: now, status: 'ok', message: null, products: stock.size, ...res });
+	return res;
+}
+
+async function setRbMeta(db, m) {
+	await db.prepare(
+		`INSERT INTO rb_sync_meta (id, last_run, status, message, products, matched, changed) VALUES (1, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET last_run = excluded.last_run, status = excluded.status, message = excluded.message,
+		   products = COALESCE(excluded.products, products), matched = COALESCE(excluded.matched, matched), changed = COALESCE(excluded.changed, changed)`
+	).bind(m.last_run, m.status, m.message ?? null, m.products ?? null, m.matched ?? null, m.changed ?? null).run();
 }

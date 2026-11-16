@@ -17,7 +17,7 @@
  *   claude mcp add --transport http portal https://<portal>/mcp \
  *     --header "Authorization: Bearer <MCP_API_KEY>"
  */
-import { searchProducts, getProductBySku, getProductImageBytes } from '$lib/server/mcpProducts.js';
+import { searchProducts, getProductBySku, getProductImageBytes, getStock } from '$lib/server/mcpProducts.js';
 import { getProductPress, listPress, listMediaOutlets, getMediaDetail } from '$lib/server/mcpAwards.js';
 import { runSalesQuery, salesMarketTotals, forecastAccuracy, salesSyncMeta, salesSchema } from '$lib/server/mcpSales.js';
 import { HUBSPOT_SCHEMA_DOC, hubspotSearch, hubspotGet, hubspotImportDeals } from '$lib/server/mcpHubspot.js';
@@ -25,7 +25,7 @@ import { validateAccessToken } from '$lib/server/mcpOauth.js';
 import { getAllowedUser, getUserPermissions, listKnowledge, getKnowledge, createKnowledge } from '$lib/db.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
-const SERVER_INFO = { name: 'spilbraet-portal', version: '1.2.0' };
+const SERVER_INFO = { name: 'spilbraet-portal', version: '1.3.0' };
 
 // Shown to the client/model right after connect. This is what lets people ask in
 // plain language ("what did bookstores buy most, Aug–Oct year over year?")
@@ -41,6 +41,7 @@ const SERVER_INSTRUCTIONS = [
 	'The sales tools cover INVOICED deals only (the mirror). For LIVE / not-yet-invoiced data — uninvoiced or open orders, "what\'s in the pipeline", deals by stage, a company/contact lookup in HubSpot — call `hubspot_schema` first, then `hubspot_search` (or `hubspot_get` for one record by id). hubspot_schema explains how "uninvoiced order" is defined. Prefer the sales tools for historical/aggregate questions, HubSpot for current state.',
 	'',
 	'For product info (descriptions, images, specs) use search_products / get_product / get_product_image. For awards & reviews use the press/media tools.',
+	'For stock / "how many do we have" / availability / low or sold-out stock questions use `get_stock` — it returns Rackbeat\'s available quantity ("til rådighed": on hand minus open sales orders), synced hourly; always state the as_of time. Only products with a sales sheet are covered.',
 	'',
 	'Amounts are DKK. The sales data is invoiced deals only. When you present a report, note the date range and, if useful, call `sales_sync_meta` for a "data as of" line.'
 ].join('\n');
@@ -57,7 +58,7 @@ const TOOLS = [
 	},
 	{
 		name: 'get_product',
-		description: 'Get everything on a product sales sheet by SKU: name, description, USP bullet points, attributes (age, play time, players, dimensions, weight, EAN, stock date), image URLs and YouTube link. Text is returned in the requested language (defaults to the sheet primary language).',
+		description: 'Get everything on a product sales sheet by SKU: name, description, USP bullet points, attributes (age, play time, players, dimensions, weight, EAN, stock date), image URLs, YouTube link and current Rackbeat stock (available = "til rådighed"). Text is returned in the requested language (defaults to the sheet primary language).',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -65,6 +66,20 @@ const TOOLS = [
 				language: { type: 'string', enum: ['en', 'da', 'sv', 'no'], description: 'Language for name/description/bullets. Defaults to the sheet primary language.' }
 			},
 			required: ['sku']
+		}
+	},
+	{
+		name: 'get_stock',
+		description: 'Available stock per product from Rackbeat (available_quantity = "til rådighed": on hand minus open sales orders), plus on hand, in open orders and on open purchase orders. Synced hourly — report the as_of time. Look up by exact SKUs and/or a query (SKU prefix such as a publisher prefix, or part of a product name); filter with max_available / min_available for low/sold-out or well-stocked items. Only products with a sales sheet are covered.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				skus: { type: 'array', items: { type: 'string' }, description: 'Exact SKUs (up to 300).' },
+				query: { type: 'string', description: 'SKU prefix or part of a product name.' },
+				max_available: { type: 'number', description: 'Only products with available stock ≤ this (e.g. 0 = sold out).' },
+				min_available: { type: 'number', description: 'Only products with available stock ≥ this.' },
+				limit: { type: 'number', description: 'Max rows (default 200, max 500).' }
+			}
 		}
 	},
 	{
@@ -296,7 +311,7 @@ function textContent(obj) { return { content: [{ type: 'text', text: typeof obj 
 
 // Which permission each tool requires. `perms === null` means full access
 // (legacy MCP_API_KEY); otherwise gate by the OAuth user's portal permissions.
-const SHEET_TOOLS = new Set(['search_products', 'get_product', 'get_product_image']);
+const SHEET_TOOLS = new Set(['search_products', 'get_product', 'get_product_image', 'get_stock']);
 const AWARDS_TOOLS = new Set(['get_product_press', 'list_press', 'list_media', 'get_media']);
 const SALES_TOOLS = new Set(['sales_schema', 'sales_query', 'sales_market_totals', 'forecast_accuracy', 'sales_sync_meta']);
 // Sales tools that are safe for "own data" users — self-scoped at dispatch.
@@ -348,6 +363,11 @@ async function callTool(name, args, ctx) {
 		const product = await getProductBySku(db, args.sku, args.language, origin);
 		if (!product) return { ...textContent(`No product found with SKU ${args.sku}`), isError: true };
 		return textContent(product);
+	}
+	if (name === 'get_stock') {
+		const out = await getStock(db, args ?? {});
+		if (out.error) return { ...textContent(out.error), isError: true };
+		return textContent(out);
 	}
 	if (name === 'get_product_image') {
 		if (!args?.sku) return { ...textContent('Missing required argument: sku'), isError: true };

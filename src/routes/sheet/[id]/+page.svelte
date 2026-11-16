@@ -117,6 +117,16 @@
 	// ── Game attributes (editable → written back to Rackbeat) ──────────────────
 	// Identity/dimension fields are read-only here: correct them in Rackbeat and
 	// re-sync. Age / Time / Players stay editable and push back to Rackbeat.
+	// Rackbeat stock (read-only, synced hourly onto the sheet by the worker).
+	const rbHas = $derived(data.sheet.rb_available != null || data.sheet.rb_stock != null);
+	const rbN = (v) => (v == null ? '—' : Number(v).toLocaleString('da-DK'));
+	const rbAsOf = $derived.by(() => {
+		const t = data.stockMeta?.as_of;
+		if (!t) return '';
+		const d = new Date(t);
+		return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+	});
+
 	const RO_KEYS = ['sku', 'ean', 'weight', 'height', 'width', 'depth'];
 	const GAME_KEYS = ['age', 'time', 'players', 'pieces'];
 	const digits = (s) => (String(s ?? '').match(/\d+/g) ?? []);
@@ -576,6 +586,20 @@
 					</div>
 					{#if rbErr}<div class="ga-note err">{rbErr}</div>{/if}
 					{#if rbMsg}<div class="ga-note">{rbMsg}</div>{/if}
+				</div>
+
+				<!-- Stock: read-only from Rackbeat (synced hourly) -->
+				<div class="rb-stock" title="From Rackbeat, synced hourly — read-only">
+					{#if rbHas}
+						<div class="rbs-main">
+							<span class="k">Available</span>
+							<span class="rbs-num" class:out={Number(data.sheet.rb_available) <= 0}>{rbN(data.sheet.rb_available)}</span>
+						</div>
+						<div class="rbs-sub">On hand {rbN(data.sheet.rb_stock)} · In orders {rbN(data.sheet.rb_in_order)} · On PO {rbN(data.sheet.rb_purchased)}</div>
+					{:else}
+						<div class="rbs-main"><span class="k">Available</span><span class="rbs-none">{data.stockMeta ? 'Not in Rackbeat' : 'Not synced yet'}</span></div>
+					{/if}
+					{#if rbAsOf}<div class="rbs-asof">Rackbeat · {rbAsOf}{#if data.stockMeta?.status === 'error'} · <span class="rbs-err">last sync failed</span>{/if}</div>{/if}
 				</div>
 			</div>
 		</aside>
@@ -1049,6 +1073,15 @@
 	.name-fld input { font-size: 14px; font-weight: 600; color: #18181B; border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; font-family: inherit; width: 100%; box-sizing: border-box; }
 	.name-fld input:focus { outline: none; border-color: #F57832; box-shadow: 0 0 0 3px rgba(245,120,50,0.12); }
 	.info-table { display: flex; flex-direction: column; }
+	.rb-stock { border-top: 1px solid var(--border); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 3px; }
+	.rbs-main { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+	.rbs-main .k { font-size: 11px; font-weight: 700; color: #8a7550; }
+	.rbs-num { font-size: 18px; font-weight: 800; color: #18181B; font-variant-numeric: tabular-nums; }
+	.rbs-num.out { color: #C0392B; }
+	.rbs-none { font-size: 12px; color: #A1A1AA; }
+	.rbs-sub { font-size: 11.5px; color: #52525B; font-variant-numeric: tabular-nums; }
+	.rbs-asof { font-size: 10.5px; color: #A1A1AA; }
+	.rbs-err { color: #C0392B; font-weight: 600; }
 	.info-row { display: grid; grid-template-columns: 82px 1fr; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #F5EDD8; }
 	.info-row:last-child { border-bottom: none; }
 	.info-row .k { font-size: 11px; font-weight: 700; color: #8a7550; text-transform: capitalize; }

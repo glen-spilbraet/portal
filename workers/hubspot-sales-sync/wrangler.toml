@@ -9,13 +9,21 @@ enabled = true
 # deals modified since the last run (corrections to older deals).
 # Monthly (1st, 03:00 UTC): full reconcile of all years (catches deletions/un-wins).
 [triggers]
-crons = ["30 4 * * *", "0 3 1 * *"]
+# Hourly (:15): Rackbeat stock → sales_sheets.rb_* in both app DBs.
+crons = ["30 4 * * *", "0 3 1 * *", "15 * * * *"]
 
 # Writes into the shared production portal-db.
 [[d1_databases]]
 binding = "DB"
 database_name = "portal-db"
 database_id = "2dca2f5d-21fd-4515-ba49-d5970c249571"
+
+# The dev/preview app DB — only for the Rackbeat stock columns on sales_sheets
+# (sheets are per environment; sales data is not).
+[[d1_databases]]
+binding = "DEV_DB"
+database_name = "portal-db-dev"
+database_id = "57e39bf4-7c9e-4f12-a109-48c5cd8dd2e3"
 
 # Oldest close-date year to sync. Older closed-won deals are ignored.
 [vars]

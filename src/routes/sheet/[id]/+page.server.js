@@ -3,6 +3,7 @@ import { getSheet, getTranslations, getImages, getVideos, getArticles, getGlobal
 import { fetchSalesPrices } from '$lib/server/rackbeat.js';
 import { getBadgesForSku } from '$lib/server/awards.js';
 import { listTaxonomy, productCategoryIds, CATEGORY_LANGS } from '$lib/server/categories.js';
+import { getStockMeta } from '$lib/server/mcpProducts.js';
 import { MARKETS, resolvePublisherForSku, getPublisherMarkets, getProductWebshop } from '$lib/server/webshopMarkets.js';
 
 const LANGUAGES = [
@@ -57,6 +58,8 @@ export async function load({ params, url, platform }) {
 		delete globalLabels['cta'];
 	}
 
+	const stockMeta = await getStockMeta(db).catch(() => null);
+
 	const primaryLanguage = sheet.primary_language ?? 'en';
 	const lang = url.searchParams.get('lang') ?? primaryLanguage;
 
@@ -84,5 +87,6 @@ export async function load({ params, url, platform }) {
 		webshopAllowed: allowedMarkets,
 		webshopPublished: productWebshop.publishedMarkets,
 		webshopOverride: productWebshop.overrideLicense,
+		stockMeta,
 	};
 }

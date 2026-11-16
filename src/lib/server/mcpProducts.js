@@ -88,7 +88,86 @@ export async function getProductBySku(db, sku, lang, origin) {
 			box: imgUrl(row.box_image_key),
 			gallery: (images ?? []).map((im) => imgUrl(im.r2_key)).filter(Boolean)
 		},
-		youtube_url: row.youtube_url ?? null
+		youtube_url: row.youtube_url ?? null,
+		stock: stockOf(row, await getStockMeta(db))
+	};
+}
+
+// ── Rackbeat stock (mirrored hourly onto sales_sheets.rb_* by the worker) ────
+
+/** Last stock sync run → { as_of, status, message } (null if never run). */
+export async function getStockMeta(db) {
+	const m = await db.prepare('SELECT last_run, status, message FROM rb_sync_meta WHERE id = 1').first().catch(() => null);
+	return m ? { as_of: m.last_run, status: m.status, message: m.message || null } : null;
+}
+
+function stockOf(row, meta) {
+	if (row.rb_available == null && row.rb_stock == null) {
+		return { available: null, note: meta ? 'SKU not found in Rackbeat' : 'Stock not synced yet' };
+	}
+	return {
+		available: row.rb_available,
+		on_hand: row.rb_stock,
+		in_order: row.rb_in_order,
+		on_purchase_order: row.rb_purchased,
+		as_of: meta?.as_of ?? null
+	};
+}
+
+/**
+ * Available stock (Rackbeat "Til rådighed") for products with a sales sheet.
+ * Select by `skus` (exact) and/or `query` (SKU prefix / part of SKU or name);
+ * optional `max_available` / `min_available` filters (e.g. low stock).
+ */
+export async function getStock(db, { skus, query, max_available, min_available, limit } = {}) {
+	const where = [`trim(s.sku) != ''`];
+	const binds = [];
+	const list = (Array.isArray(skus) ? skus : typeof skus === 'string' ? skus.split(/[\s,;]+/) : [])
+		.map((x) => String(x).trim().toUpperCase()).filter(Boolean).slice(0, 300);
+	if (list.length) {
+		where.push(`upper(trim(s.sku)) IN (${list.map(() => '?').join(',')})`);
+		binds.push(...list);
+	}
+	const q = String(query ?? '').trim().toLowerCase();
+	if (q) {
+		where.push(`(lower(s.sku) LIKE ? OR EXISTS (SELECT 1 FROM translations tx WHERE tx.sheet_id = s.id AND tx.key = 'product_name' AND lower(COALESCE(tx.value, '')) LIKE ?))`);
+		binds.push(`${q}%`, `%${q}%`);
+	}
+	if (!list.length && !q && max_available == null && min_available == null) {
+		return { error: 'Pass skus, query, or an available filter (max_available / min_available).' };
+	}
+	if (max_available != null && Number.isFinite(Number(max_available))) { where.push('s.rb_available <= ?'); binds.push(Number(max_available)); }
+	if (min_available != null && Number.isFinite(Number(min_available))) { where.push('s.rb_available >= ?'); binds.push(Number(min_available)); }
+	const cap = Math.min(Math.max(Number(limit) || 200, 1), 500);
+
+	const [rows, meta] = await Promise.all([
+		db.prepare(
+			`SELECT s.sku, s.rb_available, s.rb_stock, s.rb_in_order, s.rb_purchased,
+			        (SELECT value FROM translations t WHERE t.sheet_id = s.id AND t.key = 'product_name'
+			          ORDER BY (t.language = s.primary_language) DESC, (t.language = 'en') DESC LIMIT 1) AS name
+			 FROM sales_sheets s WHERE ${where.join(' AND ')}
+			 ORDER BY s.sku LIMIT ?`
+		).bind(...binds, cap + 1).all(),
+		getStockMeta(db)
+	]);
+	const all = rows.results ?? [];
+	const results = all.slice(0, cap).map((r) => ({
+		sku: r.sku,
+		name: r.name || r.sku,
+		available: r.rb_available,
+		on_hand: r.rb_stock,
+		in_order: r.rb_in_order,
+		on_purchase_order: r.rb_purchased
+	}));
+	const found = new Set(results.map((r) => String(r.sku).trim().toUpperCase()));
+	return {
+		source: 'Rackbeat (available_quantity = "Til rådighed"), synced hourly',
+		as_of: meta?.as_of ?? null,
+		sync_status: meta?.status ?? 'never run',
+		count: results.length,
+		truncated: all.length > cap,
+		results,
+		...(list.length ? { no_sheet: list.filter((x) => !found.has(x)) } : {})
 	};
 }
 
