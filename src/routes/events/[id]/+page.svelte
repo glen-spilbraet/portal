@@ -208,6 +208,31 @@
 		finally { tagSaving = false; }
 	}
 
+	// ── Photo rating (internal) ─────────────────────────────────────────────────
+	const RATINGS = [
+		{ v: 'good', label: 'Good' },
+		{ v: 'semi', label: 'Semi' },
+		{ v: 'bad', label: 'Bad' },
+	];
+	const ratingLabel = (v) => RATINGS.find((r) => r.v === v)?.label ?? 'Rate';
+	/** asset id whose rating menu is open */
+	let rateOpen = $state(/** @type {string|null} */ (null));
+	/** optimistic ratings while saving: id → rating */
+	let rateLocal = $state(/** @type {Record<string, string|null>} */ ({}));
+
+	async function setRating(a, v) {
+		const current = a.id in rateLocal ? rateLocal[a.id] : a.rating;
+		const next = current === v ? null : v; // picking the current rating (or Clear) unsets it
+		rateLocal = { ...rateLocal, [a.id]: next };
+		rateOpen = null;
+		const res = await fetch(`/api/events/assets/${a.id}`, {
+			method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rating: next })
+		});
+		if (!res.ok) alert('Failed to save rating');
+		await invalidateAll();
+		const { [a.id]: _, ...rest } = rateLocal; rateLocal = rest;
+	}
+
 	// ── Share link ──────────────────────────────────────────────────────────────
 	let copied = $state(false);
 	function copyLink() {
@@ -470,7 +495,7 @@
 	</div>
 {/if}
 
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { closeAdd(); closeTags(); } }} />
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { closeAdd(); closeTags(); rateOpen = null; } }} onclick={() => (rateOpen = null)} />
 
 {#if tagAsset}
 	<div class="modal-overlay" onclick={closeTags} role="presentation">
@@ -554,6 +579,28 @@
 							<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 1.5 14 4.75v6.5L8 14.5 2 11.25v-6.5L8 1.5Z M2.3 4.9 8 8l5.7-3.1 M8 8v6.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
 							{n ? n : 'Tag'}
 						</button>
+					{/if}
+
+					{#if taggable}
+						{@const r = a.id in rateLocal ? rateLocal[a.id] : a.rating}
+						<div class="rate-wrap" class:open={rateOpen === a.id}>
+							<button
+								class="rate-pill {r ?? 'none'}"
+								onclick={(e) => { e.stopPropagation(); rateOpen = rateOpen === a.id ? null : a.id; }}
+								aria-haspopup="menu" aria-expanded={rateOpen === a.id}
+								aria-label={r ? `Rated ${ratingLabel(r)} — change` : 'Rate photo'}
+							>{#if r}<span class="dot"></span>{/if}{ratingLabel(r)}</button>
+							{#if rateOpen === a.id}
+								<div class="rate-menu" role="menu" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
+									{#each RATINGS as opt (opt.v)}
+										<button role="menuitemradio" aria-checked={r === opt.v} class="rate-opt {opt.v}" class:sel={r === opt.v} onclick={() => setRating(a, opt.v)}>
+											<span class="dot"></span>{opt.label}
+										</button>
+									{/each}
+									{#if r}<button role="menuitem" class="rate-opt clear" onclick={() => setRating(a, r)}>Clear</button>{/if}
+								</div>
+							{/if}
+						</div>
 					{/if}
 
 					<button class="ov-del" onclick={() => deleteAsset(a.id)} aria-label="Delete {a.filename ?? 'file'}">✕</button>
@@ -658,9 +705,26 @@
 	.tag-bubble.empty { background: rgba(24,24,27,0.35); color: white; border: 1px dashed rgba(255,255,255,0.85); box-shadow: none; }
 	.tag-bubble.empty svg { color: white; }
 	.tag-bubble.empty:hover { background: rgba(24,24,27,0.55); }
+	/* rating pill — bottom-right */
+	.rate-wrap { position: absolute; right: 8px; bottom: 8px; }
+	.rate-pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 100px; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1; cursor: pointer; backdrop-filter: blur(6px); border: 1px solid transparent; background: rgba(255,255,255,0.95); color: #18181B; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: transform .12s ease; }
+	.rate-pill:hover { transform: translateY(-1px); }
+	.rate-pill.none { background: rgba(24,24,27,0.35); color: white; border: 1px dashed rgba(255,255,255,0.85); box-shadow: none; }
+	.rate-pill.none:hover { background: rgba(24,24,27,0.55); }
+	.dot { width: 7px; height: 7px; border-radius: 100px; background: currentColor; flex: none; }
+	.rate-pill.good .dot, .rate-opt.good .dot { background: #16a34a; }
+	.rate-pill.semi .dot, .rate-opt.semi .dot { background: #f59e0b; }
+	.rate-pill.bad  .dot, .rate-opt.bad  .dot { background: #dc2626; }
+	.rate-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 10; min-width: 118px; padding: 4px; background: white; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.18); display: flex; flex-direction: column; }
+	.rate-opt { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: none; border-radius: 8px; background: none; font-family: inherit; font-size: 13px; font-weight: 500; color: #18181B; cursor: pointer; text-align: left; }
+	.rate-opt:hover { background: #F4F4F5; }
+	.rate-opt.sel { font-weight: 700; background: #FAFAFA; }
+	.rate-opt.clear { color: #71717A; font-size: 12px; border-top: 1px solid #F4F4F5; border-radius: 0 0 8px 8px; margin-top: 2px; }
 	/* video: native controls own the bottom edge — bubble goes top-left (below a Venue badge) */
 	.is-video .tag-bubble { bottom: auto; top: 8px; }
 	.is-video .ov-badge + .tag-bubble { top: 36px; }
+	.is-video .rate-wrap { bottom: auto; top: 8px; right: 42px; }
+	.is-video .rate-menu { bottom: auto; top: calc(100% + 6px); }
 	.ptags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 	.ptag { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 100px; background: #FFF4ED; color: #c2551b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.ptag.on { font-size: 12px; padding: 3px 4px 3px 9px; }

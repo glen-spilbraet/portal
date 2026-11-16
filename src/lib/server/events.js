@@ -163,7 +163,7 @@ export async function getEventByToken(db, token) {
 	return {
 		...event,
 		skus: (skus.results ?? []).map((r) => r.sku),
-		assets: assets.results ?? [],
+		assets: (assets.results ?? []).map(({ rating, ...a }) => a), // internal rating stays internal
 	};
 }
 
@@ -317,6 +317,15 @@ export async function deleteAsset(db, id) {
 		db.prepare('DELETE FROM event_asset_sku WHERE asset_id = ?').bind(id),
 		db.prepare('DELETE FROM event_asset WHERE id = ?').bind(id),
 	]);
+}
+
+export const ASSET_RATINGS = ['good', 'semi', 'bad'];
+
+/** Set (or clear with null) the internal quality rating of an asset. */
+export async function setAssetRating(db, id, rating) {
+	const r = ASSET_RATINGS.includes(rating) ? rating : null;
+	await db.prepare('UPDATE event_asset SET rating = ? WHERE id = ?').bind(r, id).run();
+	return r;
 }
 
 // ── Asset ↔ SKU tags (which products are on a photo) ─────────────────────────

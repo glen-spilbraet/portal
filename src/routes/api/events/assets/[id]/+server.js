@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { requireEvents } from '$lib/server/eventsAuth.js';
-import { getAsset, deleteAsset } from '$lib/server/events.js';
+import { getAsset, deleteAsset, setAssetRating } from '$lib/server/events.js';
 
 export async function DELETE(event) {
 	const { db } = await requireEvents(event);
@@ -11,4 +11,12 @@ export async function DELETE(event) {
 		await deleteAsset(db, event.params.id);
 	}
 	return json({ ok: true });
+}
+
+// Body: { rating: 'good' | 'semi' | 'bad' | null }
+export async function PATCH(event) {
+	const { db } = await requireEvents(event);
+	const body = await event.request.json().catch(() => ({}));
+	const rating = await setAssetRating(db, event.params.id, body?.rating ?? null);
+	return json({ ok: true, rating });
 }
