@@ -257,7 +257,7 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
 						Filters{#if advCount}<span class="todo-n">{advCount}</span>{/if}
 					</button>
-					<button class="btn-todo" class:on={todo} onclick={toggleTodo} title="Only sheets missing age, time, players, 3D box image, short description or bullets">
+					<button class="btn-todo" class:on={todo} onclick={toggleTodo} title="Only sheets missing short description, long description, bullets, or a box image (3D or flat front)">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 							<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
 						</svg>

@@ -36,9 +36,9 @@ export async function countSheets(db) {
 }
 
 /**
- * Sheets still missing required info (the "Todo" filter): any of age / time /
- * players (data_fields), 3D box image, primary-language short description, or
- * primary-language bullets. Returns the same row shape as listSheets so the
+ * Sheets still missing required info (the "Todo" filter): any of the
+ * primary-language short description, long description or bullets, or an image
+ * (3D box OR flat front — either one is enough). Returns the same row shape as listSheets so the
  * overview renders them identically.
  */
 export async function listIncompleteSheets(db) {
@@ -52,6 +52,7 @@ export async function listIncompleteSheets(db) {
 		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'sv' AND key LIKE 'usp_%' AND value != '') as usp_filled_sv,
 		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'no' AND key LIKE 'usp_%' AND value != '') as usp_filled_no,
 		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND key = 'product_description' AND language = s.primary_language AND trim(value) != '') as has_short_primary,
+		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND key = 'long_description' AND language = s.primary_language AND trim(value) != '') as has_long_primary,
 		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND key LIKE 'usp_%' AND language = s.primary_language AND trim(value) != '') as usp_filled_primary
 		FROM sales_sheets s
 		LEFT JOIN allowed_users u ON u.email = s.created_by
@@ -60,16 +61,11 @@ export async function listIncompleteSheets(db) {
 		LEFT JOIN translations t_sv ON t_sv.sheet_id = s.id AND t_sv.language = 'sv' AND t_sv.key = 'product_name'
 		LEFT JOIN translations t_no ON t_no.sheet_id = s.id AND t_no.language = 'no' AND t_no.key = 'product_name'
 		ORDER BY s.updated_at DESC`).all();
-	const dataField = (df, key) => {
-		try { return (JSON.parse(df || '[]').find((f) => f.key === key)?.value ?? '').trim(); } catch { return ''; }
-	};
 	return (rows.results ?? []).filter((s) => {
 		const uspCount = s.usp_count ?? 3;
-		return !s.box_3d_key
-			|| !dataField(s.data_fields, 'age')
-			|| !dataField(s.data_fields, 'time')
-			|| !dataField(s.data_fields, 'players')
+		return !s.box_image_key // = 3D box, else flat front (DEFAULT_IMAGE_SQL)
 			|| !s.has_short_primary
+			|| !s.has_long_primary
 			|| uspCount < 1 || (s.usp_filled_primary ?? 0) < uspCount;
 	});
 }
