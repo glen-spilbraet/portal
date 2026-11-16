@@ -531,25 +531,32 @@
 	{:else}
 		<div class="asset-grid">
 			{#each assets as a (a.id)}
-				<div class="asset">
+				{@const n = a.skus?.length ?? 0}
+				{@const taggable = showSource && (a.kind === 'image' || a.kind === 'video')}
+				<div class="asset" class:is-video={a.kind === 'video'} title={a.filename}>
 					{#if a.kind === 'image'}
-						<a href="/api/img/{a.r2_key}" target="_blank" rel="noopener"><img src="/api/img/{a.r2_key}" alt={a.filename} /></a>
+						<a class="thumb" href="/api/img/{a.r2_key}" target="_blank" rel="noopener"><img src="/api/img/{a.r2_key}" alt={a.filename} loading="lazy" /></a>
 					{:else if a.kind === 'video'}
-						<video src="/api/img/{a.r2_key}" controls><track kind="captions" /></video>
+						<video class="thumb" src="/api/img/{a.r2_key}" controls preload="metadata"><track kind="captions" /></video>
 					{:else}
-						<a class="file-tile" href="/api/img/{a.r2_key}" target="_blank" rel="noopener">📄 {a.filename ?? 'file'}</a>
+						<a class="thumb file-tile" href="/api/img/{a.r2_key}" target="_blank" rel="noopener"><span>📄</span><span class="file-name">{a.filename ?? 'file'}</span></a>
 					{/if}
-					<div class="asset-meta">
-						<span class="asset-name" title={a.filename}>{a.filename ?? a.kind}</span>
-						{#if showSource && a.source === 'venue'}<span class="tag venue">venue</span>{/if}
-					</div>
-					{#if showSource && (a.kind === 'image' || a.kind === 'video')}
-						<div class="ptags">
-							{#each a.skus ?? [] as sku (sku)}<span class="ptag" title={sku}>{skuLabel(sku)}</span>{/each}
-							<button class="ptag-btn" onclick={() => openTags(a)}>{a.skus?.length ? 'Edit' : '+ Tag products'}</button>
-						</div>
+
+					{#if showSource && a.source === 'venue'}<span class="ov-badge">Venue</span>{/if}
+
+					{#if taggable}
+						<button
+							class="tag-bubble" class:empty={n === 0}
+							onclick={() => openTags(a)}
+							title={n ? (a.skus ?? []).map(skuLabel).join('\n') : 'Tag products on this photo'}
+							aria-label={n ? `${n} products tagged — edit` : 'Tag products'}
+						>
+							<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 1.5 14 4.75v6.5L8 14.5 2 11.25v-6.5L8 1.5Z M2.3 4.9 8 8l5.7-3.1 M8 8v6.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+							{n ? n : 'Tag'}
+						</button>
 					{/if}
-					<button class="link-del asset-del" onclick={() => deleteAsset(a.id)}>✕</button>
+
+					<button class="ov-del" onclick={() => deleteAsset(a.id)} aria-label="Delete {a.filename ?? 'file'}">✕</button>
 				</div>
 			{/each}
 		</div>
@@ -632,20 +639,32 @@
 	.share-input { font-family: monospace; font-size: 12px; }
 	.share-btn { flex-shrink: 0; min-width: 84px; justify-content: center; white-space: nowrap; }
 
-	.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; }
-	.asset { position: relative; border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
-	.asset img, .asset video { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; background: #FAFAFA; display: block; }
-	.file-tile { display: flex; align-items: center; justify-content: center; text-align: center; aspect-ratio: 1; background: #FAFAFA; border-radius: 6px; font-size: 12px; color: #52525B; text-decoration: none; padding: 8px; }
-	.asset-meta { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-	.asset-name { font-size: 11px; color: #71717A; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-	.tag { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 100px; }
-	.tag.venue { background: #EEF2FF; color: #4338ca; }
+	.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+	.asset { position: relative; border-radius: 12px; overflow: hidden; background: #F4F4F5; aspect-ratio: 1; }
+	.asset .thumb { display: block; width: 100%; height: 100%; object-fit: cover; }
+	.asset img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s ease; }
+	.asset:hover img { transform: scale(1.03); }
+	.file-tile { display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; text-align: center; font-size: 22px; color: #52525B; text-decoration: none; padding: 12px; box-sizing: border-box; }
+	.file-name { font-size: 12px; overflow-wrap: anywhere; }
+	/* overlays */
+	.ov-badge { position: absolute; top: 8px; left: 8px; font-size: 10px; font-weight: 700; letter-spacing: .02em; padding: 3px 8px; border-radius: 100px; background: rgba(255,255,255,0.92); color: #4338ca; backdrop-filter: blur(6px); pointer-events: none; }
+	.ov-del { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 100px; border: none; background: rgba(24,24,27,0.55); color: white; font-size: 11px; cursor: pointer; backdrop-filter: blur(6px); opacity: 0; transition: opacity .15s ease, background .15s ease; }
+	.ov-del:hover { background: #dc2626; }
+	.asset:hover .ov-del, .ov-del:focus-visible { opacity: 1; }
+	@media (hover: none) { .ov-del { opacity: 1; } }
+	.tag-bubble { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 100px; border: 1px solid transparent; background: rgba(255,255,255,0.95); color: #18181B; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1; cursor: pointer; backdrop-filter: blur(6px); box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: transform .12s ease; }
+	.tag-bubble:hover { transform: translateY(-1px); }
+	.tag-bubble svg { color: #F57832; }
+	.tag-bubble.empty { background: rgba(24,24,27,0.35); color: white; border: 1px dashed rgba(255,255,255,0.85); box-shadow: none; }
+	.tag-bubble.empty svg { color: white; }
+	.tag-bubble.empty:hover { background: rgba(24,24,27,0.55); }
+	/* video: native controls own the bottom edge — bubble goes top-left (below a Venue badge) */
+	.is-video .tag-bubble { bottom: auto; top: 8px; }
+	.is-video .ov-badge + .tag-bubble { top: 36px; }
 	.ptags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 	.ptag { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 100px; background: #FFF4ED; color: #c2551b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.ptag.on { font-size: 12px; padding: 3px 4px 3px 9px; }
 	.ptag.on button { border: none; background: none; color: inherit; cursor: pointer; font-size: 11px; padding: 0 3px; }
-	.ptag-btn { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 100px; border: 1px dashed var(--border); background: white; color: #71717A; cursor: pointer; font-family: inherit; }
-	.ptag-btn:hover { color: #18181B; border-color: #A1A1AA; }
 	.tag-modal { max-width: 600px; }
 	.tag-preview { background: #FAFAFA; border-radius: 10px; overflow: hidden; margin-bottom: 12px; }
 	.tag-preview img, .tag-preview video { display: block; width: 100%; max-height: 300px; object-fit: contain; }
@@ -653,7 +672,6 @@
 	.tag-search { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; }
 	.tag-sec { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #71717A; margin: 14px 0 6px; }
 	.save-state { margin-right: auto; align-self: center; }
-	.asset-del { top: 4px; right: 4px; }
 
 	.contact-picks { display: flex; flex-direction: column; gap: 6px; }
 	.contact-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
