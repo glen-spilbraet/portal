@@ -110,7 +110,11 @@
 	const VB = $derived(`${C - outerR - 8} ${C - outerR - 8} ${(outerR + 8) * 2} ${(outerR + 8) * 2}`);
 
 	// Dots per week: stacked from the outer edge inward, up to what fits.
-	const maxDots = Math.floor((R_PLAN_OUT - R_PLAN_IN - 14) / DOT_STEP);
+	// Rings by type (dartboard): publisher = inner, series = middle, product = outer.
+	const RING = { publisher: 0, series: 1, product: 2 };
+	const BAND = (R_PLAN_OUT - R_PLAN_IN) / 3;
+	const ringCap = Math.floor((BAND - 4) / DOT_STEP);
+	const slotR = (kind, i) => R_PLAN_IN + BAND * (RING[kind] + 1) - 10 - i * DOT_STEP;
 	function dotColors(it) {
 		const cs = it.activity_ids.map((id) => actById[id]?.color).filter(Boolean);
 		return cs.length ? cs : ['#A1A1AA'];
@@ -335,27 +339,31 @@
 				{#each weeks as w (w)}
 					{@const list = byWeek[w] ?? []}
 					{@const fmid = (w - 0.5) / N}
-					{#each list.slice(0, maxDots) as it, i (it.id)}
-						{@const [x, y] = pt(R_PLAN_OUT - 12 - i * DOT_STEP, fmid)}
-						<g
-							class="dot"
-							class:dim={!matches(it)}
-							role="button" tabindex="-1" aria-label={itemLabel(it)}
-							onmousemove={(e) => { e.stopPropagation(); hoverWeek = w; moveTip(e, { kind: 'item', item: it }); }}
-							onmouseleave={clearTip}
-							onclick={(e) => { e.stopPropagation(); weekOpen = w; openItem(it); }}
-							onkeydown={() => {}}
-						>
-							{#each pie(x, y, DOT_R, dotColors(it)) as s}
-								{#if s.d}<path d={s.d} fill={s.c} />{:else}<circle cx={x} cy={y} r={DOT_R} fill={s.c} />{/if}
-							{/each}
-							<circle cx={x} cy={y} r={DOT_R} class="dot-ring" />
-						</g>
+					{#each ['product', 'series', 'publisher'] as kind}
+						{@const inRing = list.filter((it) => it.kind === kind)}
+						{@const shown = inRing.length > ringCap ? ringCap - 1 : ringCap}
+						{#each inRing.slice(0, shown) as it, i (it.id)}
+							{@const [x, y] = pt(slotR(kind, i), fmid)}
+							<g
+								class="dot"
+								class:dim={!matches(it)}
+								role="button" tabindex="-1" aria-label={itemLabel(it)}
+								onmousemove={(e) => { e.stopPropagation(); hoverWeek = w; moveTip(e, { kind: 'item', item: it }); }}
+								onmouseleave={clearTip}
+								onclick={(e) => { e.stopPropagation(); weekOpen = w; openItem(it); }}
+								onkeydown={() => {}}
+							>
+								{#each pie(x, y, DOT_R, dotColors(it)) as s}
+									{#if s.d}<path d={s.d} fill={s.c} />{:else}<circle cx={x} cy={y} r={DOT_R} fill={s.c} />{/if}
+								{/each}
+								<circle cx={x} cy={y} r={DOT_R} class="dot-ring" />
+							</g>
+						{/each}
+						{#if inRing.length > ringCap}
+							{@const [x, y] = pt(slotR(kind, ringCap - 1), fmid)}
+							<text class="more" {x} {y} dy="3">+{inRing.length - shown}</text>
+						{/if}
 					{/each}
-					{#if list.length > maxDots}
-						{@const [x, y] = pt(R_PLAN_OUT - 12 - maxDots * DOT_STEP, fmid)}
-						<text class="more" {x} {y} dy="3">+{list.length - maxDots}</text>
-					{/if}
 				{/each}
 
 				<!-- Week numbers -->
@@ -447,6 +455,23 @@
 				<div><b>{plannedWeeks}<small>/{N}</small></b><span>weeks planned</span></div>
 				<div><b>{themes.length}</b><span>themes</span></div>
 			</div>
+
+			<section>
+				<div class="sec-head"><span class="sec-label">Rings</span></div>
+				<div class="rings">
+					<svg viewBox="0 0 60 60" width="54" height="54" aria-hidden="true">
+						<circle cx="30" cy="30" r="28" class="rg r-product" />
+						<circle cx="30" cy="30" r="19.5" class="rg r-series" />
+						<circle cx="30" cy="30" r="11" class="rg r-publisher" />
+						<circle cx="30" cy="30" r="5" fill="#17834F" />
+					</svg>
+					<ul>
+						<li><span class="kind k-product">Outer</span> Product</li>
+						<li><span class="kind k-series">Middle</span> Series</li>
+						<li><span class="kind k-publisher">Inner</span> Publisher</li>
+					</ul>
+				</div>
+			</section>
 
 			<section>
 				<div class="sec-head">
@@ -792,6 +817,15 @@
 	.link { border: 0; background: none; color: #9A5B00; font-size: 12.5px; font-weight: 700; padding: 2px 4px; }
 	.link:hover { text-decoration: underline; }
 	.spacer { flex: 1; }
+
+	.rings { display: flex; align-items: center; gap: 14px; padding: 0 4px; }
+	.rings ul { list-style: none; display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 700; color: #3F3F46; }
+	.rings li { display: flex; align-items: center; gap: 8px; }
+	.rings .kind { width: 52px; text-align: center; }
+	.rg { stroke: #fff; stroke-width: 1.5; }
+	.r-product { fill: #FDEFE2; }
+	.r-series { fill: #EDE9FE; }
+	.r-publisher { fill: #E3F3EA; }
 
 	/* Tooltip */
 	.tip { position: fixed; z-index: 300; pointer-events: none; background: #18181B; color: #fff; border-radius: 10px; padding: 10px 12px; max-width: 300px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.2); }
