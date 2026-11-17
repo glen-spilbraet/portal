@@ -614,7 +614,7 @@ export async function getCreditLineDimension(db, windows, dim) {
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
 			 FROM (
 			   SELECT ${keyExpr} AS kv, ${nameExpr} AS nm, li.close_date AS close_date, li.amount_dkk AS amount_dkk
-			   FROM sales_deals d CROSS JOIN deal_line_items li ON li.deal_id = d.deal_id -- CROSS JOIN: SQLite keeps this order (deals first)
+			   FROM sales_deals d CROSS JOIN deal_line_items li INDEXED BY idx_dli_deal ON li.deal_id = d.deal_id -- deals first (CROSS JOIN) + each deal's lines by deal_id (INDEXED BY: the planner otherwise picks idx_dli_kind_close and scans every closed line per credit note → DB CPU reset)
 			   WHERE (d.rackbeat_id >= 'CN-' AND d.rackbeat_id < 'CN.')
 			     AND li.deal_kind = 'closed' AND li.sku IS NOT NULL AND li.sku != ''
 			     AND li.close_date >= ? AND li.close_date < ?
