@@ -538,7 +538,7 @@
 
 			<div class="stats">
 				<div><b>{items.length}</b><span>instances</span></div>
-				<div><b>{plannedWeeks}<small>/{N}</small></b><span>weeks planned</span></div>
+				<div><b>{plannedWeeks}</b><span>weeks</span></div>
 				<div><b>{themes.length}</b><span>themes</span></div>
 			</div>
 
@@ -885,7 +885,7 @@
 
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; background: #FFF6DA; }
-	.layout { flex: 1; display: flex; gap: 24px; padding: 20px 24px 32px; max-width: 1500px; width: 100%; margin: 0 auto; align-items: flex-start; }
+	.layout { flex: 1; display: flex; gap: 24px; padding: 20px; width: 100%; align-items: flex-start; }
 	.wheel-wrap { flex: 1; min-width: 0; display: flex; justify-content: center; }
 	.wheel { width: 100%; max-width: 920px; max-height: calc(100vh - 110px); height: auto; user-select: none; }
 
@@ -937,7 +937,6 @@
 	.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 	.stats div { background: #FFF6DA; border-radius: 10px; padding: 9px 8px; text-align: center; display: flex; flex-direction: column; }
 	.stats b { font-size: 20px; font-weight: 900; color: #18181B; }
-	.stats small { font-size: 12px; color: #A1A1AA; }
 	.stats span { font-size: 11px; color: #71717A; font-weight: 600; }
 	section { display: flex; flex-direction: column; gap: 2px; }
 	.sec-head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 4px; }
@@ -972,7 +971,7 @@
 	.rings { display: flex; align-items: center; gap: 14px; padding: 0 4px; }
 	.rings ul { list-style: none; display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 700; color: #3F3F46; }
 	.rings li { display: flex; align-items: center; gap: 8px; }
-	.rings .kind { width: 52px; text-align: center; }
+	.rings .kind { width: 68px; text-align: center; }
 	.rg { stroke: #fff; stroke-width: 1.5; }
 	.r-product { fill: #FDEFE2; }
 	.r-series { fill: #EDE9FE; }
