@@ -119,7 +119,7 @@
 	const RING = { publisher: 0, series: 1, product: 2 };
 	const BAND = (R_PLAN_OUT - R_PLAN_IN) / 3;
 	const ringCap = Math.floor((BAND - 4) / DOT_STEP);
-	const slotR = (kind, i) => R_PLAN_IN + BAND * (RING[kind] + 1) - 10 - i * DOT_STEP;
+	const slotR = (kind, i) => R_PLAN_IN + BAND * (RING[kind] + 1) - 15 - i * DOT_STEP;
 	const KINDS = ['publisher', 'series', 'product'];
 	/** @param {number} w @param {string} kind */
 	const cellCount = (w, kind) => (byWeek[w] ?? []).filter((it) => it.kind === kind && matches(it)).length;
@@ -514,9 +514,7 @@
 
 				<!-- Centre -->
 				<circle cx={C} cy={C} r={R_CENTER} class="hub" />
-				<text x={C} y={C - 34} class="hub-kicker">MARKETING WHEEL</text>
-				<text x={C} y={C + 18} class="hub-year">{year}</text>
-				<text x={C} y={C + 48} class="hub-sub">{items.length} planned · {plannedWeeks}/{N} weeks</text>
+				<text x={C} y={C + 20} class="hub-year">{year}</text>
 			</svg>
 		</div>
 
@@ -923,9 +921,7 @@
 	.today { stroke: #17834F; stroke-width: 2; stroke-dasharray: 4 3; pointer-events: none; }
 	.today-dot { fill: #17834F; pointer-events: none; }
 	.hub { fill: #17834F; }
-	.hub-kicker { font-size: 12px; font-weight: 800; letter-spacing: .2em; fill: #CDEBD9; text-anchor: middle; }
-	.hub-year { font-size: 56px; font-weight: 900; fill: #fff; text-anchor: middle; }
-	.hub-sub { font-size: 11.5px; font-weight: 700; fill: #CDEBD9; text-anchor: middle; }
+	.hub-year { font-size: 60px; font-weight: 900; fill: #fff; text-anchor: middle; }
 
 	/* Sidebar */
 	.side { width: 300px; flex-shrink: 0; background: #fff; border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 18px; display: flex; flex-direction: column; gap: 18px; position: sticky; top: 16px; }
