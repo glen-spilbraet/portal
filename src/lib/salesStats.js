@@ -244,7 +244,7 @@ export async function getCustomerMarketTotals(db, startIncl, endExcl, companyId)
 	const rows = await db
 		.prepare(
 			`SELECT d.market AS market, COALESCE(SUM(li.amount_dkk), 0) AS dkk
-			 FROM deal_line_items li JOIN sales_deals d ON d.deal_id = li.deal_id
+			 FROM deal_line_items li INDEXED BY idx_dli_company JOIN sales_deals d ON d.deal_id = li.deal_id
 			 WHERE li.deal_kind = 'closed' AND li.company_id = ? AND li.close_date >= ? AND li.close_date < ?
 			 GROUP BY d.market`
 		)
@@ -266,7 +266,7 @@ export async function getCustomerMonthly(db, year, companyId) {
 	const rows = await db
 		.prepare(
 			`SELECT CAST(strftime('%m', close_date) AS INTEGER) AS m, COALESCE(SUM(amount_dkk), 0) AS rev
-			 FROM deal_line_items WHERE deal_kind = 'closed' AND company_id = ? AND close_date >= ? AND close_date < ? GROUP BY m`
+			 FROM deal_line_items INDEXED BY idx_dli_company WHERE deal_kind = 'closed' AND company_id = ? AND close_date >= ? AND close_date < ? GROUP BY m`
 		)
 		.bind(companyId, `${year}-01-01`, `${year + 1}-01-01`)
 		.all();
@@ -284,7 +284,7 @@ export async function getCustomerProducts(db, windows, companyId) {
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
-			 FROM deal_line_items WHERE deal_kind = 'closed' AND company_id = ? AND sku IS NOT NULL GROUP BY sku`
+			 FROM deal_line_items INDEXED BY idx_dli_company WHERE deal_kind = 'closed' AND company_id = ? AND sku IS NOT NULL GROUP BY sku`
 		)
 		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, companyId)
 		.all();
@@ -303,7 +303,7 @@ export async function getCustomerPublishers(db, windows, companyId, mode = 'sku'
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev0,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev1,
 			        SUM(CASE WHEN close_date >= ? AND close_date < ? THEN amount_dkk ELSE 0 END) AS rev2
-			 FROM deal_line_items WHERE deal_kind = 'closed' AND company_id = ? GROUP BY key`
+			 FROM deal_line_items INDEXED BY idx_dli_company WHERE deal_kind = 'closed' AND company_id = ? GROUP BY key`
 		)
 		.bind(y0.start, y0.end, y1.start, y1.end, y2.start, y2.end, companyId)
 		.all();

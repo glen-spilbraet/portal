@@ -77,7 +77,7 @@ async function closedQtyLookup(db, cids, minDate, maxDate) {
 		const batch = cids.slice(i, i + CHUNK);
 		const closed = (await db
 			.prepare(
-				`SELECT company_id AS cid, sku, close_date, quantity FROM deal_line_items
+				`SELECT company_id AS cid, sku, close_date, quantity FROM deal_line_items INDEXED BY idx_dli_company
 				 WHERE deal_kind = 'closed' AND company_id IN (${batch.map(() => '?').join(',')})
 				   AND close_date >= ? AND close_date <= ?`
 			)
@@ -373,7 +373,7 @@ export async function getCompletedHalfYearBreakdown(db, today, ownerEmail, years
 		? (await db
 				.prepare(
 					`SELECT company_id AS cid, sku, close_date, quantity
-					 FROM deal_line_items
+					 FROM deal_line_items INDEXED BY idx_dli_company
 					 WHERE deal_kind = 'closed' AND company_id IN (${cids.map(() => '?').join(',')})
 					   AND close_date >= ? AND close_date <= ?`
 				)
