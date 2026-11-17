@@ -46,7 +46,8 @@
 	const R_PLAN_OUT = 338;
 	const R_WEEK_OUT = 376;
 	const R_MONTH_OUT = 436;
-	const R_THEME0 = 452;
+	const R_QUARTER_OUT = 470;
+	const R_THEME0 = 484;
 	const LANE = 24;
 	const DOT_R = 6.5;
 	const DOT_STEP = 15.5;
@@ -89,7 +90,6 @@
 		for (const it of items) (m[it.week] ??= []).push(it);
 		return m;
 	});
-	const maxCount = $derived(Math.max(1, ...Object.values(byWeek).map((l) => l.length)));
 	const plannedWeeks = $derived(Object.keys(byWeek).filter((w) => Number(w) <= N).length);
 	const themesInWeek = (w) => themes.filter((t) => w >= t.start_week && w <= t.end_week);
 
@@ -115,6 +115,30 @@
 	const BAND = (R_PLAN_OUT - R_PLAN_IN) / 3;
 	const ringCap = Math.floor((BAND - 4) / DOT_STEP);
 	const slotR = (kind, i) => R_PLAN_IN + BAND * (RING[kind] + 1) - 10 - i * DOT_STEP;
+	const KINDS = ['publisher', 'series', 'product'];
+	/** @param {number} w @param {string} kind */
+	const cellCount = (w, kind) => (byWeek[w] ?? []).filter((it) => it.kind === kind && matches(it)).length;
+	const maxCell = $derived(Math.max(1, ...weeks.flatMap((w) => KINDS.map((k) => cellCount(w, k)))));
+
+	// Quarters (built from the contiguous month ring)
+	const quarters = $derived([0, 1, 2, 3].map((q) => ({
+		q,
+		name: `Q${q + 1}`,
+		f1: months.find((m) => m.m === q * 3)?.f1 ?? q / 4,
+		f2: months.find((m) => m.m === q * 3 + 2)?.f2 ?? (q + 1) / 4,
+	})));
+	// A week belongs to the period that holds its midpoint (ISO: its Thursday).
+	/** @param {number} f1 @param {number} f2 */
+	const weeksIn = (f1, f2) => weeks.filter((w) => { const m = (w - 0.5) / N; return m >= f1 && m < f2; });
+	/** @param {'month'|'quarter'} type @param {number} idx */
+	function period(type, idx) {
+		const p = type === 'month' ? months.find((m) => m.m === idx) : quarters[idx];
+		if (!p) return null;
+		const ws = weeksIn(p.f1, p.f2);
+		const list = ws.flatMap((w) => byWeek[w] ?? []);
+		const th = themes.filter((t) => ws.length && t.end_week >= ws[0] && t.start_week <= ws[ws.length - 1]);
+		return { type, idx, name: type === 'month' ? p.name : `${p.name} ${year}`, weeks: ws, items: list, themes: th };
+	}
 	function dotColors(it) {
 		const cs = it.activity_ids.map((id) => actById[id]?.color).filter(Boolean);
 		return cs.length ? cs : ['#A1A1AA'];
@@ -167,24 +191,42 @@
 	let itemDraft = $state(null);
 	/** @type {any} */
 	let themeDraft = $state(null);
-	let returnToWeek = $state(false);
+	/** @type {'week'|'digest'|null} */
+	let returnTo = $state(null);
+	/** @type {any} */
+	let digestOpen = $state(null);
+	const digest = $derived(digestOpen ? period(digestOpen.type, digestOpen.idx) : null);
 
 	function closeModal() {
-		if ((modal === 'item') && returnToWeek && weekOpen) { modal = 'week'; itemDraft = null; return; }
-		modal = null; itemDraft = null; themeDraft = null; returnToWeek = false; errMsg = '';
+		errMsg = '';
+		if ((modal === 'item' || modal === 'theme') && returnTo === 'week' && weekOpen) { modal = 'week'; itemDraft = null; themeDraft = null; return; }
+		if ((modal === 'item' || modal === 'theme') && returnTo === 'digest' && digestOpen) { modal = 'digest'; itemDraft = null; themeDraft = null; return; }
+		modal = null; itemDraft = null; themeDraft = null; returnTo = null; digestOpen = null;
+	}
+	/** @param {'month'|'quarter'} type @param {number} idx */
+	function openDigest(type, idx) { clearTip(); digestOpen = { type, idx }; returnTo = null; modal = 'digest'; }
+	/** @param {number} dir */
+	function stepDigest(dir) {
+		if (!digestOpen) return;
+		const max = digestOpen.type === 'month' ? 11 : 3;
+		const idx = digestOpen.idx + dir;
+		if (idx >= 0 && idx <= max) digestOpen = { ...digestOpen, idx };
 	}
 	function openWeek(w) { clearTip(); weekOpen = w; modal = 'week'; }
-	function openItem(it, fromWeek = false) {
+	/** @param {any} it @param {any} from 'week' | 'digest' | true (= week) @param {number|null} week */
+	function openItem(it, from = null, week = null) {
 		clearTip();
-		returnToWeek = fromWeek;
+		returnTo = from === true ? 'week' : from;
 		itemDraft = it
 			? { ...it, activity_ids: [...it.activity_ids] }
-			: { id: null, kind: 'product', ref_id: '', ref_label: '', week: weekOpen ?? currentWeek ?? 1, notes: '', activity_ids: [] };
+			: { id: null, kind: 'product', ref_id: '', ref_label: '', week: week ?? weekOpen ?? currentWeek ?? 1, notes: '', activity_ids: [] };
 		pickQ = ''; pickResults = [];
 		modal = 'item';
 	}
-	function openTheme(t) {
+	/** @param {any} t @param {'week'|'digest'|null} from */
+	function openTheme(t, from = null) {
 		clearTip();
+		returnTo = from;
 		themeDraft = t ? { ...t } : { id: null, name: '', color: THEME_COLORS[themes.length % THEME_COLORS.length], start_week: currentWeek ?? 1, end_week: Math.min(N, (currentWeek ?? 1) + 4), description: '' };
 		modal = 'theme';
 	}
@@ -200,7 +242,7 @@
 			const res = await api('item.create', payload);
 			items = [...items, res];
 		}
-		if (returnToWeek) weekOpen = Number(d.week);
+		if (returnTo === 'week') weekOpen = Number(d.week);
 		closeModal();
 	}
 	async function deleteItem() {
@@ -306,6 +348,9 @@
 					{#each months as m (m.m)}
 						<path id="mpath-{m.m}" d={textArc((R_WEEK_OUT + R_MONTH_OUT) / 2, m.f1, m.f2)} />
 					{/each}
+					{#each quarters as q (q.q)}
+						<path id="qpath-{q.q}" d={textArc((R_MONTH_OUT + R_QUARTER_OUT) / 2 + 1, q.f1, q.f2)} />
+					{/each}
 					{#each themes as t (t.id)}
 						<path id="tpath-{t.id}" d={textArc(R_THEME0 + themeLanes.byId[t.id] * LANE + LANE / 2 - 0.5, wf(t.start_week), t.end_week / N)} />
 					{/each}
@@ -314,20 +359,30 @@
 				<!-- Planning area: one wedge per week, tinted by load -->
 				{#each weeks as w (w)}
 					{@const list = byWeek[w] ?? []}
-					{@const n = list.filter(matches).length}
 					{@const inTheme = hoverTheme && w >= hoverTheme.start_week && w <= hoverTheme.end_week}
 					<path
 						class="wedge"
 						class:hover={hoverWeek === w}
 						class:themed={inTheme}
 						d={sector(R_PLAN_IN, R_PLAN_OUT, wf(w), w / N)}
-						fill={n ? `rgba(245,120,50,${(0.07 + 0.3 * (n / maxCount)).toFixed(3)})` : '#FFFFFF'}
+						fill="#FFFFFF"
 						role="button" tabindex="-1" aria-label="Week {w}"
 						onmousemove={(e) => { hoverWeek = w; moveTip(e, { kind: 'week', week: w }); }}
 						onmouseleave={clearTip}
 						onclick={() => openWeek(w)}
 						onkeydown={() => {}}
 					/>
+				{/each}
+
+				<!-- Ring cells: tinted only where that type has something planned -->
+				{#each weeks as w (w)}
+					{#each KINDS as kind}
+						{@const n = cellCount(w, kind)}
+						{#if n}
+							<path class="cell" d={sector(R_PLAN_IN + BAND * RING[kind], R_PLAN_IN + BAND * (RING[kind] + 1), wf(w), w / N)}
+								fill="rgba(245,120,50,{(0.1 + 0.28 * (n / maxCell)).toFixed(3)})" />
+						{/if}
+					{/each}
 				{/each}
 
 				<!-- Guide rings -->
@@ -387,10 +442,30 @@
 
 				<!-- Months -->
 				{#each months as m (m.m)}
-					<path class="month" d={sector(R_WEEK_OUT + 2, R_MONTH_OUT, m.f1, m.f2)} />
-					<text class="monthlabel">
-						<textPath href="#mpath-{m.m}" startOffset="50%" text-anchor="middle">{m.name.toUpperCase()}</textPath>
-					</text>
+					<g class="period" role="button" tabindex="-1" aria-label={m.name}
+						onmousemove={(e) => moveTip(e, { kind: 'period', p: period('month', m.m) })}
+						onmouseleave={clearTip}
+						onclick={() => openDigest('month', m.m)}
+						onkeydown={() => {}}>
+						<path class="month" d={sector(R_WEEK_OUT + 2, R_MONTH_OUT, m.f1, m.f2)} />
+						<text class="monthlabel">
+							<textPath href="#mpath-{m.m}" startOffset="50%" text-anchor="middle">{m.name.toUpperCase()}</textPath>
+						</text>
+					</g>
+				{/each}
+
+				<!-- Quarters -->
+				{#each quarters as q (q.q)}
+					<g class="period" role="button" tabindex="-1" aria-label={q.name}
+						onmousemove={(e) => moveTip(e, { kind: 'period', p: period('quarter', q.q) })}
+						onmouseleave={clearTip}
+						onclick={() => openDigest('quarter', q.q)}
+						onkeydown={() => {}}>
+						<path class="quarter" d={sector(R_MONTH_OUT + 2, R_QUARTER_OUT, q.f1, q.f2)} />
+						<text class="quarterlabel">
+							<textPath href="#qpath-{q.q}" startOffset="50%" text-anchor="middle">{q.name}</textPath>
+						</text>
+					</g>
 				{/each}
 
 				<!-- Themes -->
@@ -552,6 +627,13 @@
 				{#each tip.item.activity_ids as id}<span class="achip"><span class="mini" style:background={actById[id]?.color}></span>{actById[id]?.name}</span>{:else}<span class="tip-empty">No activities</span>{/each}
 			</div>
 			{#if tip.item.notes}<div class="tip-notes">{tip.item.notes}</div>{/if}
+		{:else if tip.kind === 'period' && tip.p}
+			<div class="tip-title">{tip.p.name} <span>weeks {tip.p.weeks[0]}–{tip.p.weeks[tip.p.weeks.length - 1]}</span></div>
+			<div class="tip-sub">{tip.p.items.length} planned · {tip.p.weeks.filter((w) => byWeek[w]?.length).length}/{tip.p.weeks.length} weeks</div>
+			{#if tip.p.themes.length}
+				<div class="tip-themes">{#each tip.p.themes as t}<span class="tchip" style:background={t.color}>{t.name}</span>{/each}</div>
+			{/if}
+			<div class="tip-empty">Click for the digest</div>
 		{:else if tip.kind === 'theme'}
 			<div class="tip-title"><span class="mini" style:background={tip.theme.color}></span> {tip.theme.name}</div>
 			<div class="tip-sub">Week {tip.theme.start_week} – {tip.theme.end_week} · {fmtDay(w1 + (tip.theme.start_week - 1) * 7 * DAY)} – {fmtDay(w1 + (tip.theme.end_week * 7 - 1) * DAY)}</div>
@@ -582,7 +664,7 @@
 		</header>
 		{#if th.length}
 			<div class="wk-themes">
-				{#each th as t}<button class="tchip" style:background={t.color} onclick={() => openTheme(t)}>{t.name} · w{t.start_week}–{t.end_week}</button>{/each}
+				{#each th as t}<button class="tchip" style:background={t.color} onclick={() => openTheme(t, 'week')}>{t.name} · w{t.start_week}–{t.end_week}</button>{/each}
 			</div>
 		{/if}
 		<div class="wk-list">
@@ -601,6 +683,51 @@
 		<footer>
 			<button class="btn primary" onclick={() => openItem(null, true)}>+ Add instance to week {weekOpen}</button>
 		</footer>
+	</div>
+{/if}
+
+{#if modal === 'digest' && digest}
+	<div class="modal wide" role="dialog" aria-modal="true" transition:scale={{ start: 0.97, duration: 140 }}>
+		<header>
+			<div>
+				<h2>{digest.name}</h2>
+				<p class="sub">Weeks {digest.weeks[0]}–{digest.weeks[digest.weeks.length - 1]} · {digest.items.length} planned · {digest.weeks.filter((w) => byWeek[w]?.length).length}/{digest.weeks.length} weeks covered</p>
+			</div>
+			<div class="wk-nav">
+				<button class="icon-btn" disabled={digest.idx <= 0} onclick={() => stepDigest(-1)} aria-label="Previous">‹</button>
+				<button class="icon-btn" disabled={digest.idx >= (digest.type === 'month' ? 11 : 3)} onclick={() => stepDigest(1)} aria-label="Next">›</button>
+				<button class="icon-btn" onclick={closeModal} aria-label="Close">×</button>
+			</div>
+		</header>
+		{#if digest.themes.length}
+			<div class="wk-themes">
+				{#each digest.themes as t}<button class="tchip" style:background={t.color} onclick={() => openTheme(t, 'digest')}>{t.name} · w{t.start_week}–{t.end_week}</button>{/each}
+			</div>
+		{/if}
+		<div class="dg-list">
+			{#each digest.weeks as w (w)}
+				{@const list = byWeek[w] ?? []}
+				{@const th = themesInWeek(w)}
+				<div class="dg-week" class:empty-week={!list.length} class:current={w === currentWeek}>
+					<div class="dg-head">
+						<span class="dg-wk">Week {w}</span>
+						<span class="dg-dates">{weekRange(w)}</span>
+						<span class="dg-th">{#each th as t}<span class="mini" style:background={t.color} title={t.name}></span>{/each}</span>
+						<span class="spacer"></span>
+						<button class="link" onclick={() => openItem(null, 'digest', w)}>+ Add</button>
+					</div>
+					{#each list as it (it.id)}
+						<button class="wk-item" onclick={() => openItem(it, 'digest')}>
+							<span class="kind k-{it.kind}">{KIND_LABEL[it.kind]}</span>
+							<span class="wk-name">{itemLabel(it)}{#if it.notes}<small>{it.notes}</small>{/if}</span>
+							<span class="wk-acts">
+								{#each it.activity_ids as id}<span class="achip"><span class="mini" style:background={actById[id]?.color}></span>{actById[id]?.name}</span>{/each}
+							</span>
+						</button>
+					{/each}
+				</div>
+			{/each}
+		</div>
 	</div>
 {/if}
 
@@ -763,7 +890,13 @@
 	.weekcell.current { fill: #17834F; }
 	.weeknum { font-size: 12px; font-weight: 800; fill: #7A4A12; text-anchor: middle; pointer-events: none; }
 	.weeknum.current { fill: #fff; }
-	.month { fill: #F57832; stroke: #fff; stroke-width: 3; }
+	.month { fill: #F57832; stroke: #fff; stroke-width: 3; transition: fill .12s; }
+	.quarter { fill: #D9601F; stroke: #fff; stroke-width: 3; transition: fill .12s; }
+	.quarterlabel { font-size: 14px; font-weight: 900; letter-spacing: .12em; fill: #FFE7D3; pointer-events: none; dominant-baseline: middle; }
+	.period { cursor: pointer; }
+	.period:hover .month { fill: #E86A24; }
+	.period:hover .quarter { fill: #C4531A; }
+	.cell { pointer-events: none; }
 	.monthlabel { font-size: 19px; font-weight: 800; letter-spacing: .08em; fill: #fff; pointer-events: none; dominant-baseline: middle; }
 	.theme { cursor: pointer; }
 	.theme path { opacity: .88; transition: opacity .12s; }
@@ -853,6 +986,16 @@
 	.modal .sub { font-size: 13px; color: #71717A; font-weight: 600; margin-top: 2px; }
 	.modal footer { display: flex; align-items: center; gap: 8px; padding: 12px 20px 18px; border-top: 1px solid #F4F4F5; }
 	.wk-nav { display: flex; gap: 2px; }
+	.modal.wide { width: min(720px, calc(100vw - 32px)); }
+	.dg-list { overflow-y: auto; padding: 0 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+	.dg-week { display: flex; flex-direction: column; gap: 4px; border-left: 3px solid #FBC9A3; padding-left: 10px; }
+	.dg-week.empty-week { border-left-color: #EEE8DA; }
+	.dg-week.current { border-left-color: #17834F; }
+	.dg-head { display: flex; align-items: center; gap: 8px; }
+	.dg-wk { font-weight: 900; font-size: 14px; color: #18181B; }
+	.dg-dates { font-size: 12px; color: #71717A; font-weight: 600; }
+	.dg-th { display: inline-flex; gap: 3px; }
+	.empty-week .dg-wk { color: #A1A1AA; }
 	.wk-themes { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 10px; }
 	.wk-list { overflow-y: auto; padding: 0 12px 10px; display: flex; flex-direction: column; gap: 4px; }
 	.wk-item { display: flex; align-items: center; gap: 10px; border: 1px solid #F1EDE3; background: #fff; border-radius: 10px; padding: 9px 10px; text-align: left; flex-wrap: wrap; }
