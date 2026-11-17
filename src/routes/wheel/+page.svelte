@@ -74,7 +74,9 @@
 		const f1 = frac(Date.UTC(year, m, 1));
 		const f2 = frac(Date.UTC(year, m + 1, 1));
 		return { name, m, f1, f2 };
-	}).filter((m) => m.f2 - m.f1 > 0.004));
+	}).filter((m) => m.f2 - m.f1 > 0.004).map((m, i, all) => ({
+		...m, f1: i === 0 ? 0 : m.f1, f2: i === all.length - 1 ? 1 : m.f2,
+	})));
 
 	// ── Derived planning data ────────────────────────────────────────────────
 	const actById = $derived(Object.fromEntries(activities.map((a) => [a.id, a])));
@@ -328,9 +330,6 @@
 				{#each [0.33, 0.66] as g}
 					<circle cx={C} cy={C} r={R_PLAN_IN + (R_PLAN_OUT - R_PLAN_IN) * g} class="guide" />
 				{/each}
-				{#each months as m (m.m)}
-					<line class="guide" x1={pt(R_PLAN_IN, m.f1)[0]} y1={pt(R_PLAN_IN, m.f1)[1]} x2={pt(R_PLAN_OUT, m.f1)[0]} y2={pt(R_PLAN_OUT, m.f1)[1]} />
-				{/each}
 
 				<!-- Item dots -->
 				{#each weeks as w (w)}
@@ -424,14 +423,6 @@
 				<text x={C} y={C - 34} class="hub-kicker">MARKETING WHEEL</text>
 				<text x={C} y={C + 18} class="hub-year">{year}</text>
 				<text x={C} y={C + 48} class="hub-sub">{items.length} planned · {plannedWeeks}/{N} weeks</text>
-				<g class="hub-nav" role="button" tabindex="0" aria-label="Previous year" onclick={() => gotoYear(year - 1)} onkeydown={(e) => e.key === 'Enter' && gotoYear(year - 1)}>
-					<circle cx={C - 78} cy={C + 6} r="16" />
-					<path d="M {C - 75} {C - 1} l -7 7 l 7 7" />
-				</g>
-				<g class="hub-nav" role="button" tabindex="0" aria-label="Next year" onclick={() => gotoYear(year + 1)} onkeydown={(e) => e.key === 'Enter' && gotoYear(year + 1)}>
-					<circle cx={C + 78} cy={C + 6} r="16" />
-					<path d="M {C + 75} {C - 1} l 7 7 l -7 7" />
-				</g>
 			</svg>
 		</div>
 
@@ -759,11 +750,6 @@
 	.hub-kicker { font-size: 12px; font-weight: 800; letter-spacing: .2em; fill: #CDEBD9; text-anchor: middle; }
 	.hub-year { font-size: 56px; font-weight: 900; fill: #fff; text-anchor: middle; }
 	.hub-sub { font-size: 11.5px; font-weight: 700; fill: #CDEBD9; text-anchor: middle; }
-	.hub-nav { cursor: pointer; }
-	.hub-nav circle { fill: rgba(255,255,255,.12); transition: fill .12s; }
-	.hub-nav:hover circle { fill: rgba(255,255,255,.28); }
-	.hub-nav path { fill: none; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-	.hub-nav:focus { outline: none; }
 
 	/* Sidebar */
 	.side { width: 300px; flex-shrink: 0; background: #fff; border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 18px; display: flex; flex-direction: column; gap: 18px; position: sticky; top: 16px; }
