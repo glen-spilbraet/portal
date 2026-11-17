@@ -875,6 +875,7 @@
 	.wheel { width: 100%; max-width: 920px; max-height: calc(100vh - 110px); height: auto; user-select: none; }
 
 	/* Wheel parts */
+	.wheel :focus, .wheel :focus-visible { outline: none; }
 	.wedge { stroke: #EEF0E6; stroke-width: 1; cursor: pointer; transition: fill .15s; }
 	.wedge.hover { fill: #FDE3CF; }
 	.wedge.themed { stroke: #17834F; stroke-width: 1.5; }
