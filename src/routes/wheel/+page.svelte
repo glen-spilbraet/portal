@@ -2,6 +2,11 @@
 	import AppNav from '$lib/components/AppNav.svelte';
 	import { goto } from '$app/navigation';
 	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
+
+	// Shared motion: modals ease in a touch slower than they leave.
+	const M_IN = { start: 0.96, duration: 200, easing: cubicOut };
+	const M_OUT = { start: 0.98, duration: 130 };
 
 	let { data } = $props();
 
@@ -163,8 +168,13 @@
 	let hoverWeek = $state(null);
 	/** @type {any} */
 	let hoverTheme = $state(null);
-	function moveTip(e, payload) { tip = { x: e.clientX, y: e.clientY, ...payload }; }
-	function clearTip() { tip = null; hoverWeek = null; hoverTheme = null; }
+	/** @type {any} */
+	let tipTimer;
+	function moveTip(e, payload) { clearTimeout(tipTimer); tip = { x: e.clientX, y: e.clientY, ...payload }; }
+	function clearTip() {
+		clearTimeout(tipTimer);
+		tipTimer = setTimeout(() => { tip = null; hoverWeek = null; hoverTheme = null; }, 70);
+	}
 
 	// ── Year navigation ──────────────────────────────────────────────────────
 	function gotoYear(y) { clearTip(); goto(`?year=${y}`, { noScroll: true, keepFocus: true }); }
@@ -379,7 +389,7 @@
 					{#each KINDS as kind}
 						{@const n = cellCount(w, kind)}
 						{#if n}
-							<path class="cell" d={sector(R_PLAN_IN + BAND * RING[kind], R_PLAN_IN + BAND * (RING[kind] + 1), wf(w), w / N)}
+							<path class="cell" in:fade={{ duration: 260 }} d={sector(R_PLAN_IN + BAND * RING[kind], R_PLAN_IN + BAND * (RING[kind] + 1), wf(w), w / N)}
 								fill="rgba(245,120,50,{(0.1 + 0.28 * (n / maxCell)).toFixed(3)})" />
 						{/if}
 					{/each}
@@ -400,6 +410,7 @@
 						{#each inRing.slice(0, shown) as it, i (it.id)}
 							{@const [x, y] = pt(slotR(kind, i), fmid)}
 							<g
+								in:fade={{ duration: 260 }}
 								class="dot"
 								class:dim={!matches(it)}
 								role="button" tabindex="-1" aria-label={itemLabel(it)}
@@ -600,7 +611,7 @@
 
 <!-- ── Tooltip ────────────────────────────────────────────────────── -->
 {#if tip && !modal}
-	<div class="tip" style:left="{tip.x + 16}px" style:top="{tip.y + 16}px">
+	<div class="tip" in:fade={{ duration: 120 }} out:fade={{ duration: 100 }} style:left="{tip.x + 16}px" style:top="{tip.y + 16}px">
 		{#if tip.kind === 'week'}
 			{@const list = byWeek[tip.week] ?? []}
 			{@const th = themesInWeek(tip.week)}
@@ -644,13 +655,13 @@
 
 <!-- ── Modals ──────────────────────────────────────────────────────── -->
 {#if modal}
-	<div class="backdrop" transition:fade={{ duration: 120 }} onclick={closeModal} role="presentation"></div>
+	<div class="backdrop" in:fade={{ duration: 180 }} out:fade={{ duration: 150 }} onclick={closeModal} role="presentation"></div>
 {/if}
 
 {#if modal === 'week' && weekOpen != null}
 	{@const list = byWeek[weekOpen] ?? []}
 	{@const th = themesInWeek(weekOpen)}
-	<div class="modal" role="dialog" aria-modal="true" transition:scale={{ start: 0.97, duration: 140 }}>
+	<div class="modal" role="dialog" aria-modal="true" in:scale={M_IN} out:scale={M_OUT}>
 		<header>
 			<div>
 				<h2>Week {weekOpen}</h2>
@@ -667,7 +678,8 @@
 				{#each th as t}<button class="tchip" style:background={t.color} onclick={() => openTheme(t, 'week')}>{t.name} · w{t.start_week}–{t.end_week}</button>{/each}
 			</div>
 		{/if}
-		<div class="wk-list">
+		{#key weekOpen}
+		<div class="wk-list" in:fade={{ duration: 160 }}>
 			{#each list as it (it.id)}
 				<button class="wk-item" onclick={() => openItem(it, true)}>
 					<span class="kind k-{it.kind}">{KIND_LABEL[it.kind]}</span>
@@ -680,6 +692,7 @@
 				<p class="empty pad">Nothing planned this week yet.</p>
 			{/each}
 		</div>
+		{/key}
 		<footer>
 			<button class="btn primary" onclick={() => openItem(null, true)}>+ Add instance to week {weekOpen}</button>
 		</footer>
@@ -687,7 +700,7 @@
 {/if}
 
 {#if modal === 'digest' && digest}
-	<div class="modal wide" role="dialog" aria-modal="true" transition:scale={{ start: 0.97, duration: 140 }}>
+	<div class="modal wide" role="dialog" aria-modal="true" in:scale={M_IN} out:scale={M_OUT}>
 		<header>
 			<div>
 				<h2>{digest.name}</h2>
@@ -704,7 +717,8 @@
 				{#each digest.themes as t}<button class="tchip" style:background={t.color} onclick={() => openTheme(t, 'digest')}>{t.name} · w{t.start_week}–{t.end_week}</button>{/each}
 			</div>
 		{/if}
-		<div class="dg-list">
+		{#key digestOpen?.type + digestOpen?.idx}
+		<div class="dg-list" in:fade={{ duration: 160 }}>
 			{#each digest.weeks as w (w)}
 				{@const list = byWeek[w] ?? []}
 				{@const th = themesInWeek(w)}
@@ -728,11 +742,12 @@
 				</div>
 			{/each}
 		</div>
+		{/key}
 	</div>
 {/if}
 
 {#if modal === 'item' && itemDraft}
-	<div class="modal" role="dialog" aria-modal="true" transition:scale={{ start: 0.97, duration: 140 }}>
+	<div class="modal" role="dialog" aria-modal="true" in:scale={M_IN} out:scale={M_OUT}>
 		<header>
 			<h2>{itemDraft.id ? 'Edit instance' : 'New instance'}</h2>
 			<button class="icon-btn" onclick={closeModal} aria-label="Close">×</button>
@@ -756,7 +771,7 @@
 					<input autofocus placeholder="Search {KIND_LABEL[itemDraft.kind].toLowerCase()}s…" bind:value={pickQ} oninput={onPickInput} />
 					{#if pickLoading}<span class="pk-load">…</span>{/if}
 					{#if pickResults.length}
-						<ul class="pk-results">
+						<ul class="pk-results" in:fade={{ duration: 120 }}>
 							{#each pickResults as r}
 								<li><button onclick={() => choose(r)}>{r.label}{#if r.sub && r.sub !== r.label}<small>{r.sub}</small>{/if}</button></li>
 							{/each}
@@ -797,7 +812,7 @@
 {/if}
 
 {#if modal === 'theme' && themeDraft}
-	<div class="modal" role="dialog" aria-modal="true" transition:scale={{ start: 0.97, duration: 140 }}>
+	<div class="modal" role="dialog" aria-modal="true" in:scale={M_IN} out:scale={M_OUT}>
 		<header>
 			<h2>{themeDraft.id ? 'Edit theme' : 'New theme'}</h2>
 			<button class="icon-btn" onclick={closeModal} aria-label="Close">×</button>
@@ -841,7 +856,7 @@
 {/if}
 
 {#if modal === 'activities'}
-	<div class="modal" role="dialog" aria-modal="true" transition:scale={{ start: 0.97, duration: 140 }}>
+	<div class="modal" role="dialog" aria-modal="true" in:scale={M_IN} out:scale={M_OUT}>
 		<header>
 			<h2>Activities</h2>
 			<button class="icon-btn" onclick={() => { modal = itemDraft ? 'item' : null; }} aria-label="Close">×</button>
@@ -876,23 +891,25 @@
 
 	/* Wheel parts */
 	.wheel :focus, .wheel :focus-visible { outline: none; }
-	.wedge { stroke: #EEF0E6; stroke-width: 1; cursor: pointer; transition: fill .15s; }
+	.wedge { stroke: #EEF0E6; stroke-width: 1; cursor: pointer; transition: fill .2s ease, stroke .2s ease; }
 	.wedge.hover { fill: #FDE3CF; }
 	.wedge.themed { stroke: #17834F; stroke-width: 1.5; }
 	.guide { fill: none; stroke: #E8EBDD; stroke-width: 1.2; pointer-events: none; }
-	.dot { cursor: pointer; transition: opacity .15s; }
+	.dot { cursor: pointer; transition: opacity .25s ease, transform .18s ease; transform-box: fill-box; transform-origin: center; }
+	.dot:hover { transform: scale(1.3); }
+	.cell { transition: fill .3s ease; }
 	.dot:hover .dot-ring { stroke: #18181B; stroke-width: 2; }
 	.dot-ring { fill: none; stroke: #fff; stroke-width: 1.5; }
 	.dot.dim { opacity: .12; }
 	.more { font-size: 10px; font-weight: 800; fill: #9A5B00; text-anchor: middle; pointer-events: none; }
-	.weekcell { fill: #FFF6DA; stroke: #FFFFFF; stroke-width: 1.5; cursor: pointer; }
+	.weekcell { fill: #FFF6DA; stroke: #FFFFFF; stroke-width: 1.5; cursor: pointer; transition: fill .2s ease; }
 	.weekcell.has { fill: #FFE7BF; }
 	.weekcell.hover { fill: #FBC9A3; }
 	.weekcell.current { fill: #17834F; }
 	.weeknum { font-size: 12px; font-weight: 800; fill: #7A4A12; text-anchor: middle; pointer-events: none; }
 	.weeknum.current { fill: #fff; }
-	.month { fill: #F57832; stroke: #fff; stroke-width: 3; transition: fill .12s; }
-	.quarter { fill: #D9601F; stroke: #fff; stroke-width: 3; transition: fill .12s; }
+	.month { fill: #F57832; stroke: #fff; stroke-width: 3; transition: fill .2s ease; }
+	.quarter { fill: #D9601F; stroke: #fff; stroke-width: 3; transition: fill .2s ease; }
 	.quarterlabel { font-size: 14px; font-weight: 900; letter-spacing: .12em; fill: #FFE7D3; pointer-events: none; dominant-baseline: middle; }
 	.period { cursor: pointer; }
 	.period:hover .month { fill: #E86A24; }
@@ -900,7 +917,7 @@
 	.cell { pointer-events: none; }
 	.monthlabel { font-size: 19px; font-weight: 800; letter-spacing: .08em; fill: #fff; pointer-events: none; dominant-baseline: middle; }
 	.theme { cursor: pointer; }
-	.theme path { opacity: .88; transition: opacity .12s; }
+	.theme path { opacity: .88; transition: opacity .2s ease, filter .2s ease; }
 	.theme.hover path, .theme:hover path { opacity: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.25)); }
 	.themelabel { font-size: 12px; font-weight: 800; fill: #fff; pointer-events: none; dominant-baseline: middle; }
 	.today { stroke: #17834F; stroke-width: 2; stroke-dasharray: 4 3; pointer-events: none; }
@@ -960,6 +977,12 @@
 	.r-product { fill: #FDEFE2; }
 	.r-series { fill: #EDE9FE; }
 	.r-publisher { fill: #E3F3EA; }
+
+	/* Smooth hover states for every interactive control */
+	.btn, .icon-btn, .link, .wk-item, .seg button, .act-pill, .sw, .legend, .up, .pk-results button, .tchip, .chosen {
+		transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease, opacity .2s ease, filter .16s ease, transform .16s ease;
+	}
+	.btn:active, .act-pill:active, .sw:active { transform: scale(.97); }
 
 	/* Tooltip */
 	.tip { position: fixed; z-index: 300; pointer-events: none; background: #18181B; color: #fff; border-radius: 10px; padding: 10px 12px; max-width: 300px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.2); }
