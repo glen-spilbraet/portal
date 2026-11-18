@@ -38,12 +38,13 @@ export async function countSheets(db) {
 /**
  * Sheets still missing required info (the "Todo" filter): any of the
  * primary-language short description, long description or bullets, or an image
- * (3D box OR flat front — either one is enough). Returns the same row shape as listSheets so the
+ * (3D box OR flat front — either one is enough), or a 3D box photo that is a
+ * legacy crop (uploaded before the box cropper, box_processed = 0). Returns the same row shape as listSheets so the
  * overview renders them identically.
  */
 export async function listIncompleteSheets(db) {
 	const rows = await db.prepare(`
-		SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.box_image_key AS box_3d_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at,
+		SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.box_image_key AS box_3d_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at, s.box_processed,
 		       COALESCE(u.first_name, '') as creator_first_name,
 		       t_en.value as name_en, t_da.value as name_da, t_sv.value as name_sv, t_no.value as name_no,
 		       COALESCE(s.usp_count, 3) as usp_count,
@@ -64,6 +65,7 @@ export async function listIncompleteSheets(db) {
 	return (rows.results ?? []).filter((s) => {
 		const uspCount = s.usp_count ?? 3;
 		return !s.box_image_key // = 3D box, else flat front (DEFAULT_IMAGE_SQL)
+			|| (s.box_3d_key && !s.box_processed) // legacy 3D crop — re-crop with the box cropper
 			|| !s.has_short_primary
 			|| !s.has_long_primary
 			|| uspCount < 1 || (s.usp_filled_primary ?? 0) < uspCount;
