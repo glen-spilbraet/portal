@@ -433,7 +433,40 @@
 		await fetch(`/api/images/${img.id}/crop`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cropX, cropY }) });
 		flashSaved(); await invalidateAll();
 	}
-	const imgUrl = (key) => `/api/img/${key}`;
+	// Editor previews: small WebP widths from the image CDN (same R2 bucket as the
+	// shop; made once and cached) instead of full-size originals.
+	const thumbUrl = (key, w = 300) => `https://img.spilbraet.dk/${key}?w=${w}`;
+
+	// The CDN can't resize originals over 20 MB and serves the full file instead.
+	// When a "300px" thumb arrives wider than 300px, it was that fallback: make the
+	// WebP widths here from the already-loaded image and store them where the CDN
+	// looks (<key>_<w>.webp), so it's only slow this once — for the shop too.
+	const CDN_WIDTHS = [300, 600, 1000, 1600];
+	const healed = new Set();
+	const variantKeyOf = (key, w) => {
+		const slash = key.lastIndexOf('/'), dot = key.lastIndexOf('.');
+		return `${dot > slash ? key.slice(0, dot) : key}_${w}.webp`;
+	};
+	async function healThumb(ev, key) {
+		const el = ev.currentTarget;
+		if (!key || el.naturalWidth <= 300 || healed.has(key)) return;
+		healed.add(key);
+		try {
+			for (const w of CDN_WIDTHS) {
+				const scale = Math.min(1, w / el.naturalWidth);
+				const canvas = document.createElement('canvas');
+				canvas.width = Math.round(el.naturalWidth * scale);
+				canvas.height = Math.round(el.naturalHeight * scale);
+				canvas.getContext('2d').drawImage(el, 0, 0, canvas.width, canvas.height);
+				const blob = await new Promise((r) => canvas.toBlob(r, 'image/webp', 0.82));
+				if (!blob) return;
+				const fd = new FormData();
+				fd.append('file', new File([blob], 'v.webp', { type: 'image/webp' }));
+				fd.append('variantKey', variantKeyOf(key, w));
+				await fetch('/api/images', { method: 'POST', body: fd });
+			}
+		} catch (e) { console.warn('thumbnail variants failed', key, e); }
+	}
 
 	// hidden file inputs
 	let boxInput, flatInput, contentInput, gridInput;
@@ -668,7 +701,7 @@
 						<div class="art">
 							<div class="art-card">
 								{#if a.image_key}
-									<img class="art-img" src={imgUrl(a.image_key)} alt="" />
+									<img class="art-img" src={thumbUrl(a.image_key)} crossorigin="anonymous" onload={(e) => healThumb(e, a.image_key)} alt="" loading="lazy" decoding="async" />
 								{:else if a.image_url}
 									<img class="art-img" src={a.image_url} alt="" />
 								{:else}
@@ -709,7 +742,7 @@
 				<div class="box-row">
 					<div class="box-slot">
 						<span class="slot-label">3D <em>(sheet main)</em></span>
-						{#if data.sheet.box_image_key}<img src={imgUrl(data.sheet.box_image_key)} alt="" />{:else}<div class="ph">No 3D photo</div>{/if}
+						{#if data.sheet.box_image_key}<img src={thumbUrl(data.sheet.box_image_key)} crossorigin="anonymous" onload={(e) => healThumb(e, data.sheet.box_image_key)} alt="" decoding="async" />{:else}<div class="ph">No 3D photo</div>{/if}
 						{#if data.sheet.box_image_key}
 							{#if data.sheet.box_processed}
 								<span class="box-tag ok" title="Made with the box cropper (square + padding)">✓ New crop</span>
@@ -725,7 +758,7 @@
 					</div>
 					<div class="box-slot">
 						<span class="slot-label">Flat <em>(webshop)</em></span>
-						{#if data.sheet.box_flat_image_key}<img src={imgUrl(data.sheet.box_flat_image_key)} alt="" />{:else}<div class="ph">No flat photo</div>{/if}
+						{#if data.sheet.box_flat_image_key}<img src={thumbUrl(data.sheet.box_flat_image_key)} crossorigin="anonymous" onload={(e) => healThumb(e, data.sheet.box_flat_image_key)} alt="" decoding="async" />{:else}<div class="ph">No flat photo</div>{/if}
 						<div class="slot-actions">
 							<button class="mini" onclick={() => flatInput.click()} disabled={uploading === 'box_flat'}>{uploading === 'box_flat' ? 'Uploading…' : 'Replace'}</button>
 							{#if data.sheet.box_flat_image_key}<button class="mini danger" onclick={clearBoxFlat}>Remove</button>{/if}
@@ -739,7 +772,7 @@
 				<div class="group-head"><h3>Content <em>(webshop)</em></h3><button class="mini" onclick={() => contentInput.click()} disabled={uploading === 'content'}>{uploading === 'content' ? 'Uploading…' : '+ Add'}</button></div>
 				<input type="file" accept="image/*" bind:this={contentInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'content'); e.currentTarget.value = ''; }} hidden />
 				{#if data.contentImages.length}
-					<div class="thumbs">{#each data.contentImages as img (img.id)}<div class="thumb"><img src={imgUrl(img.r2_key)} alt="" /><button class="x" onclick={() => deleteImg(img.id)}>✕</button></div>{/each}</div>
+					<div class="thumbs">{#each data.contentImages as img (img.id)}<div class="thumb"><img src={thumbUrl(img.r2_key)} crossorigin="anonymous" onload={(e) => healThumb(e, img.r2_key)} alt="" loading="lazy" decoding="async" /><button class="x" onclick={() => deleteImg(img.id)}>✕</button></div>{/each}</div>
 				{:else}<p class="empty">No content images.</p>{/if}
 			</div>
 
@@ -757,7 +790,7 @@
 					<div class="thumbs">{#each data.images as img (img.id)}
 						<div class="thumb">
 							<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-							<img src={imgUrl(img.r2_key)} alt="" title="Click to set focal point" style="object-position:{img.crop_x ?? 50}% {img.crop_y ?? 50}%" onclick={(e) => setFocal(e, img)} />
+							<img src={thumbUrl(img.r2_key)} crossorigin="anonymous" onload={(e) => healThumb(e, img.r2_key)} alt="" loading="lazy" decoding="async" title="Click to set focal point" style="object-position:{img.crop_x ?? 50}% {img.crop_y ?? 50}%" onclick={(e) => setFocal(e, img)} />
 							<button class="x" onclick={() => deleteImg(img.id)}>✕</button>
 						</div>
 					{/each}</div>
