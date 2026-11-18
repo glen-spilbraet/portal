@@ -12,6 +12,7 @@
 import { sanitizeMarkets } from '$lib/server/webshopMarkets.js';
 
 /** Webshop market → text language. Poland uses the English texts (no Polish translations). */
+/** @type {Record<string, string>} */
 export const MARKET_LANG = { DK: 'da', SE: 'sv', NO: 'no', INT: 'en', PL: 'en' };
 export const TEXT_LANGS = ['da', 'sv', 'no', 'en'];
 
@@ -66,7 +67,7 @@ export async function loadMarketResolver(salesDb) {
 /** @param {string[]} markets @param {string | null | undefined} primary */
 export function requiredLangs(markets, primary) {
 	const langs = [...new Set(markets.map((m) => MARKET_LANG[m]).filter(Boolean))];
-	return langs.length ? langs : [TEXT_LANGS.includes(primary ?? '') ? primary : 'da'];
+	return langs.length ? langs : [primary && TEXT_LANGS.includes(primary) ? primary : 'da'];
 }
 
 /**
