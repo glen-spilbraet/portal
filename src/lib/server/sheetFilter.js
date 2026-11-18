@@ -14,9 +14,9 @@
 /** @typedef {import('@cloudflare/workers-types').D1Database} D1 */
 
 import { MARKETS, sanitizeMarkets } from '$lib/server/webshopMarkets.js';
+import { TEXT_JOIN_SQL, TEXT_COLUMNS_SQL, loadMarketResolver, requiredLangs, missingTexts } from '$lib/server/sheetTexts.js';
 
 export const MISSING_KEYS = ['age', 'time', 'players', 'pieces', 'gametype', 'type', 'short', 'bullets', 'long'];
-const skuPrefix = (sku) => (String(sku ?? '').match(/^[A-Za-z]+/)?.[0] ?? '').toUpperCase();
 const lc = (s) => String(s ?? '').trim().toLowerCase();
 
 /** Parse + validate the query string. @param {URLSearchParams} p */
@@ -55,46 +55,36 @@ export async function filterOptions(salesDb) {
  * @param {ReturnType<typeof parseFilter>} f
  */
 export async function filterSheets(db, salesDb, f) {
-	// ── Sheets + texts (primary language) + names, one aggregate pass ───────
+	// ── Sheets + texts (da/sv/no/en) + names, one aggregate pass ───────────
+	// Texts are checked in the languages of the sheet's published markets (sheetTexts.js).
 	const sheets = (await db.prepare(
 		`SELECT s.id, s.sku, COALESCE(NULLIF(s.box_image_key, ''), NULLIF(s.box_flat_image_key, '')) AS box_image_key, s.updated_at, s.featured_at, s.data_fields,
-		        s.preorder_date, s.restock_date, COALESCE(s.usp_count, 3) AS usp_count,
-		        MAX(CASE WHEN t.key = 'product_name' AND t.language = 'en' THEN t.value END) AS name_en,
-		        MAX(CASE WHEN t.key = 'product_name' AND t.language = 'da' THEN t.value END) AS name_da,
-		        MAX(CASE WHEN t.key = 'product_name' AND t.language = 'sv' THEN t.value END) AS name_sv,
-		        MAX(CASE WHEN t.key = 'product_name' AND t.language = 'no' THEN t.value END) AS name_no,
-		        MAX(CASE WHEN t.key = 'product_description' AND t.language = s.primary_language THEN 1 ELSE 0 END) AS has_short,
-		        MAX(CASE WHEN t.key = 'long_description' AND t.language = s.primary_language THEN 1 ELSE 0 END) AS has_long,
-		        SUM(CASE WHEN t.key LIKE 'usp\\_%' ESCAPE '\\' AND t.language = s.primary_language THEN 1 ELSE 0 END) AS usp_filled
+		        s.preorder_date, s.restock_date, COALESCE(s.usp_count, 3) AS usp_count, s.primary_language,
+		        (SELECT value FROM translations WHERE sheet_id = s.id AND language = 'en' AND key = 'product_name') AS name_en,
+		        (SELECT value FROM translations WHERE sheet_id = s.id AND language = 'da' AND key = 'product_name') AS name_da,
+		        (SELECT value FROM translations WHERE sheet_id = s.id AND language = 'sv' AND key = 'product_name') AS name_sv,
+		        (SELECT value FROM translations WHERE sheet_id = s.id AND language = 'no' AND key = 'product_name') AS name_no,
+		        ${TEXT_COLUMNS_SQL}
 		 FROM sales_sheets s
-		 LEFT JOIN translations t ON t.sheet_id = s.id AND trim(COALESCE(t.value, '')) != ''
-		   AND (t.key IN ('product_name', 'product_description', 'long_description') OR t.key LIKE 'usp\\_%' ESCAPE '\\')
+		 LEFT JOIN translations tx ON tx.sheet_id = s.id AND ${TEXT_JOIN_SQL}
 		 WHERE trim(COALESCE(s.sku, '')) != ''
 		 GROUP BY s.id`
 	).all()).results ?? [];
 
 	// ── SALES_DB lookups: mapping, category groups, webshop state ──────────
-	const [pfx, ovr, groups, cats, web, lic] = await Promise.all([
-		salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix').all(),
-		salesDb.prepare('SELECT lower(sku) AS sku, publisher FROM product_publisher_override').all(),
+	const [groups, cats, marketsOf] = await Promise.all([
 		salesDb.prepare(`SELECT g.id, lower(COALESCE((SELECT label FROM category_label WHERE object_type = 'group' AND object_id = g.id AND language = 'en'),
 		                   (SELECT label FROM category_label WHERE object_type = 'group' AND object_id = g.id AND language = 'da'), '')) AS name
 		                 FROM category_group g`).all().catch(() => ({ results: [] })),
 		salesDb.prepare('SELECT lower(pc.sku) AS sku, c.group_id FROM product_category pc JOIN category c ON c.id = pc.category_id').all().catch(() => ({ results: [] })),
-		salesDb.prepare('SELECT lower(sku) AS sku, published_markets, override_license FROM product_webshop').all().catch(() => ({ results: [] })),
-		salesDb.prepare('SELECT publisher, market FROM publisher_market').all().catch(() => ({ results: [] })),
+		loadMarketResolver(salesDb),
 	]);
-	const prefixMap = new Map((pfx.results ?? []).map((r) => [String(r.prefix).toUpperCase(), r.publisher]));
-	const overrideMap = new Map((ovr.results ?? []).map((r) => [r.sku, r.publisher]));
 	// The two managed category groups, checked separately ("Game Type", "Type").
 	const groupId = (name) => (groups.results ?? []).find((g) => g.name === name)?.id ?? null;
 	const gameTypeGroup = groupId('game type');
 	const typeGroup = groupId('type');
 	const groupsOf = new Map();
 	for (const r of cats.results ?? []) (groupsOf.get(r.sku) ?? groupsOf.set(r.sku, new Set()).get(r.sku)).add(r.group_id);
-	const webOf = new Map((web.results ?? []).map((r) => [r.sku, r]));
-	const licOf = new Map();
-	for (const r of lic.results ?? []) (licOf.get(r.publisher) ?? licOf.set(r.publisher, []).get(r.publisher)).push(r.market);
 
 	const field = (df, key) => {
 		try { return String((JSON.parse(df || '[]').find((x) => x.key === key)?.value) ?? '').trim(); } catch { return ''; }
@@ -105,8 +95,7 @@ export async function filterSheets(db, salesDb, f) {
 	for (const s of sheets) {
 		const sku = String(s.sku).trim();
 		const key = sku.toLowerCase();
-		const pfxPub = prefixMap.get(skuPrefix(sku)) ?? skuPrefix(sku) ?? null;
-		const mappedPub = overrideMap.get(key) ?? pfxPub;
+		const { pfxPub, mappedPub, markets } = marketsOf(sku);
 		const publisher = f.pubMode === 'sku' ? pfxPub : mappedPub;
 		if (pub && lc(publisher) !== pub) continue;
 		if (f.featured && !s.featured_at) continue;
@@ -115,13 +104,6 @@ export async function filterSheets(db, salesDb, f) {
 		const names = [s.name_en, s.name_da, s.name_sv, s.name_no].filter(Boolean);
 		if (q && !key.includes(q) && !names.some((n) => lc(n).includes(q))) continue;
 
-		// Effective webshop markets: explicit list (limited by the publisher
-		// licence unless "override licence"), else everything the licence allows.
-		const w = webOf.get(key);
-		const licence = sanitizeMarkets(licOf.get(mappedPub) ?? []);
-		let explicit = null;
-		if (w?.published_markets != null) { try { explicit = sanitizeMarkets(JSON.parse(w.published_markets)); } catch { explicit = []; } }
-		const markets = explicit == null ? licence : w?.override_license ? explicit : explicit.filter((m) => licence.includes(m));
 		if (f.marketsNone || f.markets.length) {
 			const ok = (f.marketsNone && !markets.length) || (f.markets.length && f.markets.some((m) => markets.includes(m)));
 			if (!ok) continue;
@@ -135,9 +117,7 @@ export async function filterSheets(db, salesDb, f) {
 		if (!field(s.data_fields, 'pieces')) missing.push('pieces');
 		if (gameTypeGroup && !has.has(gameTypeGroup)) missing.push('gametype');
 		if (typeGroup && !has.has(typeGroup)) missing.push('type');
-		if (!s.has_short) missing.push('short');
-		if ((s.usp_count ?? 3) < 1 || (s.usp_filled ?? 0) < (s.usp_count ?? 3)) missing.push('bullets');
-		if (!s.has_long) missing.push('long');
+		missing.push(...missingTexts(s, requiredLangs(markets, s.primary_language)));
 		if (f.missing.length) {
 			const hit = f.missingMode === 'all' ? f.missing.every((k) => missing.includes(k)) : f.missing.some((k) => missing.includes(k));
 			if (!hit) continue;

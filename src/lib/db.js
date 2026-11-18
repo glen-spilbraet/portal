@@ -36,39 +36,43 @@ export async function countSheets(db) {
 }
 
 /**
- * Sheets still missing required info (the "Todo" filter): any of the
- * primary-language short description, long description or bullets, or an image
- * (3D box OR flat front — either one is enough), or a 3D box photo that is a
- * legacy crop (uploaded before the box cropper, box_processed = 0). Returns the same row shape as listSheets so the
- * overview renders them identically.
+ * Sheets still missing required info (the "Todo" filter): short description,
+ * long description or bullets in the language of every webshop market the sheet
+ * is published in (primary language if it isn't published anywhere yet), or no
+ * image (3D box OR flat front — either one is enough), or a 3D box photo that is
+ * a legacy crop (uploaded before the box cropper, box_processed = 0). Returns the
+ * same row shape as listSheets so the overview renders them identically.
+ * @param {any} db app DB  @param {any} salesDb publisher mapping + webshop markets
  */
-export async function listIncompleteSheets(db) {
-	const rows = await db.prepare(`
-		SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.box_image_key AS box_3d_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at, s.box_processed,
+export async function listIncompleteSheets(db, salesDb) {
+	const { TEXT_JOIN_SQL, TEXT_COLUMNS_SQL, loadMarketResolver, requiredLangs, missingTexts } = await import('$lib/server/sheetTexts.js');
+	const [rows, marketsOf] = await Promise.all([
+		db.prepare(`
+		SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.box_image_key AS box_3d_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at, s.box_processed, s.primary_language,
 		       COALESCE(u.first_name, '') as creator_first_name,
 		       t_en.value as name_en, t_da.value as name_da, t_sv.value as name_sv, t_no.value as name_no,
 		       COALESCE(s.usp_count, 3) as usp_count,
-		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'en' AND key LIKE 'usp_%' AND value != '') as usp_filled_en,
-		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'da' AND key LIKE 'usp_%' AND value != '') as usp_filled_da,
-		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'sv' AND key LIKE 'usp_%' AND value != '') as usp_filled_sv,
-		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'no' AND key LIKE 'usp_%' AND value != '') as usp_filled_no,
-		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND key = 'product_description' AND language = s.primary_language AND trim(value) != '') as has_short_primary,
-		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND key = 'long_description' AND language = s.primary_language AND trim(value) != '') as has_long_primary,
-		       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND key LIKE 'usp_%' AND language = s.primary_language AND trim(value) != '') as usp_filled_primary
+		       SUM(CASE WHEN tx.language = 'en' AND tx.key LIKE 'usp\\_%' ESCAPE '\\' THEN 1 ELSE 0 END) as usp_filled_en,
+		       SUM(CASE WHEN tx.language = 'da' AND tx.key LIKE 'usp\\_%' ESCAPE '\\' THEN 1 ELSE 0 END) as usp_filled_da,
+		       SUM(CASE WHEN tx.language = 'sv' AND tx.key LIKE 'usp\\_%' ESCAPE '\\' THEN 1 ELSE 0 END) as usp_filled_sv,
+		       SUM(CASE WHEN tx.language = 'no' AND tx.key LIKE 'usp\\_%' ESCAPE '\\' THEN 1 ELSE 0 END) as usp_filled_no,
+		       ${TEXT_COLUMNS_SQL}
 		FROM sales_sheets s
 		LEFT JOIN allowed_users u ON u.email = s.created_by
 		LEFT JOIN translations t_en ON t_en.sheet_id = s.id AND t_en.language = 'en' AND t_en.key = 'product_name'
 		LEFT JOIN translations t_da ON t_da.sheet_id = s.id AND t_da.language = 'da' AND t_da.key = 'product_name'
 		LEFT JOIN translations t_sv ON t_sv.sheet_id = s.id AND t_sv.language = 'sv' AND t_sv.key = 'product_name'
 		LEFT JOIN translations t_no ON t_no.sheet_id = s.id AND t_no.language = 'no' AND t_no.key = 'product_name'
-		ORDER BY s.updated_at DESC`).all();
+		LEFT JOIN translations tx ON tx.sheet_id = s.id AND ${TEXT_JOIN_SQL}
+		GROUP BY s.id
+		ORDER BY s.updated_at DESC`).all(),
+		loadMarketResolver(salesDb),
+	]);
 	return (rows.results ?? []).filter((s) => {
-		const uspCount = s.usp_count ?? 3;
-		return !s.box_image_key // = 3D box, else flat front (DEFAULT_IMAGE_SQL)
-			|| (s.box_3d_key && !s.box_processed) // legacy 3D crop — re-crop with the box cropper
-			|| !s.has_short_primary
-			|| !s.has_long_primary
-			|| uspCount < 1 || (s.usp_filled_primary ?? 0) < uspCount;
+		if (!s.box_image_key) return true; // = 3D box, else flat front (DEFAULT_IMAGE_SQL)
+		if (s.box_3d_key && !s.box_processed) return true; // legacy 3D crop — re-crop with the box cropper
+		const langs = requiredLangs(marketsOf(s.sku).markets, s.primary_language);
+		return missingTexts(s, langs).length > 0;
 	});
 }
 

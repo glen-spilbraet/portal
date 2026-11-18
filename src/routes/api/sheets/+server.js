@@ -30,7 +30,7 @@ export async function GET({ url, cookies, platform }) {
 	if (url.searchParams.get('todo')) {
 		const perms = await getUserPermissions(db, user);
 		if (!perms.sheetsEdit) error(403, 'Edit access required');
-		return json({ sheets: await listIncompleteSheets(db) });
+		return json({ sheets: await listIncompleteSheets(db, platform?.env?.SALES_DB ?? db) });
 	}
 
 	// ── Featured (starred for the webshop) ────────────────────────────────
