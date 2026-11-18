@@ -390,7 +390,8 @@
 		fd.append('file', file); fd.append('sheetId', sheetId); fd.append('type', type);
 		if (type === 'content' || type === 'grid') fd.append('order', String(Date.now()));
 		if (type === 'box') fd.append('processed', '1'); // made via the new box cropper
-		await fetch('/api/images', { method: 'POST', body: fd });
+		const res = await fetch('/api/images', { method: 'POST', body: fd }).catch(() => null);
+		if (res?.ok) await variantsForUpload(file, (await res.json().catch(() => ({})))?.key);
 		uploading = '';
 		flashSaved(); await invalidateAll();
 	}
@@ -411,6 +412,7 @@
 			if (i < files.length - 1) fd.append('quiet', '1'); // shops are notified once, after the last
 			const res = await fetch('/api/images', { method: 'POST', body: fd }).catch(() => null);
 			if (!res?.ok) failed++;
+			else await variantsForUpload(files[i], (await res.json().catch(() => ({})))?.key);
 		}
 		gridProgress = '';
 		if (failed) alert(`${failed} of ${files.length} photo${files.length === 1 ? '' : 's'} failed to upload.`);
@@ -438,34 +440,52 @@
 	const thumbUrl = (key, w = 300) => `https://img.spilbraet.dk/${key}?w=${w}`;
 
 	// The CDN can't resize originals over 20 MB and serves the full file instead.
-	// When a "300px" thumb arrives wider than 300px, it was that fallback: make the
-	// WebP widths here from the already-loaded image and store them where the CDN
-	// looks (<key>_<w>.webp), so it's only slow this once — for the shop too.
+	// For those, the browser makes the WebP widths and stores them where the CDN
+	// looks (<key>_<w>.webp), after which they're served like any other image:
+	//  · right after uploading such a file (from the file itself), and
+	//  · when a "300px" thumb arrives wider than 300px (an older upload) — from the
+	//    already-loaded image, so it's only slow that once, for the shop too.
+	// Browsers that can't encode WebP (Safari makes PNG) skip it; a Chrome visit fixes it.
 	const CDN_WIDTHS = [300, 600, 1000, 1600];
+	const CDN_MAX_SOURCE = 20 * 1024 * 1024;
 	const healed = new Set();
 	const variantKeyOf = (key, w) => {
 		const slash = key.lastIndexOf('/'), dot = key.lastIndexOf('.');
 		return `${dot > slash ? key.slice(0, dot) : key}_${w}.webp`;
 	};
+	/** @param {CanvasImageSource} src @param {number} srcW @param {number} srcH @param {string} key */
+	async function makeVariants(src, srcW, srcH, key) {
+		for (const w of CDN_WIDTHS) {
+			const scale = Math.min(1, w / srcW);
+			const canvas = document.createElement('canvas');
+			canvas.width = Math.round(srcW * scale);
+			canvas.height = Math.round(srcH * scale);
+			canvas.getContext('2d').drawImage(src, 0, 0, canvas.width, canvas.height);
+			const blob = await new Promise((r) => canvas.toBlob(r, 'image/webp', 0.82));
+			if (!blob || blob.type !== 'image/webp') return false; // no WebP encoder here
+			const fd = new FormData();
+			fd.append('file', new File([blob], 'v.webp', { type: 'image/webp' }));
+			fd.append('variantKey', variantKeyOf(key, w));
+			const res = await fetch('/api/images', { method: 'POST', body: fd });
+			if (!res.ok) return false;
+		}
+		return true;
+	}
 	async function healThumb(ev, key) {
 		const el = ev.currentTarget;
 		if (!key || el.naturalWidth <= 300 || healed.has(key)) return;
 		healed.add(key);
+		try { await makeVariants(el, el.naturalWidth, el.naturalHeight, key); }
+		catch (e) { console.warn('thumbnail variants failed', key, e); }
+	}
+	/** After uploading `file` as `key`: pre-make the widths the CDN can't. */
+	async function variantsForUpload(file, key) {
+		if (!key || file.size <= CDN_MAX_SOURCE) return;
+		healed.add(key);
 		try {
-			for (const w of CDN_WIDTHS) {
-				const scale = Math.min(1, w / el.naturalWidth);
-				const canvas = document.createElement('canvas');
-				canvas.width = Math.round(el.naturalWidth * scale);
-				canvas.height = Math.round(el.naturalHeight * scale);
-				canvas.getContext('2d').drawImage(el, 0, 0, canvas.width, canvas.height);
-				const blob = await new Promise((r) => canvas.toBlob(r, 'image/webp', 0.82));
-				if (!blob) return;
-				const fd = new FormData();
-				fd.append('file', new File([blob], 'v.webp', { type: 'image/webp' }));
-				fd.append('variantKey', variantKeyOf(key, w));
-				await fetch('/api/images', { method: 'POST', body: fd });
-			}
-		} catch (e) { console.warn('thumbnail variants failed', key, e); }
+			const bmp = await createImageBitmap(file);
+			try { await makeVariants(bmp, bmp.width, bmp.height, key); } finally { bmp.close(); }
+		} catch (e) { console.warn('upload variants failed', key, e); }
 	}
 
 	// hidden file inputs
