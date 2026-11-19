@@ -6,7 +6,8 @@
 	 * just the frame, so shadows / reflections outside the frame are kept (they
 	 * bleed into the padding instead of being clipped at the frame edge).
 	 * Padding is transparent when the source has a transparent background, else
-	 * it's filled with the photo's own background colour.
+	 * it's filled with the photo's own background colour. Untick "Keep background"
+ * to fill with white instead (for when the detected colour is wrong).
 	 */
 	let { file, onconfirm, oncancel, title = 'Frame the 3D box', subject = 'box' } = $props();
 
@@ -24,6 +25,8 @@
 	let pad = $state(0.14);         // padding as a fraction of the box's longest side
 	let bgTransparent = $state(false);
 	let bgColor = $state('rgb(255,255,255)');
+	let keepBg = $state(true);      // false → padding is plain white
+	const transparentOut = $derived(keepBg && bgTransparent);
 	let detected = $state(false);
 
 	const MAX_OUT = 1600;
@@ -123,7 +126,7 @@
 		canvas.width = out; canvas.height = out;
 		const ctx = canvas.getContext('2d');
 		ctx.clearRect(0, 0, out, out);
-		if (!bgTransparent) { ctx.fillStyle = bgColor; ctx.fillRect(0, 0, out, out); }
+		if (!transparentOut) { ctx.fillStyle = keepBg ? bgColor : '#ffffff'; ctx.fillRect(0, 0, out, out); }
 		ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
 		// Draw the FULL image (not just the frame) so shadows/reflections survive.
 		ctx.drawImage(imgEl, out / 2 - cx * scale, out / 2 - cy * scale, natW * scale, natH * scale);
@@ -131,7 +134,7 @@
 
 	$effect(() => {
 		// eslint-disable-next-line no-unused-expressions
-		x0; y0; x1; y1; pad; bgTransparent; bgColor;
+		x0; y0; x1; y1; pad; transparentOut; keepBg; bgColor;
 		if (ready && previewCanvas) renderTo(previewCanvas, 260);
 	});
 	$effect(() => {
@@ -176,11 +179,12 @@
 				<div class="hint">{detected ? 'Auto-detected — adjust if needed.' : `Adjust the frame to the ${subject}.`}</div>
 			</div>
 			<div class="side">
-				<div class="prev-box" class:checker={bgTransparent}><canvas bind:this={previewCanvas} class="prev"></canvas></div>
+				<div class="prev-box" class:checker={transparentOut}><canvas bind:this={previewCanvas} class="prev"></canvas></div>
 				<label class="pad">Padding <span>{Math.round(pad * 100)}%</span>
 					<input type="range" min="0" max="40" value={Math.round(pad * 100)} oninput={(e) => (pad = (+e.currentTarget.value) / 100)} />
 				</label>
-				<div class="bgline">Background: {#if bgTransparent}<span class="t">transparent</span>{:else}<span class="sw" style="background:{bgColor}"></span>kept{/if}</div>
+				<div class="bgline">Background: {#if transparentOut}<span class="t">transparent</span>{:else if keepBg}<span class="sw" style="background:{bgColor}"></span>kept{:else}<span class="sw" style="background:#fff"></span>white{/if}</div>
+				<label class="keep"><input type="checkbox" bind:checked={keepBg} /> Keep background {bgTransparent ? 'transparency' : 'colour'}</label>
 				<div class="btns">
 					<button class="ghost" onclick={oncancel}>Cancel</button>
 					<button class="primary" onclick={confirm} disabled={busy || !ready}>{busy ? 'Processing…' : 'Use photo'}</button>
@@ -219,6 +223,8 @@
 	.bgline { font-size: 12px; color: #71717A; display: flex; align-items: center; gap: 6px; }
 	.bgline .sw { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--border, #E4E4E7); display: inline-block; }
 	.bgline .t { font-weight: 700; color: #52525B; }
+	.keep { font-size: 12px; font-weight: 600; color: #52525B; display: flex; align-items: center; gap: 6px; cursor: pointer; margin-top: -6px; }
+	.keep input { accent-color: #F57832; margin: 0; }
 	.btns { margin-top: auto; display: flex; gap: 8px; }
 	.btns button { flex: 1; padding: 9px 12px; border-radius: 9px; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; border: 1px solid var(--border, #E4E4E7); }
 	.btns .ghost { background: #fff; color: #52525B; }
