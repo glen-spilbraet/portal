@@ -1,3 +1,4 @@
+import { warmImageWidths } from '$lib/server/imageCdn.js';
 import { json, error } from '@sveltejs/kit';
 import { getEventByToken, addAsset } from '$lib/server/events.js';
 
@@ -26,6 +27,8 @@ export async function POST(event) {
 	await bucket.put(r2Key, await file.arrayBuffer(), {
 		httpMetadata: { contentType: file.type || 'application/octet-stream' }
 	});
+	// Have the image CDN make its WebP widths now, so the photo grid never waits on them.
+	if (kindFor(file.type) === 'image') warmImageWidths(event.platform, r2Key);
 
 	const id = await addAsset(db, ev.id, {
 		category: 'media',

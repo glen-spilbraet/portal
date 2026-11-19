@@ -159,8 +159,19 @@
 	const productBySku = $derived(Object.fromEntries(data.products.map((p) => [p.sku, p])));
 	const skuLabel = (sku) => productBySku[sku]?.name ?? sku;
 
-	/** @type {any} */
-	let tagAsset = $state(null);
+	// Thumbnails come from the image CDN (WebP, made once and stored); originals only on demand.
+	const cdn = (key, w) => `https://img.spilbraet.dk/${key}?w=${w}`;
+	const original = (key) => `/api/img/${key}`;
+
+	const media = $derived(data.event.assets.filter((a) => a.category === 'media'));
+	const marketing = $derived(data.event.assets.filter((a) => a.category === 'marketing'));
+
+	// ── Photo viewer (big photo + rating/tag pane) ──────────────────────────────
+	let viewId = $state(/** @type {string|null} */ (null));
+	const viewable = $derived(media.filter((a) => a.kind === 'image' || a.kind === 'video'));
+	const viewIndex = $derived(viewable.findIndex((a) => a.id === viewId));
+	/** the asset open in the viewer (kept fresh across invalidateAll) */
+	const tagAsset = $derived(viewIndex >= 0 ? viewable[viewIndex] : null);
 	/** @type {string[]} */
 	let tagSkus = $state([]);
 	let tagQuery = $state('');
@@ -170,8 +181,26 @@
 	/** @type {any} */
 	let tagTimer;
 
-	function openTags(a) { tagAsset = a; tagSkus = [...(a.skus ?? [])]; tagQuery = ''; tagOthers = []; }
-	function closeTags() { tagAsset = null; }
+	function openViewer(a) { viewId = a.id; tagSkus = [...(a.skus ?? [])]; tagQuery = ''; tagOthers = []; rateOpen = null; }
+	function closeViewer() { viewId = null; }
+	function step(delta) {
+		const next = viewable[viewIndex + delta];
+		if (next) openViewer(next);
+	}
+	function viewerKeys(e) {
+		if (!viewId) return;
+		const typing = e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+		if (e.key === 'Escape') closeViewer();
+		else if (!typing && e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+		else if (!typing && e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+	}
+	async function deleteFromViewer(a) {
+		if (!confirm('Delete this file?')) return;
+		const next = viewable[viewIndex + 1] ?? viewable[viewIndex - 1] ?? null;
+		await fetch(`/api/events/assets/${a.id}`, { method: 'DELETE' });
+		if (next) openViewer(next); else closeViewer();
+		await invalidateAll();
+	}
 
 	// Default: the event's own products, filtered locally by the query.
 	const tagEventMatches = $derived.by(() => {
@@ -240,8 +269,6 @@
 		copied = true; setTimeout(() => (copied = false), 1500);
 	}
 
-	const media = $derived(data.event.assets.filter((a) => a.category === 'media'));
-	const marketing = $derived(data.event.assets.filter((a) => a.category === 'marketing'));
 
 	function fmtLog(ts) {
 		if (!ts) return '';
@@ -495,58 +522,91 @@
 	</div>
 {/if}
 
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { closeAdd(); closeTags(); rateOpen = null; } }} onclick={() => (rateOpen = null)} />
+<svelte:window onkeydown={(e) => { viewerKeys(e); if (e.key === 'Escape') { closeAdd(); rateOpen = null; } }} onclick={() => (rateOpen = null)} />
 
 {#if tagAsset}
-	<div class="modal-overlay" onclick={closeTags} role="presentation">
-		<div class="modal tag-modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Tag products">
-			<button class="modal-x" onclick={closeTags} aria-label="Close">✕</button>
-			<h3 class="modal-title">Products on this {tagAsset.kind === 'video' ? 'video' : 'photo'}</h3>
-			<div class="tag-preview">
-				{#if tagAsset.kind === 'image'}<img src="/api/img/{tagAsset.r2_key}" alt={tagAsset.filename} />
-				{:else}<video src="/api/img/{tagAsset.r2_key}" controls><track kind="captions" /></video>{/if}
+	{@const r = tagAsset.id in rateLocal ? rateLocal[tagAsset.id] : tagAsset.rating}
+	<div class="viewer" role="dialog" aria-modal="true" aria-label="Photo viewer">
+		<div class="stage" onclick={closeViewer} role="presentation">
+			{#key tagAsset.id}
+				{#if tagAsset.kind === 'image'}
+					<img
+						class="stage-media" src={cdn(tagAsset.r2_key, 1600)} alt={tagAsset.filename}
+						style="background-image:url({cdn(tagAsset.r2_key, 600)})"
+						onclick={(e) => e.stopPropagation()} role="presentation"
+					/>
+				{:else}
+					<!-- svelte-ignore a11y_media_has_caption -->
+					<video class="stage-media" src={original(tagAsset.r2_key)} controls autoplay onclick={(e) => e.stopPropagation()}></video>
+				{/if}
+			{/key}
+			{#if viewIndex > 0}<button class="nav prev" onclick={(e) => { e.stopPropagation(); step(-1); }} aria-label="Previous">‹</button>{/if}
+			{#if viewIndex < viewable.length - 1}<button class="nav next" onclick={(e) => { e.stopPropagation(); step(1); }} aria-label="Next">›</button>{/if}
+			<span class="counter">{viewIndex + 1} / {viewable.length}</span>
+		</div>
+
+		<aside class="pane">
+			<div class="pane-head">
+				<div class="pane-title">
+					<span class="pane-name" title={tagAsset.filename}>{tagAsset.filename ?? tagAsset.kind}</span>
+					{#if tagAsset.source === 'venue'}<span class="pill-venue">Venue</span>{/if}
+				</div>
+				<button class="pane-x" onclick={closeViewer} aria-label="Close">✕</button>
 			</div>
 
-			<div class="ptags sel">
-				{#if tagSkus.length === 0}<span class="muted">No products tagged yet.</span>{/if}
-				{#each tagSkus as sku (sku)}
-					<span class="ptag on" title={sku}>{skuLabel(sku)} <button onclick={() => toggleTag(sku)} disabled={tagSaving} aria-label="Remove {sku}">✕</button></span>
-				{/each}
-			</div>
-
-			<input class="tag-search" placeholder="Filter event products, or search all sheets…" bind:value={tagQuery} oninput={searchTagOthers} />
-
-			<div class="tag-sec">At this event</div>
-			{#if data.products.length === 0}
-				<p class="empty">No products on this event yet — search all sheets above.</p>
-			{:else if tagEventMatches.length === 0}
-				<p class="empty">No event products match.</p>
-			{:else}
-				<div class="pick-list">
-					{#each tagEventMatches as p (p.sku)}
-						<label class="pick"><input type="checkbox" checked={tagSkus.includes(p.sku)} onchange={() => toggleTag(p.sku)} disabled={tagSaving} /> <span class="strong">{p.name}</span> <span class="muted">{p.sku}</span></label>
+			<div class="pane-body">
+				<div class="pane-sec">Rating</div>
+				<div class="seg" role="radiogroup" aria-label="Rating">
+					{#each RATINGS as opt (opt.v)}
+						<button role="radio" aria-checked={r === opt.v} class="seg-btn {opt.v}" class:sel={r === opt.v} onclick={() => setRating(tagAsset, opt.v)}>
+							<span class="dot"></span>{opt.label}
+						</button>
 					{/each}
 				</div>
-			{/if}
 
-			{#if tagQuery.trim().length >= 2}
-				<div class="tag-sec">All sheets <span class="muted">· picking one also adds it to the event</span></div>
-				{#if tagOthers.length === 0}
-					<p class="empty">No other products match.</p>
+				<div class="pane-sec">Products <span class="muted">{tagSkus.length || ''}</span></div>
+				<div class="ptags sel">
+					{#if tagSkus.length === 0}<span class="muted">No products tagged yet.</span>{/if}
+					{#each tagSkus as sku (sku)}
+						<span class="ptag on" title={sku}>{skuLabel(sku)} <button onclick={() => toggleTag(sku)} disabled={tagSaving} aria-label="Remove {sku}">✕</button></span>
+					{/each}
+				</div>
+
+				<input class="tag-search" placeholder="Filter event products, or search all sheets…" bind:value={tagQuery} oninput={searchTagOthers} />
+
+				<div class="tag-sec">At this event</div>
+				{#if data.products.length === 0}
+					<p class="empty">No products on this event yet — search all sheets above.</p>
+				{:else if tagEventMatches.length === 0}
+					<p class="empty">No event products match.</p>
 				{:else}
 					<div class="pick-list">
-						{#each tagOthers as r (r.sku)}
-							<label class="pick"><input type="checkbox" checked={tagSkus.includes(r.sku)} onchange={() => toggleTag(r.sku)} disabled={tagSaving} /> <span class="strong">{r.name}</span> <span class="muted">{r.sku}</span></label>
+						{#each tagEventMatches as p (p.sku)}
+							<label class="pick" class:on={tagSkus.includes(p.sku)}><input type="checkbox" checked={tagSkus.includes(p.sku)} onchange={() => toggleTag(p.sku)} disabled={tagSaving} /> <span class="pick-txt"><span class="strong">{p.name}</span> <span class="muted">{p.sku}</span></span></label>
 						{/each}
 					</div>
 				{/if}
-			{/if}
 
-			<div class="modal-foot">
-				<span class="muted save-state">{tagSaving ? 'Saving…' : 'Saved automatically'}</span>
-				<button class="btn" onclick={closeTags}>Done</button>
+				{#if tagQuery.trim().length >= 2}
+					<div class="tag-sec">All sheets <span class="muted">· also adds it to the event</span></div>
+					{#if tagOthers.length === 0}
+						<p class="empty">No other products match.</p>
+					{:else}
+						<div class="pick-list">
+							{#each tagOthers as o (o.sku)}
+								<label class="pick" class:on={tagSkus.includes(o.sku)}><input type="checkbox" checked={tagSkus.includes(o.sku)} onchange={() => toggleTag(o.sku)} disabled={tagSaving} /> <span class="pick-txt"><span class="strong">{o.name}</span> <span class="muted">{o.sku}</span></span></label>
+							{/each}
+						</div>
+					{/if}
+				{/if}
 			</div>
-		</div>
+
+			<div class="pane-foot">
+				<span class="muted">{tagSaving ? 'Saving…' : 'Saved automatically'}</span>
+				<a class="btn sm" href={original(tagAsset.r2_key)} target="_blank" rel="noopener">Original ↗</a>
+				<button class="btn sm danger" onclick={() => deleteFromViewer(tagAsset)}>Delete</button>
+			</div>
+		</aside>
 	</div>
 {/if}
 
@@ -560,11 +620,13 @@
 				{@const taggable = showSource && (a.kind === 'image' || a.kind === 'video')}
 				<div class="asset" class:is-video={a.kind === 'video'} title={a.filename}>
 					{#if a.kind === 'image'}
-						<a class="thumb" href="/api/img/{a.r2_key}" target="_blank" rel="noopener"><img src="/api/img/{a.r2_key}" alt={a.filename} loading="lazy" /></a>
+						<a class="thumb" href={original(a.r2_key)} target="_blank" rel="noopener"
+							onclick={(e) => { if (taggable && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); openViewer(a); } }}
+						><img src={cdn(a.r2_key, 600)} alt={a.filename} loading="lazy" decoding="async" /></a>
 					{:else if a.kind === 'video'}
-						<video class="thumb" src="/api/img/{a.r2_key}" controls preload="metadata"><track kind="captions" /></video>
+						<video class="thumb" src={original(a.r2_key)} controls preload="metadata"><track kind="captions" /></video>
 					{:else}
-						<a class="thumb file-tile" href="/api/img/{a.r2_key}" target="_blank" rel="noopener"><span>📄</span><span class="file-name">{a.filename ?? 'file'}</span></a>
+						<a class="thumb file-tile" href={original(a.r2_key)} target="_blank" rel="noopener"><span>📄</span><span class="file-name">{a.filename ?? 'file'}</span></a>
 					{/if}
 
 					{#if showSource && a.source === 'venue'}<span class="ov-badge">Venue</span>{/if}
@@ -572,7 +634,7 @@
 					{#if taggable}
 						<button
 							class="tag-bubble" class:empty={n === 0}
-							onclick={() => openTags(a)}
+							onclick={() => openViewer(a)}
 							title={n ? (a.skus ?? []).map(skuLabel).join('\n') : 'Tag products on this photo'}
 							aria-label={n ? `${n} products tagged — edit` : 'Tag products'}
 						>
@@ -705,6 +767,42 @@
 	.tag-bubble.empty { background: rgba(24,24,27,0.35); color: white; border: 1px dashed rgba(255,255,255,0.85); box-shadow: none; }
 	.tag-bubble.empty svg { color: white; }
 	.tag-bubble.empty:hover { background: rgba(24,24,27,0.55); }
+	/* ── photo viewer ── */
+	.viewer { position: fixed; inset: 0; z-index: 60; display: grid; grid-template-columns: minmax(0, 1fr) 360px; background: rgba(9,9,11,0.94); }
+	.stage { position: relative; display: flex; align-items: center; justify-content: center; padding: 40px 72px; min-height: 0; }
+	.stage-media { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; background: center / contain no-repeat; box-shadow: 0 20px 60px rgba(0,0,0,0.4); }
+	img.stage-media { min-width: min(100%, 300px); }
+	.nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 100px; border: none; background: rgba(255,255,255,0.12); color: white; font-size: 28px; line-height: 1; cursor: pointer; transition: background .15s; }
+	.nav:hover { background: rgba(255,255,255,0.25); }
+	.nav.prev { left: 16px; } .nav.next { right: 16px; }
+	.counter { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.7); }
+	.pane { display: flex; flex-direction: column; min-height: 0; background: white; }
+	.pane-head { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px 20px; border-bottom: 1px solid #F4F4F5; }
+	.pane-title { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+	.pane-name { font-size: 14px; font-weight: 700; color: #18181B; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.pill-venue { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 100px; background: #EEF2FF; color: #4338ca; flex: none; }
+	.pane-x { width: 32px; height: 32px; border: none; background: #F4F4F5; border-radius: 8px; font-size: 14px; color: #52525B; cursor: pointer; flex: none; }
+	.pane-body { flex: 1; overflow-y: auto; padding: 4px 20px 20px; }
+	.pane-sec { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #71717A; margin: 18px 0 8px; }
+	.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+	.seg-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; border: 1px solid var(--border); border-radius: 10px; background: white; font-family: inherit; font-size: 13px; font-weight: 600; color: #3F3F46; cursor: pointer; transition: background .12s, border-color .12s; }
+	.seg-btn:hover { background: #FAFAFA; }
+	.seg-btn.good .dot { background: #16a34a; } .seg-btn.semi .dot { background: #f59e0b; } .seg-btn.bad .dot { background: #dc2626; }
+	.seg-btn.good.sel { background: #F0FDF4; border-color: #16a34a; color: #15803d; }
+	.seg-btn.semi.sel { background: #FFFBEB; border-color: #f59e0b; color: #b45309; }
+	.seg-btn.bad.sel  { background: #FEF2F2; border-color: #dc2626; color: #b91c1c; }
+	.pane .pick.on { border-color: #F57832; background: #FFF8F3; }
+	.pick-txt { display: flex; flex-direction: column; min-width: 0; }
+	.pick-txt .strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.pane-foot { display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid #F4F4F5; }
+	.pane-foot .muted { margin-right: auto; }
+	@media (max-width: 860px) {
+		.viewer { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 55vh); }
+		.stage { padding: 16px 52px; }
+		.nav { width: 36px; height: 36px; font-size: 22px; }
+		.nav.prev { left: 8px; } .nav.next { right: 8px; }
+	}
+
 	/* rating pill — bottom-right */
 	.rate-wrap { position: absolute; right: 8px; bottom: 8px; }
 	.rate-pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 100px; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1; cursor: pointer; backdrop-filter: blur(6px); border: 1px solid transparent; background: rgba(255,255,255,0.95); color: #18181B; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: transform .12s ease; }
@@ -729,13 +827,9 @@
 	.ptag { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 100px; background: #FFF4ED; color: #c2551b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.ptag.on { font-size: 12px; padding: 3px 4px 3px 9px; }
 	.ptag.on button { border: none; background: none; color: inherit; cursor: pointer; font-size: 11px; padding: 0 3px; }
-	.tag-modal { max-width: 600px; }
-	.tag-preview { background: #FAFAFA; border-radius: 10px; overflow: hidden; margin-bottom: 12px; }
-	.tag-preview img, .tag-preview video { display: block; width: 100%; max-height: 300px; object-fit: contain; }
 	.ptags.sel { margin: 0 0 12px; min-height: 22px; align-items: center; }
 	.tag-search { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; }
 	.tag-sec { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #71717A; margin: 14px 0 6px; }
-	.save-state { margin-right: auto; align-self: center; }
 
 	.contact-picks { display: flex; flex-direction: column; gap: 6px; }
 	.contact-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }

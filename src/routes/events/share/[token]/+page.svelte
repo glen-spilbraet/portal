@@ -167,7 +167,7 @@
 			<div class="dl-grid">
 				{#each data.marketing as a (a.id)}
 					<a class="dl" href="/api/img/{a.r2_key}" target="_blank" rel="noopener" download>
-						{#if a.kind === 'image'}<img src="/api/img/{a.r2_key}" alt={a.filename} />{:else}<div class="dl-file">📄</div>{/if}
+						{#if a.kind === 'image'}<img src="https://img.spilbraet.dk/{a.r2_key}?w=600" alt={a.filename} loading="lazy" decoding="async" />{:else}<div class="dl-file">📄</div>{/if}
 						<span class="dl-name">{a.filename ?? 'Download'}</span>
 					</a>
 				{/each}
@@ -188,8 +188,8 @@
 			<div class="media-grid">
 				{#each data.media as a (a.id)}
 					<div class="media">
-						{#if a.kind === 'image'}<img src="/api/img/{a.r2_key}" alt={a.filename} />
-						{:else if a.kind === 'video'}<video src="/api/img/{a.r2_key}" controls><track kind="captions" /></video>
+						{#if a.kind === 'image'}<img src="https://img.spilbraet.dk/{a.r2_key}?w=600" alt={a.filename} loading="lazy" decoding="async" />
+						{:else if a.kind === 'video'}<video src="/api/img/{a.r2_key}" controls preload="metadata"><track kind="captions" /></video>
 						{:else}<a class="dl-file" href="/api/img/{a.r2_key}">📄</a>{/if}
 					</div>
 				{/each}
