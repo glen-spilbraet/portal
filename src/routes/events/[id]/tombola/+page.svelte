@@ -366,7 +366,7 @@
 
 <style>
 	.board {
-		position: fixed; inset: 0; overflow: hidden; display: grid; grid-template-columns: minmax(300px, 27vw) 1fr;
+		position: fixed; inset: 0; overflow: hidden; overflow: clip; /* clip: never scrollable, even by focus/huge children */ display: grid; grid-template-columns: minmax(300px, 27vw) 1fr;
 		background: radial-gradient(120% 90% at 70% 0%, #3d1f75 0%, #1b1033 55%, #0e0820 100%);
 		color: #fff; font-family: Nunito, system-ui, sans-serif; user-select: none; z-index: 100;
 	}
@@ -398,7 +398,7 @@
 	.num { display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; border-radius: 50%; background: #FFC93C; color: #2a1300; font-size: .8em; flex-shrink: 0; }
 
 	/* Stage + bubbles */
-	.stage { position: relative; z-index: 1; }
+	.stage { position: relative; z-index: 1; overflow: hidden; overflow: clip; }
 	.waiting { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 2vh; align-items: center; justify-content: center; font-size: clamp(22px, 2.4vw, 52px); font-weight: 900; opacity: .85; }
 	.dots { display: flex; gap: 1vw; }
 	.dots span { width: 1.6vw; height: 1.6vw; border-radius: 50%; background: #F57832; animation: bounce 1.2s infinite ease-in-out; }
@@ -448,7 +448,7 @@
 	.ctl-err { color: #ffb3c0; font-weight: 800; }
 
 	/* Draw overlay */
-	.overlay { position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4vh; background: rgba(10,5,24,.82); backdrop-filter: blur(8px); animation: fade .4s ease both; }
+	.overlay { position: absolute; inset: 0; z-index: 30; overflow: hidden; overflow: clip; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4vh; background: rgba(10,5,24,.82); backdrop-filter: blur(8px); animation: fade .4s ease both; }
 	.overlay.revealed { background: radial-gradient(circle at 50% 50%, rgba(80,40,150,.75), rgba(10,5,24,.92)); }
 	@keyframes fade { from { opacity: 0; } }
 	.drum { font-size: clamp(28px, 3.6vw, 80px); font-weight: 900; color: #FFC93C; animation: shake .5s ease-in-out infinite; text-shadow: 0 0 30px rgba(255,201,60,.5); }
