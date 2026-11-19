@@ -61,6 +61,7 @@ export async function load({ cookies, url, platform }) {
 	if (url.pathname.startsWith('/planograms/share/')) return { isDev };
 	if (url.pathname.startsWith('/events/share/')) return { isDev }; // public venue event page (token-gated)
 	if (url.pathname.startsWith('/events/guru/')) return { isDev };  // public guru proposal page (token-gated)
+	if (url.pathname.startsWith('/tombola/')) return { isDev };      // public event tombola sign-up (code-gated)
 	if (url.pathname.startsWith('/reports/share/')) return { isDev }; // public shared report (token-gated)
 	if (url.pathname.startsWith('/media/')) return { isDev };         // public per-media asset library (key-gated)
 	if (url.pathname.startsWith('/auth/')) return { isDev };
