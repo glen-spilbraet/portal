@@ -1,5 +1,5 @@
 <script>
-	import { MARKETS, langShort } from '$lib/languages.js';
+	import { MARKETS, MARKET_LABEL, MARKET_LANG, langInfo, langShort } from '$lib/languages.js';
 	import { invalidateAll } from '$app/navigation';
 	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
 	import BoxCropper from '$lib/components/BoxCropper.svelte';
@@ -238,41 +238,69 @@
 	}
 
 	// ── Webshop published markets (per-market, gated by publisher licence) ──────
+	// Two states: the product FOLLOWS its publisher's licence (the default — it is
+	// published wherever the publisher is licensed, now and after later licence
+	// changes), or it has a CUSTOM selection of markets.
 	const WS_MARKETS = data.webshopMarkets ?? MARKETS;
-	let wsOverride = $state(!!data.webshopOverride);
-	// Default (no explicit selection) = every market the publisher licence allows.
-	const initPublished = () => new Set(data.webshopPublished ?? (wsOverride ? [] : (data.webshopAllowed ?? [])));
-	let wsPublished = $state(initPublished());
-	let wsMsg = $state('');
 	const wsAllowed = $derived(new Set(data.webshopAllowed ?? []));
+	let wsFollows = $state(data.webshopPublished == null);
+	let wsOverride = $state(data.webshopPublished != null && !!data.webshopOverride);
+	let wsPublished = $state(new Set(data.webshopPublished ?? data.webshopAllowed ?? []));
+	let wsChanged = $state({ by: data.webshopUpdatedBy ?? null, at: data.webshopUpdatedAt ?? null });
+	let wsMsg = $state('');
+	let wsSaving = false;
+	function wsReset() {
+		wsFollows = data.webshopPublished == null;
+		wsOverride = data.webshopPublished != null && !!data.webshopOverride;
+		wsPublished = new Set(data.webshopPublished ?? data.webshopAllowed ?? []);
+		wsChanged = { by: data.webshopUpdatedBy ?? null, at: data.webshopUpdatedAt ?? null };
+		wsMsg = '';
+	}
 	const wsEnabled = (m) => wsOverride || wsAllowed.has(m);
-	const wsChecked = (m) => wsPublished.has(m) && (wsOverride || wsAllowed.has(m));
-	async function saveWebshop() {
-		wsMsg = 'Saving…';
+	const wsChecked = (m) => (wsFollows ? wsAllowed.has(m) : wsPublished.has(m) && (wsOverride || wsAllowed.has(m)));
+	// A published market whose language has no texts yet (live for the language being edited).
+	const wsHasTexts = (lang) => (lang === language
+		? !!(t.product_description?.trim() || Object.entries(t).some(([k, v]) => k.startsWith('usp_') && String(v ?? '').trim()))
+		: (data.textLangs ?? []).includes(lang));
+	const wsMissingTexts = $derived(WS_MARKETS.filter((m) => wsChecked(m) && !wsHasTexts(MARKET_LANG[m])));
+
+	/** Save a new state; on failure the box goes back to what is actually stored. */
+	async function saveWebshop(next) {
+		if (wsSaving) return; // one change at a time, so two quick clicks can't cross
+		const prev = { follows: wsFollows, override: wsOverride, published: new Set(wsPublished) };
+		wsFollows = next.follows; wsOverride = next.override; wsPublished = next.published;
+		wsSaving = true; wsMsg = 'Saving…';
 		try {
 			const res = await fetch(`/api/sheets/${sheetId}/webshop`, {
 				method: 'PUT', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ publishedMarkets: [...wsPublished], overrideLicense: wsOverride })
+				body: JSON.stringify({ publishedMarkets: next.follows ? null : [...next.published], overrideLicense: next.override })
 			});
-			wsMsg = res.ok ? 'Saved' : 'Save failed';
-		} catch { wsMsg = 'Save failed'; }
-		setTimeout(() => (wsMsg = ''), 2000);
+			if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || `Error ${res.status}`);
+			wsChanged = { by: data.user?.email ?? null, at: new Date().toISOString() };
+			wsMsg = 'Saved';
+			setTimeout(() => { if (wsMsg === 'Saved') wsMsg = ''; }, 2000);
+		} catch (e) {
+			wsFollows = prev.follows; wsOverride = prev.override; wsPublished = prev.published;
+			wsMsg = `Not saved — ${e instanceof Error ? e.message : 'try again'}`;
+		} finally { wsSaving = false; }
 	}
 	function toggleMarket(m) {
 		if (!wsEnabled(m)) return;
-		if (wsPublished.has(m)) wsPublished.delete(m); else wsPublished.add(m);
-		wsPublished = new Set(wsPublished);
-		saveWebshop();
+		// Start from what is ticked on screen, so a market hidden by the licence can't come back unnoticed.
+		const next = new Set(WS_MARKETS.filter(wsChecked));
+		if (next.has(m)) next.delete(m); else next.add(m);
+		saveWebshop({ follows: false, override: wsOverride, published: next });
 	}
-	async function toggleOverride() {
+	function toggleOverride() {
 		if (!wsOverride) {
 			if (!confirm('Override the publisher licence?\n\nThis lets you publish this product in markets the publisher is not licensed for.')) return;
-			wsOverride = true;
+			saveWebshop({ follows: false, override: true, published: new Set(WS_MARKETS.filter(wsChecked)) });
 		} else {
-			wsOverride = false;
-			wsPublished = new Set([...wsPublished].filter((m) => wsAllowed.has(m))); // back to licence rules
+			saveWebshop({ follows: false, override: false, published: new Set([...wsPublished].filter((m) => wsAllowed.has(m))) }); // back to licence rules
 		}
-		await saveWebshop();
+	}
+	function followLicence() {
+		saveWebshop({ follows: true, override: false, published: new Set(data.webshopAllowed ?? []) });
 	}
 
 	// ── Webshop dates (preorder / restock) ──────────────────────────────────────
@@ -531,8 +559,7 @@
 		initGameAttrs();
 		rbMsg = ''; rbErr = '';
 		selectedCats = new Set(data.categorySelected ?? []); catOpen = {}; catMsg = '';
-		wsOverride = !!data.webshopOverride;
-		wsPublished = new Set(data.webshopPublished ?? (wsOverride ? [] : (data.webshopAllowed ?? []))); wsMsg = '';
+		wsReset();
 		preorderDate = data.sheet.preorder_date ?? ''; restockDate = data.sheet.restock_date ?? '';
 		hidden = JSON.parse(data.sheet.hidden_elements || '{}');
 		ctaId = data.sheet.cta_version_id ?? null;
@@ -853,23 +880,33 @@
 			<!-- Webshop published markets (gated by publisher licence) -->
 			<div class="side-card">
 				<div class="side-head"><h2>Webshop Published</h2>
-					<span class="save" class:on={wsMsg === 'Saving…'}>{wsMsg}</span>
+					<span class="save" class:on={wsMsg === 'Saving…'} class:err={wsMsg.startsWith('Not saved')}>{wsMsg}</span>
 				</div>
 				<div class="ws-pub">
 					<p class="ws-note">Publisher: <strong>{data.webshopPublisher ?? '—'}</strong>{#if (data.webshopAllowed ?? []).length === 0 && !wsOverride}<span class="ws-warn"> · no market licence set</span>{/if}</p>
+					<p class="ws-state" class:custom={!wsFollows}>
+						{#if wsFollows}
+							<span>Follows the publisher licence</span>
+						{:else}
+							<span>Custom selection</span>
+							<button type="button" class="ws-reset" onclick={followLicence} title="Publish wherever the publisher is licensed, and keep following later licence changes">Follow licence</button>
+						{/if}
+					</p>
 					<div class="ws-markets">
 						{#each WS_MARKETS as m}
-							<label class="ws-row" class:disabled={!wsEnabled(m)}>
-								<input type="checkbox" checked={wsChecked(m)} disabled={!wsEnabled(m)} onchange={() => toggleMarket(m)} />
+							<label class="ws-row" class:disabled={!wsEnabled(m)} title={MARKET_LABEL[m]}>
+								<input type="checkbox" checked={wsChecked(m)} disabled={!wsEnabled(m)} onchange={(e) => { e.currentTarget.checked = wsChecked(m); toggleMarket(m); }} />
 								<span class="ws-m">{m}</span>
-								{#if !wsAllowed.has(m) && !wsOverride}<span class="ws-lock" title="Not licensed by the publisher">licence</span>{/if}
+								{#if !wsAllowed.has(m) && !wsOverride}<span class="ws-lock" title="Not licensed by the publisher">licence</span>
+								{:else if wsMissingTexts.includes(m)}<span class="ws-lock warn" title="Published here, but the sheet has no {langInfo(MARKET_LANG[m]).english} short description or bullets yet">no {langShort(MARKET_LANG[m])} texts</span>{/if}
 							</label>
 						{/each}
 					</div>
 					<label class="ws-override">
-						<input type="checkbox" checked={wsOverride} onchange={toggleOverride} />
+						<input type="checkbox" checked={wsOverride} onchange={(e) => { e.currentTarget.checked = wsOverride; toggleOverride(); }} />
 						<span>Override publisher licence</span>
 					</label>
+					{#if wsChanged.at}<p class="ws-changed">Last changed {new Date(wsChanged.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{#if wsChanged.by}{' '}by {wsChanged.by.split('@')[0]}{/if}</p>{/if}
 				</div>
 			</div>
 
@@ -1074,6 +1111,13 @@
 	/* Webshop published markets */
 	.ws-pub { padding: 10px 14px 12px; }
 	.ws-note { font-size: 12px; color: #71717A; margin: 0 0 9px; }
+	.ws-state { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11.5px; font-weight: 700; color: #15803D; background: #EAF7EE; border-radius: 7px; padding: 5px 8px; margin: 0 0 8px; }
+	.ws-state.custom { color: #9A3412; background: #FFF1E7; }
+	.ws-reset { font: inherit; font-weight: 700; color: #9A3412; background: #fff; border: 1px solid #F5C9A8; border-radius: 6px; padding: 2px 7px; cursor: pointer; }
+	.ws-reset:hover { background: #FFE4D1; }
+	.ws-lock.warn { color: #B45309; border-color: #F5D9A8; text-transform: none; letter-spacing: 0; }
+	.ws-changed { font-size: 11px; color: #A1A1AA; margin: 9px 0 0; }
+	.save.err { color: #B91C1C; opacity: 1; }
 	.ws-note strong { color: #27272A; font-weight: 700; }
 	.ws-warn { color: #B45309; font-weight: 600; }
 	.ws-markets { display: flex; flex-direction: column; gap: 2px; }

@@ -1,6 +1,6 @@
 /** @param {App.Platform['env']['DB']} db */
 
-import { LANGS } from '$lib/languages.js';
+import { LANGS, sanitizeMarkets } from '$lib/languages.js';
 
 /** A sheet's default image: 3D box → flat front → none (never other photos). */
 export const DEFAULT_IMAGE_SQL = `COALESCE(NULLIF(s.box_image_key, ''), NULLIF(s.box_flat_image_key, ''))`;
@@ -286,9 +286,9 @@ export async function addVideo(db, sheetId, url, orientation, order) {
 export async function deleteVideo(db, id) {
 	await db.prepare('DELETE FROM sheet_video WHERE id = ?').bind(id).run();
 }
-/** Per-market availability for a video. markets: string[]|null (null/[] = all). */
+/** Per-market availability for a video. markets: null = all markets; a list = exactly those (as the picker shows it: an empty list = none). */
 export async function setVideoMarkets(db, id, markets) {
-	const v = markets == null ? null : JSON.stringify(Array.isArray(markets) ? markets : []);
+	const v = markets == null ? null : JSON.stringify(sanitizeMarkets(markets));
 	await db.prepare('UPDATE sheet_video SET markets = ? WHERE id = ?').bind(v, id).run();
 }
 
@@ -310,9 +310,9 @@ export async function addArticle(db, sheetId, id, data, order) {
 export async function deleteArticle(db, id) {
 	await db.prepare('DELETE FROM sheet_article WHERE id = ?').bind(id).run();
 }
-/** Per-market availability for an article. markets: string[]|null (null/[] = all). */
+/** Per-market availability for an article. markets: null = all markets; a list = exactly those (as the picker shows it: an empty list = none). */
 export async function setArticleMarkets(db, id, markets) {
-	const v = markets == null ? null : JSON.stringify(Array.isArray(markets) ? markets : []);
+	const v = markets == null ? null : JSON.stringify(sanitizeMarkets(markets));
 	await db.prepare('UPDATE sheet_article SET markets = ? WHERE id = ?').bind(v, id).run();
 }
 

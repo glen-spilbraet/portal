@@ -11,7 +11,7 @@
  */
 import { listTaxonomy } from './categories.js';
 import { membersByDeal } from './exclusivity.js';
-import { MARKETS } from '$lib/languages.js';
+import { MARKETS, sanitizeMarkets } from '$lib/languages.js';
 
 const MAX_USP = 8;
 
@@ -98,7 +98,8 @@ async function readGlobals(salesDb, skuVariants) {
 		for (const r of /** @type {any[]} */ (marketRes.results ?? [])) (publisherMarkets[r.publisher] ??= []).push(r.market);
 		productWebshop = (/** @type {any[]} */ (webshopRes.results ?? [])).map((r) => ({
 			sku: r.sku,
-			published_markets: r.published_markets == null ? null : (() => { try { return JSON.parse(r.published_markets); } catch { return []; } })(),
+			// null = follow the licence; otherwise a clean list of known market codes.
+			published_markets: r.published_markets == null ? null : (() => { try { const v = JSON.parse(r.published_markets); return Array.isArray(v) ? sanitizeMarkets(v) : null; } catch { return []; } })(),
 			override_license: !!r.override_license
 		}));
 	} catch { /* migration 0080 not applied yet */ }

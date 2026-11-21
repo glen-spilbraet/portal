@@ -29,12 +29,14 @@ const reqInfo = (event) => ({
  *   awards / categories /
  *   publishers / series    → { type: 'full' }            (touch many products)
  * Webshop publishing has its own, more precise notice (see shopNotify.js).
+ * Re-mapping a prefix or SKU to another publisher changes which licence its
+ * products follow, so that is a 'full' notice too.
  * Read-only requests pass straight through.
  */
 
 const FULL = [
 	/^\/api\/awards(\/|$)/, /^\/awards(\/|$)/, /^\/sheets\/awards(\/|$)/, /^\/sheet\/[^/]+\/award(\/|$)/,
-	/^\/admin\/categories(\/|$)/, /^\/admin\/publishers(\/|$)/, /^\/api\/admin\/publishers(\/(?!markets)|$)/, /^\/api\/admin\/series(\/|$)/,
+	/^\/admin\/categories(\/|$)/, /^\/admin\/publishers(\/|$)/, /^\/api\/admin\/publishers(\/(?!markets|apply-licences)|$)/, /^\/api\/admin\/publisher-map(\/|$)/, /^\/api\/admin\/series(\/|$)/,
 	/^\/sheet\/new(\/|$)/, /^\/api\/sheets\/?$/, /^\/admin\/sheet-data(\/|$)/
 ];
 

@@ -24,15 +24,24 @@
 	// ── Webshop market licences (per publisher) ──────────────────────────────────
 	let pubMarkets = $state({ ...(data.marketsByPublisher ?? {}) });
 	async function toggleMarket(pub, m) {
-		const cur = new Set(pubMarkets[pub] ?? []);
-		if (cur.has(m)) cur.delete(m); else cur.add(m);
-		const arr = data.markets.filter((x) => cur.has(x)); // canonical order
-		pubMarkets = { ...pubMarkets, [pub]: arr };
-		const res = await fetch('/api/admin/publishers/markets', {
-			method: 'POST', headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ publisher: pub, markets: arr })
-		});
-		if (!res.ok) { alert('Could not save markets'); await invalidateAll(); }
+		const before = pubMarkets[pub] ?? [];
+		const cur = new Set(before);
+		const on = !cur.has(m);
+		if (on) cur.add(m); else cur.delete(m);
+		pubMarkets = { ...pubMarkets, [pub]: data.markets.filter((x) => cur.has(x)) }; // canonical order
+		// Sends just this one switch (not the whole list), so quick clicks can't undo each other.
+		try {
+			const res = await fetch('/api/admin/publishers/markets', {
+				method: 'POST', headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ publisher: pub, market: m, on })
+			});
+			if (!res.ok) throw new Error();
+			const body = await res.json();
+			if (Array.isArray(body.markets)) pubMarkets = { ...pubMarkets, [pub]: data.markets.filter((x) => body.markets.includes(x)) };
+		} catch {
+			pubMarkets = { ...pubMarkets, [pub]: before };
+			alert(`Could not save the ${m} licence for ${pub} — nothing was changed.`);
+		}
 	}
 
 	// ── Add publisher ───────────────────────────────────────────────────────────
@@ -113,7 +122,7 @@
 	let licLoading = $state(false);
 	let licApplying = $state(false);
 	let licMsg = $state('');
-	/** @type {{ groups: {publisher:string, licence:string[], products:{sku:string,name:string|null,sheetId:string|null}[]}[], total:number, unlicensed:number } | null} */
+	/** @type {{ groups: {publisher:string, licence:string[], products:{sku:string,name:string|null,sheetId:string|null,updatedBy:string|null,updatedAt:string|null}[]}[], total:number, unlicensed:number } | null} */
 	let lic = $state(null);
 	let licSel = $state(new Set());
 	let licExpanded = $state(new Set());
@@ -123,7 +132,7 @@
 			const res = await fetch('/api/admin/publishers/apply-licences');
 			if (!res.ok) throw new Error('failed');
 			lic = await res.json();
-			licSel = new Set(lic.groups.flatMap((g) => g.products.map((p) => p.sku)));
+			licSel = new Set(); // nothing pre-ticked: an empty Publication can also be a deliberate "not in the webshop"
 			licExpanded = new Set();
 		} catch { licMsg = 'Could not load — try again'; } finally { licLoading = false; }
 	}
@@ -285,7 +294,7 @@
 	<div class="overlay" onclick={() => (licOpen = false)} role="presentation">
 		<div class="modal wide" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
 			<h3 class="modal-title">Apply licences to unpublished products</h3>
-			<p class="modal-sub">Products with <strong>no webshop markets</strong> whose publisher now has a licence. Applying makes them follow the publisher's licence (same markets ticked, and later licence changes follow automatically). Products with markets chosen by hand or "override licence" are never touched. Untick anything that should stay unpublished.</p>
+			<p class="modal-sub">Products with <strong>no webshop markets</strong> whose publisher now has a licence. Applying makes them follow the publisher's licence (same markets ticked, and later licence changes follow automatically). Products with one or more markets chosen by hand, or with "override licence", are never listed. <strong>A product someone deliberately unpublished everywhere looks the same as one the import left empty</strong> — check "last changed" and tick only what should go live.</p>
 			{#if licLoading}
 				<p class="empty">Loading…</p>
 			{:else if lic}
@@ -311,6 +320,7 @@
 												<input type="checkbox" checked={licSel.has(p.sku)} onchange={() => toggleSku(p.sku)} />
 												<span class="lic-sku">{p.sku}</span>
 												{#if p.sheetId}<a href="/sheet/{p.sheetId}" target="_blank" rel="noopener" onclick={(e) => e.stopPropagation()}>{p.name ?? 'Open sheet'}</a>{:else}<span class="none">{p.name ?? 'no sheet'}</span>{/if}
+												<span class="lic-changed">{#if p.updatedAt}last changed {new Date(p.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{#if p.updatedBy}{' '}by {p.updatedBy.split('@')[0]}{/if}{/if}</span>
 											</label>
 										{/each}
 									</div>
@@ -455,6 +465,7 @@
 	.lic-products { padding: 2px 12px 10px 36px; display: flex; flex-direction: column; gap: 4px; }
 	.lic-prod { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
 	.lic-sku { font-weight: 800; min-width: 90px; font-variant-numeric: tabular-nums; }
+	.lic-changed { margin-left: auto; font-size: 11px; color: #A1A1AA; white-space: nowrap; }
 	.lic-prod a { color: #3f3a33; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.lic-prod a:hover { text-decoration: underline; }
 	.lic-err { color: #dc2626; font-size: 13px; font-weight: 700; margin: 10px 0 0; }
