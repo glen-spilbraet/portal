@@ -2,7 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { addImage } from '$lib/db.js';
 import { verifySession } from '$lib/auth.js';
 import { warmImageWidths } from '$lib/server/imageCdn.js';
-import { assertVariantUpload, imageExt } from '$lib/server/uploads.js';
+import { assertVariantUpload, imageExt, imageType } from '$lib/server/uploads.js';
 
 async function checkAuth(cookies, platform) {
 	const token = cookies.get('session');
@@ -49,7 +49,7 @@ export async function POST({ request, cookies, platform }) {
 
 	const buffer = await file.arrayBuffer();
 	await bucket.put(r2Key, buffer, {
-		httpMetadata: { contentType: file.type }
+		httpMetadata: { contentType: file.type || imageType(ext) }
 	});
 	// Pre-make the shop's image widths (img.spilbraet.dk) in the background.
 	warmImageWidths(platform, r2Key);

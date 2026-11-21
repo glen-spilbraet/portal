@@ -24,7 +24,7 @@ export async function POST({ params, request, cookies, platform }) {
 	// ── Variant upload (resized copy, no DB change) ───────────────────────
 	const variantKey = formData.get('variantKey')?.toString();
 	if (variantKey) {
-		assertVariantUpload(variantKey, file);
+		assertVariantUpload(variantKey, file, 'catalogue-covers/'); // folder only: a duplicated catalogue keeps keys under the original's id
 		const buffer = await file.arrayBuffer();
 		await bucket.put(variantKey, buffer, { httpMetadata: { contentType: file.type } });
 		return json({ key: variantKey });

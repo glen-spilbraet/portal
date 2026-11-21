@@ -1,7 +1,7 @@
 import { redirect, error } from '@sveltejs/kit';
 import { verifySession, createSession, sessionAgeMs } from '$lib/auth.js';
 import { getAllowedUser, getUserPermissions } from '$lib/db.js';
-import { sectionForPath, isSheetEditPath, isPublicPath, sessionSecret } from '$lib/server/access.js';
+import { sectionForPath, isSheetEditPath, isPublicRoute, sessionSecret } from '$lib/server/access.js';
 
 const SESSION_TTL_S = 7 * 24 * 60 * 60;
 // Re-issue the session cookie once it's older than this, so active users never
@@ -27,18 +27,20 @@ async function dbRead(fn, tries = 3) {
 	throw lastErr;
 }
 
-export async function load({ cookies, url, platform, locals }) {
+export async function load({ cookies, url, route, platform, locals }) {
 	const isDev = platform?.env?.ENVIRONMENT === 'dev';
 
 	// Public / auth routes (share links, sign-in, …) — see PUBLIC in access.js
-	if (isPublicPath(url.pathname)) return { isDev };
+	// Rules are keyed on the matched route, never the raw URL (see access.js).
+	const routeId = route.id ?? '';
+	if (isPublicRoute(routeId)) return { isDev };
 
 	const token  = cookies.get('session');
 	const secret = sessionSecret(platform);
 	if (!secret) error(500, 'Server is missing its session secret.');
 
 	const email = await verifySession(token ?? '', secret);
-	if (!email) redirect(303, `/login?next=${encodeURIComponent(url.pathname)}`);
+	if (!email) redirect(303, `/login?next=${encodeURIComponent(url.pathname + url.search)}`);
 
 	// Identity is already proven by the signed token. From here, a DB problem is
 	// an infrastructure failure — surface it as "try again" (503), NEVER as a
@@ -122,14 +124,14 @@ export async function load({ cookies, url, platform, locals }) {
 	}
 
 	// Block routes based on effective (possibly simulated) permissions
-	const section = sectionForPath(url.pathname);
+	const section = sectionForPath(routeId);
 	if (section && !effectivePermissions[section]) {
 		error(403, "You don't have access to this section.");
 	}
 
 	// Sheets has two levels: view (overview, search, preview) and edit (the
 	// editor). View-only users may browse but not open the editor / create.
-	if (section === 'sheets' && !effectivePermissions.sheetsEdit && isSheetEditPath(url.pathname)) {
+	if (section === 'sheets' && !effectivePermissions.sheetsEdit && isSheetEditPath(routeId)) {
 		error(403, "You don't have edit access to Sheets.");
 	}
 

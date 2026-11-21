@@ -26,7 +26,9 @@ const PAGE_HEADERS = {
 	'Cache-Control': 'no-store',
 	'X-Frame-Options': 'DENY', // the Allow button must not be clickable inside someone else's page
 	'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
-	'Referrer-Policy': 'no-referrer',
+	// same-origin (not no-referrer): with no-referrer the browser posts the form
+	// with `Origin: null`, and the origin check below would reject every Allow.
+	'Referrer-Policy': 'same-origin',
 };
 
 /** @param {string} title @param {string} body @param {number} [status] */
