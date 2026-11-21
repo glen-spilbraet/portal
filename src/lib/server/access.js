@@ -5,7 +5,7 @@
  * form actions, `__data.json` requests and most API endpoints had to remember
  * their own check — and many did not. Now:
  *
- *   1. A path is public only if it is listed in PUBLIC below.
+ *   1. A route is public only if it is listed in PUBLIC below.
  *   2. Everything else needs a valid session AND a row in allowed_users
  *      (so a removed user loses access at once, not when the cookie expires).
  *   3. Page data requests, form actions and API calls must also pass the
@@ -17,26 +17,43 @@
  */
 
 import { dev } from '$app/environment';
+import { error, redirect } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
 import { getAllowedUser, getUserPermissions } from '$lib/db.js';
 
 /**
- * Paths reachable without a Portal session. Each has its own protection
- * (share token, bearer key, OAuth) or is part of signing in.
+ * Everything here is decided from the MATCHED ROUTE (`event.route.id`, e.g.
+ * `/api/catalogues/[id]/items`) and `event.params` — never from the raw URL.
+ * SvelteKit matches routes on the decoded path but leaves `url.pathname` as it
+ * was sent, so `/api/%6dail/…` reaches the mail endpoint while a check on the
+ * raw string would not recognise it.
+ */
+
+/**
+ * Routes reachable without a Portal session. Each has its own protection
+ * (share token, bearer key, OAuth) or is part of signing in. An entry ending
+ * in "/" covers everything below it; any other entry is that exact route.
  */
 const PUBLIC = [
-	/^\/login\/?$/, /^\/logout\/?$/, /^\/auth\//,
-	/^\/share\//, /^\/planograms\/share\//, /^\/events\/share\//, /^\/events\/guru\//,
-	/^\/tombola\//, /^\/reports\/share\//, /^\/media\//,
-	/^\/oauth\//, /^\/\.well-known\//, /^\/mcp\/?$/,
-	/^\/api\/shop\//, /^\/api\/warehouse\/warm\/?$/,
-	/^\/api\/share\//, /^\/api\/planograms\/share\//, /^\/api\/events\/share\//, /^\/api\/events\/guru\//,
-	/^\/api\/tombola\//, /^\/api\/errors\/?$/, /^\/api\/admin\/simulate\/end\/?$/,
-	/^\/api\/img\//,
+	'/login', '/logout', '/auth/',
+	'/share/', '/planograms/share/', '/events/share/', '/events/guru/',
+	'/tombola/', '/reports/share/', '/media/',
+	'/oauth/', '/[x+2e]well-known/', '/mcp',
+	'/api/shop/', '/api/warehouse/warm',
+	'/api/share/', '/api/planograms/share/', '/api/events/share/', '/api/events/guru/',
+	'/api/tombola/', '/api/errors', '/api/admin/simulate/end',
+	'/api/img/',
 ];
 
-/** @param {string} pathname */
-export const isPublicPath = (pathname) => PUBLIC.some((re) => re.test(pathname));
+/** @param {string | null | undefined} routeId */
+export const isPublicRoute = (routeId) => !!routeId && PUBLIC.some((p) => (p.endsWith('/') ? routeId.startsWith(p) : routeId === p));
+
+// Which routes are plain endpoints (+server.js with no page)? Their GETs are
+// not "page views": the root layout never runs for them, so the gate must
+// apply the section rule itself. (Keys only — nothing is imported.)
+const routeIdOf = (/** @type {string} */ file) => file.replace(/^\/src\/routes/, '').replace(/\/\+[^/]+$/, '') || '/';
+const PAGES = new Set(Object.keys(import.meta.glob('/src/routes/**/+page.svelte')).map(routeIdOf));
+const ENDPOINT_ONLY = new Set(Object.keys(import.meta.glob('/src/routes/**/+server.js')).map(routeIdOf).filter((id) => !PAGES.has(id)));
 
 /**
  * The session secret. Falls back to a fixed value ONLY under `vite dev`; a
@@ -51,15 +68,21 @@ export function sessionSecret(platform) {
 
 /**
  * A post-login destination is only followed when it is a path on this site.
- * (`//evil.com` and `/\\evil.com` start with "/" but leave the site.)
  * @param {string | null | undefined} next
  */
 export function safeNext(next) {
 	const n = String(next ?? '');
-	return /^\/(?![/\\])/.test(n) && !/[\r\n]/.test(n) ? n : '/';
+	// Browsers drop tabs/newlines and treat "\" as "/" when parsing a URL, so
+	// "/\t/evil.com" would become "//evil.com".
+	if (!n.startsWith('/') || /[\x00-\x1f\x7f\\]/.test(n)) return '/';
+	try {
+		const base = 'http://portal.invalid';
+		const u = new URL(n, base);
+		return u.origin === base ? u.pathname + u.search + u.hash : '/';
+	} catch { return '/'; }
 }
 
-/** Map a page pathname to the section permission it requires (null = no section rule). @param {string} pathname */
+/** Map a route id (or path) to the section permission it requires (null = no section rule). @param {string} pathname */
 export function sectionForPath(pathname) {
 	if (pathname === '/')                                    return 'stats';
 	if (pathname.startsWith('/sheets') || pathname.startsWith('/sheet/')) return 'sheets';
@@ -85,8 +108,8 @@ export function sectionForPath(pathname) {
 	return null;
 }
 
-/** The sheet editor and "new sheet" need edit access, not just view. @param {string} pathname */
-export const isSheetEditPath = (pathname) => pathname === '/sheet/new' || /^\/sheet\/[^/]+\/?$/.test(pathname);
+/** The sheet editor and "new sheet" need edit access, not just view. @param {string} pathname route id */
+export const isSheetEditPath = (pathname) => pathname === '/sheet/new' || pathname === '/sheet/[id]';
 
 /**
  * What a request needs beyond "signed-in allowed user".
@@ -114,32 +137,35 @@ export function ruleFor(pathname, method) {
 }
 
 /** Owned things: catalogues and planograms belong to their creator and the people they are shared with. */
-const OWNED = /** @type {Record<string, { table: string, shares: string, fk: string, folders: string }>} */ ({
-	catalogues: { table: 'catalogues', shares: 'catalogue_shares', fk: 'catalogue_id', folders: 'catalogue_folders' },
-	planograms: { table: 'planogram_projects', shares: 'planogram_shares', fk: 'project_id', folders: 'planogram_folders' },
+const OWNED = /** @type {Record<string, { table: string, shares: string, fk: string, folders: string, items: string }>} */ ({
+	catalogues: { table: 'catalogues', shares: 'catalogue_shares', fk: 'catalogue_id', folders: 'catalogue_folders', items: 'catalogue_items' },
+	planograms: { table: 'planogram_projects', shares: 'planogram_shares', fk: 'project_id', folders: 'planogram_folders', items: 'planogram_library_items' },
 });
-const NOT_AN_ID = new Set(['new', 'share', 'folders', 'image-library', 'logo-library']);
 
 /**
- * May this (non-admin) user touch the catalogue / planogram / folder a path
- * names? Owner or shared-with: yes. Items without an owner (older data) stay
- * open to everyone with the section. An id that does not exist is left to the
- * endpoint (404).
- * @param {any} db @param {string} pathname @param {string} email
+ * May this (non-admin) user touch the catalogue / planogram / folder this
+ * route names? Owner or shared-with: yes. Items without an owner (older data)
+ * stay open to everyone with the section. An id that does not exist is left to
+ * the endpoint (404).
+ * @param {any} db @param {string} routeId @param {Record<string, string>} params @param {string} email
  */
-async function ownsTarget(db, pathname, email) {
-	const m = pathname.match(/^\/(?:api\/)?(catalogues|planograms)\/([^/]+)(?:\/([^/]+))?/);
-	if (!m) return true;
+async function ownsTarget(db, routeId, params, email) {
+	const m = routeId.match(/^\/(?:api\/)?(catalogues|planograms)\/(folders\/)?\[id\](?:\/|$)/);
+	if (!m || !params.id) return true;
 	const o = OWNED[m[1]];
-	if (m[2] === 'folders') {
-		if (!m[3]) return true; // list / create
-		const f = await db.prepare(`SELECT created_by FROM ${o.folders} WHERE id = ?`).bind(m[3]).first();
+	if (m[2]) {
+		const f = await db.prepare(`SELECT created_by FROM ${o.folders} WHERE id = ?`).bind(params.id).first();
 		return !f || !f.created_by || f.created_by === email;
 	}
-	if (NOT_AN_ID.has(m[2])) return true;
-	const row = await db.prepare(`SELECT created_by FROM ${o.table} WHERE id = ?`).bind(m[2]).first();
+	// An item addressed through this catalogue / planogram must belong to it —
+	// otherwise one's own id in the URL would unlock anybody's item.
+	if (params.itemId && routeId.includes('/[id]/items/[itemId]')) {
+		const item = await db.prepare(`SELECT ${o.fk} AS parent FROM ${o.items} WHERE id = ?`).bind(params.itemId).first();
+		if (item && String(item.parent) !== String(params.id)) return false;
+	}
+	const row = await db.prepare(`SELECT created_by FROM ${o.table} WHERE id = ?`).bind(params.id).first();
 	if (!row || !row.created_by || row.created_by === email) return true;
-	return !!(await db.prepare(`SELECT 1 FROM ${o.shares} WHERE ${o.fk} = ? AND shared_with_email = ?`).bind(m[2], email).first());
+	return !!(await db.prepare(`SELECT 1 FROM ${o.shares} WHERE ${o.fk} = ? AND shared_with_email = ?`).bind(params.id, email).first());
 }
 
 /** @param {number} status @param {string} message */
@@ -148,62 +174,66 @@ const deny = (status, message) => new Response(JSON.stringify({ message }), {
 });
 
 /**
- * Check a request. Returns a Response to send instead of the page/endpoint, or
- * null to let it through (with `event.locals.auth` set for signed-in requests).
+ * Check a request. Returns a Response to send instead of the endpoint, or null
+ * to let it through (with `event.locals.auth` set for signed-in requests).
+ * For pages it throws SvelteKit's own redirect()/error(), which SvelteKit turns
+ * into the right thing for a page view, a data request or a form action.
  * @param {import('@sveltejs/kit').RequestEvent} event
  * @returns {Promise<Response | null>}
  */
 export async function gate(event) {
-	const { pathname } = event.url;
-	if (isPublicPath(pathname)) return null;
+	const routeId = event.route?.id ?? null;
+	if (!routeId) return null;              // no such route → SvelteKit answers 404; nothing to protect
+	if (isPublicRoute(routeId)) return null;
 
 	const method = event.request.method;
-	const isApi = pathname.startsWith('/api/');
-	// A plain page view: the root layout renders the proper redirect / error page.
-	const isPageView = !isApi && (method === 'GET' || method === 'HEAD') && !event.isDataRequest;
-	/** @param {string} to */
-	const sendTo = (to) => new Response(null, { status: 303, headers: { Location: to, 'Cache-Control': 'no-store' } });
+	const read = method === 'GET' || method === 'HEAD';
+	const isApi = routeId.startsWith('/api/');
+	// A plain page view: the root layout applies the section rule (it also
+	// knows about "simulate user") and renders the proper error page.
+	const isPageView = read && !event.isDataRequest && !ENDPOINT_ONLY.has(routeId);
+	/** @param {number} status @param {string} message @returns {Response} */
+	const stop = (status, message) => { if (isApi) return deny(status, message); error(status, message); };
+	/** @param {string} to @param {number} status @param {string} message @returns {Response} */
+	const signIn = (to, status, message) => { if (isApi) return deny(status, message); redirect(303, to); };
 
 	const secret = sessionSecret(event.platform);
-	if (!secret) return deny(500, 'Server is missing its session secret.');
+	if (!secret) return stop(500, 'Server is missing its session secret.');
 
 	const email = await verifySession(event.cookies.get('session') ?? '', secret);
-	if (!email) return isPageView ? sendTo(`/login?next=${encodeURIComponent(pathname + event.url.search)}`) : deny(401, 'Please sign in again.');
+	if (!email) return signIn(`/login?next=${encodeURIComponent(event.url.pathname + event.url.search)}`, 401, 'Please sign in again.');
 
 	// Identity is proven by the signed token; a DB problem from here on is an
 	// infrastructure failure ("try again"), never a logout.
 	const db = event.platform?.env?.DB;
-	if (!db) return deny(503, 'Service temporarily unavailable. Please try again.');
+	if (!db) return stop(503, 'Service temporarily unavailable. Please try again.');
+
+	const rule = routeId === '/' ? null : ruleFor(routeId, method); // "/" → the layout picks the user's landing page
 	let user, permissions;
 	try {
 		user = await getAllowedUser(db, email);
-		if (user) permissions = await getUserPermissions(db, user);
+		// Permissions cost a second query: only fetch them when something will use them.
+		if (user && user.role !== 'admin' && (rule || !isApi)) permissions = await getUserPermissions(db, user);
 	} catch {
-		return deny(503, 'Service temporarily unavailable. Please try again.');
+		return stop(503, 'Service temporarily unavailable. Please try again.');
 	}
-	if (!user) return isPageView ? sendTo('/login?error=not_allowed') : deny(403, 'Your access to the Portal has been removed.');
+	if (!user) return signIn('/login?error=not_allowed', 403, 'Your access to the Portal has been removed.');
 
 	/** @type {any} */ (event.locals).auth = { email, user, permissions };
-
 	if (user.role === 'admin') return null;
 
 	// Someone else's catalogue / planogram (not shared with this user).
-	try {
-		if (!(await ownsTarget(db, pathname, email))) {
-			return isPageView ? sendTo(`/${pathname.split('/')[1]}`) : deny(403, 'This belongs to someone else and is not shared with you.');
-		}
-	} catch {
-		return deny(503, 'Service temporarily unavailable. Please try again.');
+	let owns = true;
+	try { owns = await ownsTarget(db, routeId, event.params, email); }
+	catch { return stop(503, 'Service temporarily unavailable. Please try again.'); }
+	if (!owns) {
+		if (isPageView) redirect(303, `/${routeId.split('/')[1]}`);
+		return stop(403, 'This belongs to someone else and is not shared with you.');
 	}
 
-	// Page views: the layout applies the section rule (it also knows about
-	// "simulate user"), and each page's own load applies admin-only rules.
-	if (isPageView) return null;
-
-	const rule = ruleFor(pathname, method);
-	if (!rule) return null;
-	if (rule.admin) return deny(403, 'Admins only.');
-	if (rule.perm && !permissions[rule.perm]) return deny(403, "You don't have access to this.");
-	if (rule.anyPerm && !rule.anyPerm.some((p) => permissions[p])) return deny(403, "You don't have access to this.");
+	if (isPageView || !rule) return null;
+	if (rule.admin) return stop(403, 'Admins only.');
+	if (rule.perm && !permissions?.[rule.perm]) return stop(403, "You don't have access to this.");
+	if (rule.anyPerm && !rule.anyPerm.some((p) => permissions?.[p])) return stop(403, "You don't have access to this.");
 	return null;
 }

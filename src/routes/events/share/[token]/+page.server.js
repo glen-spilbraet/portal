@@ -18,13 +18,16 @@ export async function load({ params, platform, url }) {
 	]);
 
 	// Public page: internal notes stay internal.
-	const { notes, ...publicEvent } = event;
+	const { notes, ...rest } = event;
+	// …and so does who uploaded each file.
+	const assets = event.assets.map(({ uploaded_by, ...a }) => a);
+	const publicEvent = { ...rest, assets };
 
 	return {
 		event: publicEvent,
 		products: products.filter(Boolean),
 		badges,
-		marketing: event.assets.filter((a) => a.category === 'marketing'),
-		media: event.assets.filter((a) => a.category === 'media'),
+		marketing: assets.filter((a) => a.category === 'marketing'),
+		media: assets.filter((a) => a.category === 'media'),
 	};
 }

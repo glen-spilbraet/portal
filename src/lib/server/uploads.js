@@ -16,9 +16,11 @@ const VARIANT_KEY = /^[A-Za-z0-9][A-Za-z0-9_\-./]*_(300|400|600|1000|1600)\.webp
  * WebP — otherwise the endpoint would be "write any file to any key".
  * Throws 400 if not.
  * @param {string} key @param {File} file
+ * @param {string} [prefix] the only folder this endpoint may write to (e.g. `catalogue-covers/`)
  */
-export function assertVariantUpload(key, file) {
+export function assertVariantUpload(key, file, prefix) {
 	if (!VARIANT_KEY.test(key) || key.includes('..') || key.includes('//')) error(400, 'Invalid variant key');
+	if (prefix && !key.startsWith(prefix)) error(400, 'Invalid variant key');
 	if (file.type !== 'image/webp') error(400, 'Variants must be WebP images');
 }
 
@@ -43,6 +45,9 @@ export function imageExt(file) {
 	if (!ext) error(400, 'Only image files (JPG, PNG, WebP, GIF, AVIF, HEIC, TIFF) can be uploaded here');
 	return ext;
 }
+
+/** The content type to store for an image extension returned by imageExt(). @param {string} ext */
+export const imageType = (ext) => Object.entries(IMAGE_EXT).find(([, e]) => e === ext)?.[0] ?? ({ jpeg: 'image/jpeg', tif: 'image/tiff' })[ext] ?? 'application/octet-stream';
 
 /** Types a browser may display directly from /api/img; everything else downloads. */
 const INLINE = /^(image\/(jpeg|png|webp|gif|avif|heic|heif|tiff)|video\/[\w.+-]+|audio\/[\w.+-]+|application\/pdf)$/i;
