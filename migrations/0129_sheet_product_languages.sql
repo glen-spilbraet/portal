@@ -1,0 +1,11 @@
+-- Which languages a product itself comes in (components and/or rule book) —
+-- not the languages its Portal texts are written in. JSON list, in display order:
+--   [{ "code": "da" }, { "code": "de", "manual_only": true }, …]
+-- manual_only = only the rule book / manual is in that language.
+-- NULL = not filled in yet.
+--
+-- App DB (DB binding): apply to portal-db-dev and portal-db. On production it
+-- must be applied BEFORE the code is merged (the shop feed reads the column);
+-- older code simply ignores it, so applying early is harmless. Run once only —
+-- ADD COLUMN fails if the column already exists.
+ALTER TABLE sales_sheets ADD COLUMN product_languages TEXT;

@@ -5,6 +5,7 @@
  */
 import { getSheet, getTranslations, getImages } from '$lib/db.js';
 import { LANGS, normalizeLang } from '$lib/languages.js';
+import { sanitizeProductLanguages, productLanguageName } from '$lib/productLanguages.js';
 const MAX_USP = 8;
 
 /** Fuzzy search by SKU, product name (any language) or EAN/data-field text. */
@@ -68,6 +69,8 @@ export async function getProductBySku(db, sku, lang, origin) {
 		language: L,
 		primary_language: primary,
 		available_languages: availableLanguages,
+		// Languages the product itself comes in (components / rule book). manual_only = only the rule book.
+		product_languages: sanitizeProductLanguages(row.product_languages).map((l) => ({ code: l.code, name: productLanguageName(l.code), manual_only: !!l.manual_only })),
 		name: pick('product_name') || row.sku,
 		names,
 		description: pick('product_description'),

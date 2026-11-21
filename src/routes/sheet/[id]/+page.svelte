@@ -1,4 +1,5 @@
 <script>
+	import ProductLanguagePicker from '$lib/components/ProductLanguagePicker.svelte';
 	import { MARKETS, MARKET_LABEL, MARKET_LANG, langInfo, langShort } from '$lib/languages.js';
 	import { invalidateAll } from '$app/navigation';
 	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
@@ -709,6 +710,13 @@
 					{#if rbAsOf}<div class="rbs-asof">Rackbeat · {rbAsOf}{#if data.stockMeta?.status === 'error'} · <span class="rbs-err">last sync failed</span>{/if}</div>{/if}
 				</div>
 			</div>
+
+			<!-- Languages the product itself comes in (components / rule book) -->
+			<div class="side-card pl-card">
+				<div class="side-head"><h2>Product languages</h2></div>
+				<p class="pl-hint">Languages the product comes in — not the languages of the texts on this page.</p>
+				<ProductLanguagePicker value={data.sheet.product_languages} onchange={(next) => save({ type: 'sheet', field: 'product_languages', value: next })} />
+			</div>
 		</aside>
 
 		<div class="main-col">
@@ -1191,6 +1199,8 @@
 	.cat-chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 14px 11px 30px; }
 	.cat-chips .chip { font-size: 11.5px; font-weight: 600; color: #8a7550; background: #FBF4E2; border: 1px solid #F0E3C0; border-radius: 6px; padding: 2px 7px; }
 	.side-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+	.pl-card { margin-top: 14px; overflow: visible; }
+	.pl-hint { font-size: 11.5px; color: #A1A1AA; margin: 0; padding: 10px 16px 0; line-height: 1.4; }
 	.side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
 	.side-head h2 { font-size: 14px; font-weight: 800; color: #18181B; margin: 0; }
 	.name-fld { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
