@@ -11,7 +11,7 @@
  */
 import { listTaxonomy } from './categories.js';
 import { membersByDeal } from './exclusivity.js';
-import { MARKETS, sanitizeMarkets } from '$lib/languages.js';
+import { MARKETS, MARKET_LIST, sanitizeMarkets } from '$lib/languages.js';
 
 const MAX_USP = 8;
 
@@ -378,6 +378,10 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 		// null = default (publish to all the publisher allows); array = explicit;
 		// override_license = publish regardless of the publisher licence.
 		markets: MARKETS,
+		// What each market is: its text language and the currency its prices are in
+		// (prices themselves come from Rackbeat). The shop should read this rather
+		// than keep its own copy. [{ code, label, lang, currency }]
+		market_info: MARKET_LIST,
 		publisher_markets: publisherMarkets,
 		product_webshop: productWebshop,
 		// Exclusivity: while an agreement is running (start_date ≤ today ≤ end_date,

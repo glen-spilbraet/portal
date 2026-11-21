@@ -12,6 +12,8 @@
 		{ key: 'depth',      display: 'Depth' },
 		{ key: 'weight',     display: 'Weight' },
 		{ key: 'stock_date', display: 'Est. Stock Date' },
+		{ key: 'listpris',   display: 'List price' },
+		{ key: 'watch_video', display: 'Watch video' },
 	];
 
 	const MAIL_KEYS = [
