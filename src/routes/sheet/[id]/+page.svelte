@@ -51,7 +51,6 @@
 
 	// ── Per-language text (re-loaded on language switch) ───────────────────────
 	let t = $state(normT(data.translations));
-	let uspCount = $state(data.sheet.usp_count ?? 3);
 
 	// Product name is NOT translatable — one shared value, written to every language.
 	let name = $state(data.baseTranslations?.product_name ?? data.translations?.product_name ?? '');
@@ -82,15 +81,9 @@
 
 	// ── Bullets (usp_1..usp_count) ─────────────────────────────────────────────
 	function usp(i) { return t[`usp_${i + 1}`] ?? ''; }
-	async function addBullet() { if (uspCount >= 6) return; uspCount += 1; await putSheet('usp_count', uspCount); }
-	async function removeBullet(idx) {
-		const vals = Array.from({ length: uspCount }, (_, i) => usp(i));
-		vals.splice(idx, 1);
-		for (let i = 0; i < vals.length; i++) await putTranslation(`usp_${i + 1}`, vals[i]);
-		await putTranslation(`usp_${vals.length + 1}`, '');
-		uspCount = vals.length;
-		await putSheet('usp_count', uspCount);
-	}
+
+	// Always three bullet fields — fill in none, some or all; empty ones are left off the sheet.
+	const BULLETS = [0, 1, 2];
 
 	// ── Copy / paste all universal text (for translation) ──────────────────────
 	// Unique {#…} markers so they never collide with Markdown '#' headers.
@@ -98,7 +91,7 @@
 	let pasteMsg = $state('');
 	function buildExport() {
 		const out = ['{#Description}', (t.product_description ?? '').trim(), ''];
-		for (let i = 0; i < uspCount; i++) out.push(`{#Bullet ${i + 1}}`, (usp(i) ?? '').trim(), '');
+		for (const i of BULLETS) out.push(`{#Bullet ${i + 1}}`, (usp(i) ?? '').trim(), '');
 		out.push('{#Long description}', (t.long_description ?? '').trim());
 		return out.join('\n');
 	}
@@ -122,14 +115,12 @@
 		let text;
 		try { text = await navigator.clipboard.readText(); } catch { pasteMsg = 'Failed'; setTimeout(() => (pasteMsg = ''), 2000); return; }
 		if (!text?.trim()) { pasteMsg = 'Clipboard empty'; setTimeout(() => (pasteMsg = ''), 2000); return; }
-		let maxBullet = 0;
 		for (const [secName, content] of parseExport(text)) {
 			const low = secName.toLowerCase();
 			if (low === 'description') await putTranslation('product_description', content);
 			else if (low === 'long description') await putTranslation('long_description', content);
-			else { const m = low.match(/^bullet\s+(\d+)$/); if (m) { const n = +m[1]; if (n >= 1 && n <= 6) { maxBullet = Math.max(maxBullet, n); await putTranslation(`usp_${n}`, content); } } }
+			else { const m = low.match(/^bullet\s+(\d+)$/); if (m) { const n = +m[1]; if (n >= 1 && n <= BULLETS.length) await putTranslation(`usp_${n}`, content); } }
 		}
-		if (maxBullet > uspCount) { uspCount = Math.min(6, maxBullet); await putSheet('usp_count', uspCount); }
 		pasteMsg = 'Pasted!'; setTimeout(() => (pasteMsg = ''), 2000);
 	}
 
@@ -598,7 +589,6 @@
 		loadedId = data.sheet.id;
 		t = normT(data.translations);
 		name = data.baseTranslations?.product_name ?? data.translations?.product_name ?? '';
-		uspCount = data.sheet.usp_count ?? 3;
 		dataFields = JSON.parse(data.sheet.data_fields || '[]');
 		initGameAttrs();
 		rbMsg = ''; rbErr = '';
@@ -738,16 +728,12 @@
 			</label>
 			<div class="fld"><span>Bullets</span>
 				<div class="bullets">
-					{#each Array(uspCount) as _, i}
-						<div class="bullet-row">
-							<input value={usp(i)} oninput={(e) => (t[`usp_${i + 1}`] = e.currentTarget.value)} onblur={(e) => putTranslation(`usp_${i + 1}`, e.currentTarget.value)} placeholder="Bullet {i + 1}" />
-							<button class="x" title="Remove" onclick={() => removeBullet(i)}>✕</button>
-						</div>
+					{#each BULLETS as i}
+						<input value={usp(i)} oninput={(e) => (t[`usp_${i + 1}`] = e.currentTarget.value)} onblur={(e) => putTranslation(`usp_${i + 1}`, e.currentTarget.value)} placeholder="Bullet {i + 1}" aria-label="Bullet {i + 1}" />
 					{/each}
-					{#if uspCount < 6}<button class="add" onclick={addBullet}>+ Add bullet</button>{/if}
 				</div>
 			</div>
-			<div class="fld"><span>Long description <em>(webshop)</em></span>
+			<div class="fld"><span>Long description</span>
 				<MarkdownEditor bind:value={t.long_description} onchange={(v) => putTranslation('long_description', v)} />
 			</div>
 		</section>
@@ -1112,8 +1098,6 @@
 	.mini:disabled { opacity: 0.6; cursor: default; }
 
 	.bullets { display: flex; flex-direction: column; gap: 6px; }
-	.bullet-row { display: flex; gap: 6px; }
-	.bullet-row input { flex: 1; }
 	.add { align-self: flex-start; font-size: 12px; font-weight: 700; color: #B15A12; background: none; border: none; cursor: pointer; font-family: inherit; padding: 2px 0; }
 	.x { flex-shrink: 0; width: 28px; border: 1px solid var(--border); background: #fff; border-radius: 7px; color: #b6795a; cursor: pointer; font-size: 12px; }
 	.x:hover { background: #fce4de; color: #c4381b; }
