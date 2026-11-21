@@ -30,6 +30,8 @@
 	}
 </script>
 
+<svelte:head><title>New sheet — Product Portal</title></svelte:head>
+
 <div class="page">
 	<header>
 		<a href="/sheets" class="back">← Back</a>

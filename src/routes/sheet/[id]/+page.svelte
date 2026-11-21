@@ -19,9 +19,34 @@
 		return o;
 	};
 	let language = $state(data.language);
+	// Save indicator: 'saving' while requests are out, 'saved' only when the
+	// server said so, 'error' (with the reason) when a save was refused or failed.
 	let saveStatus = $state('saved');
+	let saveError = $state('');
 	let saveTimer = null;
-	function flashSaved() { saveStatus = 'saving'; clearTimeout(saveTimer); saveTimer = setTimeout(() => (saveStatus = 'saved'), 900); }
+	let savesOut = 0, saveFailed = false;
+	function flashSaved() {
+		if (saveStatus === 'error') return; // never paper over a failed save
+		saveStatus = 'saving'; clearTimeout(saveTimer);
+		saveTimer = setTimeout(() => { if (saveStatus === 'saving' && !savesOut) saveStatus = 'saved'; }, 900);
+	}
+	/** PUT to the sheet API and reflect the real outcome in the indicator. @returns {Promise<boolean>} */
+	async function save(body) {
+		if (!savesOut) saveFailed = false;
+		savesOut++; saveStatus = 'saving';
+		let ok = false;
+		try {
+			const res = await fetch(`/api/sheets/${sheetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+			if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || `Error ${res.status}`);
+			ok = true;
+		} catch (e) {
+			saveFailed = true;
+			saveError = e instanceof TypeError ? 'No connection' : (e instanceof Error ? e.message : 'Save failed');
+		}
+		savesOut--;
+		if (!savesOut) saveStatus = saveFailed ? 'error' : 'saved';
+		return ok;
+	}
 
 	// ── Per-language text (re-loaded on language switch) ───────────────────────
 	let t = $state(normT(data.translations));
@@ -30,28 +55,28 @@
 	// Product name is NOT translatable — one shared value, written to every language.
 	let name = $state(data.baseTranslations?.product_name ?? data.translations?.product_name ?? '');
 	async function saveName() {
-		flashSaved();
-		for (const l of data.languages) {
-			await fetch(`/api/sheets/${sheetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'translation', language: l.code, key: 'product_name', value: name }) });
-		}
+		await Promise.all(data.languages.map((l) => save({ type: 'translation', language: l.code, key: 'product_name', value: name })));
 		t = { ...t, product_name: name };
 	}
 
 	async function switchLanguage(code) {
 		if (code === language) return;
-		const res = await fetch(`/api/sheets/${sheetId}?lang=${code}`);
-		t = normT(res.ok ? await res.json() : {});
+		// Only switch once the texts are loaded — showing empty fields for a
+		// language that failed to load would invite overwriting its texts.
+		let res;
+		try { res = await fetch(`/api/sheets/${sheetId}?lang=${code}`); } catch { res = null; }
+		if (!res?.ok) { saveStatus = 'error'; saveError = `could not load the ${langInfo(code).english} texts`; return; }
+		if (saveStatus === 'error' && !savesOut) saveStatus = 'saved';
+		t = normT(await res.json());
 		language = code;
 	}
 
 	async function putTranslation(key, value) {
 		t = { ...t, [key]: value };
-		flashSaved();
-		await fetch(`/api/sheets/${sheetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'translation', language, key, value: value ?? '' }) });
+		await save({ type: 'translation', language, key, value: value ?? '' });
 	}
 	async function putSheet(field, value) {
-		flashSaved();
-		await fetch(`/api/sheets/${sheetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'sheet', field, value }) });
+		await save({ type: 'sheet', field, value });
 	}
 
 	// ── Bullets (usp_1..usp_count) ─────────────────────────────────────────────
@@ -448,7 +473,9 @@
 		flashSaved(); await invalidateAll();
 	}
 	async function deleteImg(id) {
-		await fetch(`/api/images/${id}`, { method: 'DELETE' });
+		if (!confirm('Delete this photo? This cannot be undone.')) return;
+		const res = await fetch(`/api/images/${id}`, { method: 'DELETE' }).catch(() => null);
+		if (!res?.ok) { saveStatus = 'error'; saveError = 'the photo could not be deleted'; return; }
 		flashSaved(); await invalidateAll();
 	}
 	async function clearBox() {
@@ -590,7 +617,7 @@
 			{/each}
 		</div>
 		<div class="right">
-			<span class="save" class:on={saveStatus === 'saving'}><span class="dot"></span>{saveStatus === 'saving' ? 'Saving…' : 'Saved'}</span>
+			<span class="save" class:on={saveStatus === 'saving'} class:err={saveStatus === 'error'} title={saveStatus === 'error' ? `Your last change was not saved: ${saveError}. Change the field again to retry.` : ''}><span class="dot"></span>{saveStatus === 'saving' ? 'Saving…' : saveStatus === 'error' ? `Not saved — ${saveError}` : 'Saved'}</span>
 			<a class="btn ghost" href="/sheet/{sheetId}/award?lang={language}">Award View</a>
 			<a class="btn ghost" href="/sheet/{sheetId}/stories?lang={language}">SoMe Stories</a>
 			<a class="btn primary" href="/sheet/{sheetId}/preview?lang={language}" target="_blank">Preview</a>
@@ -1003,6 +1030,8 @@
 	.save { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #A1A1AA; }
 	.save .dot { width: 6px; height: 6px; border-radius: 50%; background: #A3E635; }
 	.save.on .dot { background: #FCD34D; }
+	.save.err { font-weight: 700; }
+	.save.err .dot { background: #DC2626; }
 	.btn { display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 100px; font-size: 12.5px; font-weight: 600; text-decoration: none; cursor: pointer; border: 1px solid transparent; font-family: inherit; }
 	.btn.primary { background: #F57832; color: #fff; }
 	.btn.ghost { background: #fff; color: #52525B; border-color: var(--border); }

@@ -29,6 +29,8 @@
 	}
 </script>
 
+<svelte:head><title>New catalogue — Product Portal</title></svelte:head>
+
 <div class="page">
 	<header>
 		<a href="/catalogues" class="back">← Back</a>

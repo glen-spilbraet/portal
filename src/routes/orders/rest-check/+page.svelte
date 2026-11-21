@@ -66,16 +66,16 @@
 <AppNav active="rest-check" user={data.user} />
 
 <main class="wrap">
-	<div class="head"><h1>Rest Check</h1><p class="sub">Ved en ny Rackbeat-ordre tjekkes om kunden har restordrer i HubSpot ("[0] Rest") hvis varer nu er på lager.</p></div>
+	<div class="head"><h1>Rest Check</h1><p class="sub">When a new Rackbeat order comes in, this checks whether the customer has backorders in HubSpot ("[0] Rest") whose products are now back in stock.</p></div>
 
 	<!-- Manual check -->
 	<section class="card">
-		<h2>Manuelt check</h2>
-		<p class="hint">Indtast et Rackbeat-ordrenummer og kør præcis samme logik som webhook'en.</p>
+		<h2>Manual check</h2>
+		<p class="hint">Enter a Rackbeat order number to run exactly the same check as the automatic one.</p>
 		<div class="run-row">
-			<input class="in" placeholder="Rackbeat-ordrenr" bind:value={orderNo} onkeydown={(e) => e.key === 'Enter' && runCheck()} />
-			<label class="chk"><input type="checkbox" bind:checked={sendEmail} /> Send mail</label>
-			<button class="btn primary" onclick={runCheck} disabled={running || !orderNo.trim()}>{running ? 'Kører…' : 'Kør check'}</button>
+			<input class="in" placeholder="Rackbeat order no." bind:value={orderNo} onkeydown={(e) => e.key === 'Enter' && runCheck()} />
+			<label class="chk"><input type="checkbox" bind:checked={sendEmail} /> Send e-mail</label>
+			<button class="btn primary" onclick={runCheck} disabled={running || !orderNo.trim()}>{running ? 'Running…' : 'Run check'}</button>
 		</div>
 		{#if runError}<p class="err">{runError}</p>{/if}
 
@@ -83,15 +83,15 @@
 			<div class="result">
 				<div class="res-head">
 					<span class="pill {STATUS[result.status]?.tone ?? 'muted'}">{STATUS[result.status]?.label ?? result.status}</span>
-					{#if result.email_sent}<span class="pill accent">Mail sendt → {result.email_to}</span>{/if}
+					{#if result.email_sent}<span class="pill accent">E-mail sent → {result.email_to}</span>{/if}
 				</div>
 				<div class="res-meta">
-					<span><b>Kunde:</b> {result.customer_name ?? '—'} ({result.rb_customer_number ?? '—'})</span>
-					<span><b>Ny ordre:</b> {#if result.rb_order_url}<a href={result.rb_order_url} target="_blank" rel="noreferrer">{result.rb_order_number}</a>{:else}{result.rb_order_number ?? '—'}{/if}</span>
+					<span><b>Customer:</b> {result.customer_name ?? '—'} ({result.rb_customer_number ?? '—'})</span>
+					<span><b>New order:</b> {#if result.rb_order_url}<a href={result.rb_order_url} target="_blank" rel="noreferrer">{result.rb_order_number}</a>{:else}{result.rb_order_number ?? '—'}{/if}</span>
 				</div>
 				{#if result.line_items?.length}
 					<table class="li">
-						<thead><tr><th>Deal</th><th>SKU</th><th>Produkt</th><th class="num">Antal</th><th class="num">Lager</th></tr></thead>
+						<thead><tr><th>Deal</th><th>SKU</th><th>Product</th><th class="num">Qty</th><th class="num">Stock</th></tr></thead>
 						<tbody>
 							{#each result.line_items as li}
 								<tr class:full={li.available_quantity > 0 && li.available_quantity >= li.quantity} class:partial={li.available_quantity > 0 && li.available_quantity < li.quantity}>
@@ -102,7 +102,7 @@
 						</tbody>
 					</table>
 				{:else}
-					<p class="hint">Ingen restordre-linjer.</p>
+					<p class="hint">No backorder lines.</p>
 				{/if}
 			</div>
 		{/if}
@@ -112,11 +112,11 @@
 	<section class="card">
 		<h2>Log</h2>
 		{#if !data.logs.length}
-			<p class="hint">Ingen checks endnu.</p>
+			<p class="hint">No checks yet.</p>
 		{:else}
 			<div class="table-card">
 				<table>
-					<thead><tr><th>Tid</th><th>Kilde</th><th>Kunde</th><th>Ordre</th><th>Status</th><th class="num">Linjer</th><th class="num">På lager</th><th>Mail</th><th></th></tr></thead>
+					<thead><tr><th>Time</th><th>Source</th><th>Customer</th><th>Order</th><th>Status</th><th class="num">Lines</th><th class="num">In stock</th><th>E-mail</th><th></th></tr></thead>
 					<tbody>
 						{#each data.logs as l (l.id)}
 							{@const items = parse(l.line_items)}
@@ -129,12 +129,12 @@
 								<td class="num">{items.length}</td>
 								<td class="num">{l.in_stock_count ?? 0}</td>
 								<td>{l.email_sent ? `✓ ${l.email_to ?? ''}` : '—'}</td>
-								<td class="actions">{#if items.length}<button class="link" onclick={() => expanded = expanded === l.id ? null : l.id}>{expanded === l.id ? 'Skjul' : 'Detaljer'}</button>{/if}</td>
+								<td class="actions">{#if items.length}<button class="link" onclick={() => expanded = expanded === l.id ? null : l.id}>{expanded === l.id ? 'Hide' : 'Details'}</button>{/if}</td>
 							</tr>
 							{#if expanded === l.id}
 								<tr class="detail-row"><td colspan="9">
 									<table class="li">
-										<thead><tr><th>Deal</th><th>SKU</th><th>Produkt</th><th class="num">Antal</th><th class="num">Lager</th></tr></thead>
+										<thead><tr><th>Deal</th><th>SKU</th><th>Product</th><th class="num">Qty</th><th class="num">Stock</th></tr></thead>
 										<tbody>
 											{#each items as li}
 												<tr class:full={li.available_quantity > 0 && li.available_quantity >= li.quantity} class:partial={li.available_quantity > 0 && li.available_quantity < li.quantity}>
@@ -156,13 +156,13 @@
 
 	<!-- Settings -->
 	<section class="card">
-		<h2>Indstillinger</h2>
+		<h2>Settings</h2>
 		<div class="settings">
-			<label class="fld"><span>Modtager-mail</span><input class="in" bind:value={recipient} placeholder="support@spilbraet.dk" /></label>
-			<label class="fld"><span>Afsender (valgfri — Resend-verificeret domæne)</span><input class="in" bind:value={fromEmail} placeholder="fx no-reply@spilbraet.dk" /></label>
-			<label class="chk"><input type="checkbox" bind:checked={enabled} /> Aktivér automatisk mail (webhook)</label>
+			<label class="fld"><span>Recipient e-mail</span><input class="in" bind:value={recipient} placeholder="support@spilbraet.dk" /></label>
+			<label class="fld"><span>Sender (optional — must be on a domain verified in Resend)</span><input class="in" bind:value={fromEmail} placeholder="e.g. no-reply@spilbraet.dk" /></label>
+			<label class="chk"><input type="checkbox" bind:checked={enabled} /> Send the e-mail automatically on new orders (webhook)</label>
 			<div class="save-row">
-				<button class="btn primary" onclick={saveSettings} disabled={savingSettings}>{savingSettings ? 'Gemmer…' : 'Gem'}</button>
+				<button class="btn primary" onclick={saveSettings} disabled={savingSettings}>{savingSettings ? 'Saving…' : 'Save'}</button>
 				{#if settingsMsg}<span class="msg">{settingsMsg}</span>{/if}
 			</div>
 		</div>
