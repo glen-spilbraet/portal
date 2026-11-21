@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
 import { updateSheet, setTranslation, getTranslations, ensureProductName } from '$lib/db.js';
 import { normalizeLang } from '$lib/languages.js';
+import { sanitizeProductLanguages } from '$lib/productLanguages.js';
 
 async function checkAuth(cookies, platform) {
 	const token = cookies.get('session');
@@ -34,6 +35,12 @@ export async function PUT({ params, request, cookies, platform }) {
 	} else if (body.type === 'sheet') {
 		const { field, value } = body;
 		const allowed = ['data_fields', 'usp_count', 'box_image_key', 'box_flat_image_key', 'status', 'hidden_elements', 'cta_version_id', 'youtube_url', 'preorder_date', 'restock_date'];
+		if (field === 'product_languages') {
+			// Languages the product itself comes in: validated list, stored as JSON (null = none).
+			const list = sanitizeProductLanguages(value);
+			await updateSheet(db, params.id, { product_languages: list.length ? JSON.stringify(list) : null });
+			return json({ ok: true, product_languages: list });
+		}
 		if (!allowed.includes(field)) error(400, `Field '${field}' not writable`);
 		await updateSheet(db, params.id, { [field]: value });
 	} else {
