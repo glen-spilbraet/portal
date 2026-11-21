@@ -82,6 +82,11 @@ export async function load({ params, url, platform }) {
 		webshopAllowed: allowedMarkets,
 		webshopPublished: productWebshop.publishedMarkets,
 		webshopOverride: productWebshop.overrideLicense,
+		webshopUpdatedBy: productWebshop.updatedBy ?? null,
+		webshopUpdatedAt: productWebshop.updatedAt ?? null,
+		// Languages this sheet has real text in (short description or a bullet) —
+		// the editor warns when a market is published without texts in its language.
+		textLangs: Object.entries(allTranslations).filter(([, tr]) => Object.entries(tr ?? {}).some(([k, v]) => (k === 'product_description' || k.startsWith('usp_')) && String(v ?? '').trim())).map(([l]) => l),
 		stockMeta,
 	};
 }

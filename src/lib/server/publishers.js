@@ -38,6 +38,9 @@ export async function createPublisher(db, name) {
 
 export async function deletePublisher(db, name) {
 	await db.prepare('DELETE FROM publisher WHERE name = ?').bind(name).run();
+	// publisher_market is deliberately left alone: prefixes still map to this
+	// name, so its products keep following that licence. Removing the licence
+	// here would take them all off the webshop.
 	await deleteBrandPage(db, 'publisher', name);
 }
 

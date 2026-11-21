@@ -10,6 +10,7 @@
 /** @typedef {import('@cloudflare/workers-types').D1Database} D1 */
 
 import { LANGS, MARKET_LANG, sanitizeMarkets } from '$lib/languages.js';
+import { effectivePublishedMarkets } from '$lib/server/webshopMarkets.js';
 
 /** Text languages = every content language (see $lib/languages.js). */
 export const TEXT_LANGS = LANGS;
@@ -57,8 +58,8 @@ export async function loadMarketResolver(salesDb) {
 		const w = webOf.get(key);
 		const licence = sanitizeMarkets(licOf.get(mappedPub) ?? []);
 		let explicit = null;
-		if (w?.published_markets != null) { try { explicit = sanitizeMarkets(JSON.parse(w.published_markets)); } catch { explicit = []; } }
-		const markets = explicit == null ? licence : w?.override_license ? explicit : explicit.filter((m) => licence.includes(m));
+		if (w?.published_markets != null) { try { const v = JSON.parse(w.published_markets); explicit = Array.isArray(v) ? sanitizeMarkets(v) : null; } catch { explicit = []; } }
+		const markets = effectivePublishedMarkets(licence, { publishedMarkets: explicit, overrideLicense: !!w?.override_license });
 		return { pfxPub, mappedPub, markets };
 	};
 }

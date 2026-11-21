@@ -3,8 +3,12 @@
  * is an explicit EMPTY list (mostly left by Product Import before blank CSV
  * markets meant "follow the licence") are reset to follow their publisher's
  * licence (published_markets = NULL) — but only when that publisher now has
- * at least one licensed market. Hand-made selections and "override licence"
- * products are never touched.
+ * at least one licensed market. Selections with one or more markets and
+ * "override licence" products are never touched.
+ *
+ * Careful: a product an editor deliberately unpublished everywhere is stored
+ * exactly like an import leftover (an empty list). The preview therefore shows
+ * who last changed each product and when, and nothing is pre-selected.
  */
 
 /** @typedef {import('@cloudflare/workers-types').D1Database} D1 */
@@ -16,7 +20,7 @@ const EMPTY = `published_markets IS NOT NULL AND replace(published_markets, ' ',
 /** Preview grouped by publisher. @param {D1} db app DB  @param {D1} salesDb */
 export async function previewApplyLicences(db, salesDb) {
 	const [rows, pfx, ovr, lic] = await Promise.all([
-		salesDb.prepare(`SELECT sku FROM product_webshop WHERE ${EMPTY}`).all(),
+		salesDb.prepare(`SELECT sku, updated_by, updated_at FROM product_webshop WHERE ${EMPTY}`).all(),
 		salesDb.prepare('SELECT prefix, publisher FROM publisher_prefix').all(),
 		salesDb.prepare('SELECT lower(sku) AS sku, publisher FROM product_publisher_override').all(),
 		salesDb.prepare('SELECT publisher, market FROM publisher_market').all().catch(() => ({ results: [] })),
@@ -40,7 +44,7 @@ export async function previewApplyLicences(db, salesDb) {
 		const publisher = publisherOf(sku);
 		const licence = sanitizeMarkets(licOf.get(publisher) ?? []);
 		if (!publisher || !licence.length) { unlicensed++; continue; }
-		candidates.push({ sku, publisher, licence: MARKETS.filter((m) => licence.includes(m)) });
+		candidates.push({ sku, publisher, licence: MARKETS.filter((m) => licence.includes(m)), updatedBy: r.updated_by ?? null, updatedAt: r.updated_at ?? null });
 	}
 
 	// Names + sheet ids for display (app DB).
@@ -61,7 +65,7 @@ export async function previewApplyLicences(db, salesDb) {
 	for (const c of candidates) {
 		const n = names.get(c.sku.toLowerCase());
 		const g = groups.get(c.publisher) ?? groups.set(c.publisher, { publisher: c.publisher, licence: c.licence, products: [] }).get(c.publisher);
-		g.products.push({ sku: c.sku, name: n?.name ?? null, sheetId: n?.id ?? null });
+		g.products.push({ sku: c.sku, name: n?.name ?? null, sheetId: n?.id ?? null, updatedBy: c.updatedBy, updatedAt: c.updatedAt });
 	}
 	const out = [...groups.values()]
 		.map((g) => ({ ...g, products: g.products.sort((a, b) => a.sku.localeCompare(b.sku)) }))
@@ -78,7 +82,15 @@ export async function applyLicences(salesDb, skus, by) {
 		const res = await salesDb.batch(list.slice(i, i + 50).map((sku) =>
 			salesDb.prepare(`UPDATE product_webshop SET published_markets = NULL, updated_by = ?, updated_at = ? WHERE sku = ? AND ${EMPTY}`).bind(by ?? null, now, sku)
 		));
-		for (const r of res) updated += r.meta?.changes ?? 0;
+		const chunk = list.slice(i, i + 50);
+		const changed = chunk.filter((_, j) => res[j]?.meta?.changes);
+		updated += changed.length;
+		// History (migration 0127) — best effort, never fails the apply.
+		if (changed.length) {
+			await salesDb.batch(changed.map((sku) => salesDb.prepare(
+				'INSERT INTO webshop_rights_log (kind, ref, before, after, source, changed_by, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+			).bind('product', sku, JSON.stringify({ markets: [], override: false }), JSON.stringify({ markets: null, override: false }), 'apply-licences', by ?? null, now))).catch(() => {});
+		}
 	}
 	return { updated };
 }
