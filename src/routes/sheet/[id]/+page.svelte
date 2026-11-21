@@ -741,7 +741,7 @@
 
 		<!-- Videos -->
 		<section class="card">
-			<div class="card-head"><h2>Videos</h2><span class="hint">YouTube — normal (16:9) or Shorts (9:16), auto-detected</span></div>
+			<div class="card-head"><h2>Videos</h2></div>
 			{#if vids.length}
 				<div class="vid-list">
 					{#each vids as v (v.id)}
@@ -768,7 +768,7 @@
 
 		<!-- Articles (visual link cards) -->
 		<section class="card">
-			<div class="card-head"><h2>Articles</h2><span class="hint">Press, blog or other web articles — paste a URL and it builds a visual card</span></div>
+			<div class="card-head"><h2>Articles</h2></div>
 			{#if arts.length}
 				<div class="art-list">
 					{#each arts as a (a.id)}
@@ -901,7 +901,7 @@
 				</div>
 
 			{#if stockIdx >= 0}
-				<label class="fld rail-fld"><span>Expected stock date <em>(free text, e.g. Q4, Nov '27)</em></span>
+				<label class="fld rail-fld"><span>Expected stock date</span>
 					<input bind:value={dataFields[stockIdx].value} onblur={saveDataFields} placeholder="Q4 / Nov '27 / In stock" />
 				</label>
 			{/if}
@@ -910,7 +910,6 @@
 			<!-- Languages the product itself comes in (components / rule book) -->
 			<div class="side-card pl-card">
 				<div class="side-head"><h2>Product languages</h2></div>
-				<p class="pl-hint">Languages the product comes in — not the languages of the texts on this page.</p>
 				<ProductLanguagePicker value={data.sheet.product_languages} onchange={(next) => save({ type: 'sheet', field: 'product_languages', value: next })} />
 			</div>
 
@@ -1286,7 +1285,6 @@
 	.cat-chips .chip { font-size: 11.5px; font-weight: 600; color: #8a7550; background: #FBF4E2; border: 1px solid #F0E3C0; border-radius: 6px; padding: 2px 7px; }
 	.side-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
 	.pl-card { margin-top: 14px; overflow: visible; }
-	.pl-hint { font-size: 11.5px; color: #A1A1AA; margin: 0; padding: 10px 16px 0; line-height: 1.4; }
 	.side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
 	.side-head h2 { font-size: 14px; font-weight: 800; color: #18181B; margin: 0; }
 	.name-fld { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
