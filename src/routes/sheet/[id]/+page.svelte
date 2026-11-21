@@ -727,7 +727,7 @@
 		<!-- Universal (per language) -->
 		<section class="card">
 			<div class="card-head">
-				<div><h2>Universal info</h2><span class="hint">Per language ({langShort(language)}) · shared across sheet, catalogue &amp; webshop</span></div>
+				<h2>Universal info</h2>
 				<div class="cp-btns">
 					<button class="mini" onclick={copyUniversal} title="Copy all text (for translation)">{copyMsg || 'Copy text'}</button>
 					<button class="mini" onclick={pasteUniversal} title="Paste translated text back">{pasteMsg || 'Paste text'}</button>
@@ -829,6 +829,12 @@
 			<div class="side-card">
 				<div class="side-head"><h2>Webshop</h2>
 					<span class="save" class:on={wsMsg === 'Saving…'} class:err={wsMsg.startsWith('Not saved')}>{wsMsg}</span>
+					{#if wsChanged.at}
+						{@const changed = `Last changed ${new Date(wsChanged.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}${wsChanged.by ? ` by ${wsChanged.by.split('@')[0]}` : ''}`}
+						<button type="button" class="info-dot" aria-label={changed} data-tip={changed}>
+							<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.6v.4"/></svg>
+						</button>
+					{/if}
 				</div>
 				<div class="ws-pub">
 					<p class="ws-note">Publisher: <strong>{data.webshopPublisher ?? '—'}</strong>{#if (data.webshopAllowed ?? []).length === 0 && !wsOverride}<span class="ws-warn"> · no market licence set</span>{/if}</p>
@@ -853,7 +859,6 @@
 						<input type="checkbox" checked={wsOverride} onchange={(e) => { e.currentTarget.checked = wsOverride; toggleOverride(); }} />
 						<span>Override publisher licence</span>
 					</label>
-					{#if wsChanged.at}<p class="ws-changed">Last changed {new Date(wsChanged.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}{#if wsChanged.by}{' '}by {wsChanged.by.split('@')[0]}{/if}</p>{/if}
 				</div>
 			</div>
 
@@ -1078,7 +1083,8 @@
 
 	.form { max-width: 820px; margin: 0 auto; padding: 24px 20px 80px; display: flex; flex-direction: column; gap: 18px; }
 	.card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; }
-	.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+	/* Header strip divided from the card's content, like the cards in the rail */
+	.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: -18px -20px 16px; padding: 12px 20px; min-height: 30px; border-bottom: 1px solid var(--border); }
 	.card-head h2 { font-size: 15px; font-weight: 800; color: #18181B; margin: 0; }
 	.hint { font-size: 11.5px; color: #A1A1AA; }
 	.err { font-size: 12px; color: #dc2626; margin: 6px 0 0; }
@@ -1245,7 +1251,11 @@
 	.ws-reset { font: inherit; font-weight: 700; color: #9A3412; background: #fff; border: 1px solid #F5C9A8; border-radius: 6px; padding: 2px 7px; cursor: pointer; }
 	.ws-reset:hover { background: #FFE4D1; }
 	.ws-lock.warn { color: #B45309; border-color: #F5D9A8; text-transform: none; letter-spacing: 0; }
-	.ws-changed { font-size: 11px; color: #A1A1AA; margin: 9px 0 0; }
+	.side-head .save { margin-left: auto; }
+	.info-dot { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; color: #A1A1AA; background: none; border: 0; border-radius: 6px; cursor: help; }
+	.info-dot:hover, .info-dot:focus-visible { color: #52525B; background: #F4F4F5; outline: none; }
+	.info-dot::after { content: attr(data-tip); position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; white-space: nowrap; font-size: 11.5px; font-weight: 600; color: #fff; background: #27272A; border-radius: 7px; padding: 5px 9px; opacity: 0; pointer-events: none; transition: opacity .12s; }
+	.info-dot:hover::after, .info-dot:focus::after { opacity: 1; }
 	.save.err { color: #B91C1C; opacity: 1; }
 	.ws-note strong { color: #27272A; font-weight: 700; }
 	.ws-warn { color: #B45309; font-weight: 600; }
