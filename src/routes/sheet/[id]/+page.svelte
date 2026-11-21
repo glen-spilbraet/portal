@@ -561,6 +561,19 @@
 		await upload(new File([blob], `${type}.png`, { type: 'image/png' }), type);
 	}
 
+	// Rail: fade its bottom edge while there is more to scroll to.
+	let railEl = $state(null);
+	let railMore = $state(false);
+	function checkRail() { if (railEl) railMore = railEl.scrollHeight - railEl.scrollTop - railEl.clientHeight > 8; }
+	$effect(() => {
+		if (!railEl) return;
+		checkRail();
+		const ro = new ResizeObserver(checkRail);
+		ro.observe(railEl);
+		for (const child of railEl.children) ro.observe(child); // cards opening / closing
+		return () => ro.disconnect();
+	});
+
 	// Header thumbnail: the 3D box, else the flat front — so it is always clear which product is open.
 	const headImage = $derived(data.sheet.box_image_key || data.sheet.box_flat_image_key || null);
 	const shortDate = (d) => { const t = new Date(d); return isNaN(+t) ? d : t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
@@ -807,7 +820,7 @@
 		</div>
 
 		<!-- One rail: everything that is set per product, most-used first -->
-		<aside class="rail">
+		<aside class="rail" class:more={railMore} bind:this={railEl} onscroll={checkRail}>
 			<!-- Webshop published markets (gated by publisher licence) -->
 			<div class="side-card">
 				<div class="side-head"><h2>Webshop</h2>
@@ -1159,7 +1172,11 @@
 	   centre column to reach its end). */
 	.layout { max-width: 1440px; margin: 0 auto; padding: 20px 20px 80px; display: flex; align-items: flex-start; gap: 20px; }
 	.main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
-	.rail { width: 320px; flex-shrink: 0; position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; display: flex; flex-direction: column; gap: 14px; padding-bottom: 4px; }
+	/* The rail is its own scrolling column from under the header to the very
+	   bottom of the window — never a box that stops short. While there is more
+	   below, its last few pixels fade out; at the end the fade goes away. */
+	.rail { width: 320px; flex-shrink: 0; position: sticky; top: 60px; height: calc(100vh - 60px); margin: -20px -6px -80px 0; padding: 20px 6px 28px 0; box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #D9D2C3 transparent; display: flex; flex-direction: column; gap: 14px; }
+	.rail.more { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent); }
 	.rail .side-card { flex-shrink: 0; }
 	.rail .pl-card { margin-top: 0; }
 
@@ -1241,7 +1258,7 @@
 	.quick { display: flex; gap: 6px; }
 	.quick button { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; font-family: inherit; color: #52525B; background: #FAFAF7; border: 1px solid var(--border); border-radius: 7px; padding: 5px 4px; cursor: pointer; white-space: nowrap; }
 	.quick button:hover { border-color: #F57832; color: #F57832; background: #fff; }
-	@media (max-width: 980px) { .layout { flex-direction: column; } .rail { width: 100%; position: static; max-height: none; overflow: visible; } .head-name { width: 180px; } }
+	@media (max-width: 980px) { .layout { flex-direction: column; } .rail { width: 100%; position: static; height: auto; margin: 0; padding: 0; overflow: visible; -webkit-mask-image: none; mask-image: none; } .head-name { width: 180px; } }
 
 	/* Category tagging pane */
 	.cats-empty { font-size: 12.5px; color: #71717A; padding: 12px 14px; margin: 0; line-height: 1.5; }
