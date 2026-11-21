@@ -8,7 +8,10 @@
  *   kind 'series'    → ref = series id
  */
 
-export const BRAND_LANGS = ['da', 'sv', 'no', 'en', 'pl'];
+import { LANGS } from '$lib/languages.js';
+
+/** Landing-page texts exist in every content language. */
+export const BRAND_LANGS = LANGS;
 export const BRAND_KINDS = ['publisher', 'series'];
 
 /** URL-safe slug from a name ("Æsel & Co." → "aesel-co"). */

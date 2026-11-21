@@ -2,13 +2,8 @@ import { error } from '@sveltejs/kit';
 import { getSheetByShareToken, getTranslations, getImages, getGlobalLabels, getCtaVersionTranslations } from '$lib/db.js';
 import { fetchSalesPrices } from '$lib/server/rackbeat.js';
 import { getBadgesForSku } from '$lib/server/awards.js';
+import { LANGUAGES, normalizeLang } from '$lib/languages.js';
 
-const LANGUAGES = [
-	{ code: 'en', label: 'English' },
-	{ code: 'da', label: 'Dansk' },
-	{ code: 'sv', label: 'Svenska' },
-	{ code: 'no', label: 'Norsk' }
-];
 
 export async function load({ params, url, platform }) {
 	const db = platform?.env?.DB;
@@ -34,19 +29,23 @@ export async function load({ params, url, platform }) {
 	}
 
 	const primaryLanguage = sheet.primary_language ?? 'en';
-	const lang = url.searchParams.get('lang') ?? primaryLanguage;
+	const lang = normalizeLang(url.searchParams.get('lang')) ?? primaryLanguage;
 
-	// Only expose languages that have at least a product name translated
+	// Only expose languages the sheet has real text in (the product name alone
+	// does not count — it is one shared value copied to every language)
 	const availableLanguages = LANGUAGES.filter(l =>
-		allTranslations[l.code]?.product_name?.trim()
+		Object.entries(allTranslations[l.code] ?? {}).some(([k, v]) => k !== 'product_name' && String(v ?? '').trim())
 	);
 	// Always include primary language
 	if (!availableLanguages.find(l => l.code === primaryLanguage)) {
 		availableLanguages.unshift(LANGUAGES.find(l => l.code === primaryLanguage) ?? LANGUAGES[0]);
 	}
 
+	// Public page: internal fields (who created it, stock figures) stay internal.
+	const { created_by, rb_available, rb_stock, rb_in_order, rb_purchased, rb_changed_at, featured_at, awards_updated_at, ...publicSheet } = sheet;
+
 	return {
-		sheet,
+		sheet: publicSheet,
 		translations: allTranslations[lang] ?? {},
 		baseTranslations: allTranslations[primaryLanguage] ?? {},
 		images,

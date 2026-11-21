@@ -1,4 +1,5 @@
 <script>
+	import { langCurrency, logoFor } from '$lib/languages.js';
 	import { SVG_AGE, SVG_TIME, SVG_PLAYERS } from '$lib/ata-svgs.js';
 	import * as XLSX from 'xlsx';
 	import { zipSync } from 'fflate';
@@ -117,7 +118,7 @@
 
 			// List price column — only when this catalogue shows list prices.
 			const showPrice = !!catalogue.show_list_price;
-			const priceCurrency = ({ da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' })[lang] ?? 'EUR';
+			const priceCurrency = langCurrency(lang);
 			const priceLabel = `${globalLabel('listpris') ?? 'List price'} (${priceCurrency})`;
 
 			// Build header row — insert "Product Name" after SKU (or at front if no SKU)
@@ -308,7 +309,7 @@
 
 			<!-- Language-matched logo at the bottom -->
 			<img
-				src={lang === 'sv' ? '/logo-se.svg' : lang === 'no' ? '/logo-no.svg' : '/logo-da.svg'}
+				src={logoFor(lang)}
 				alt="Logo"
 				class="front-logo"
 			/>
@@ -464,7 +465,7 @@
 
 										{#if itemPrices?.[fieldVal(getDataFields(item.data_fields), 'sku')]}
 											{@const listPrice = itemPrices[fieldVal(getDataFields(item.data_fields), 'sku')]}
-											{@const currency = ({ da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' })[lang] ?? 'EUR'}
+											{@const currency = langCurrency(lang)}
 											{@const listLabel = globalLabel('listpris') ?? 'List price'}
 											<p class="list-price"><strong>{listLabel}:</strong> {currency} {listPrice.toFixed(2)}</p>
 										{/if}

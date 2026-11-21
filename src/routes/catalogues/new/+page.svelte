@@ -1,12 +1,7 @@
 <script>
+	import { LANGUAGES } from '$lib/languages.js';
 	import { goto } from '$app/navigation';
 
-	const LANGUAGES = [
-		{ code: 'en', label: 'English' },
-		{ code: 'da', label: 'Dansk' },
-		{ code: 'sv', label: 'Svenska' },
-		{ code: 'no', label: 'Norsk' }
-	];
 
 	let name = $state('');
 	let language = $state('en');

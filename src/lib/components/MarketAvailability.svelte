@@ -1,11 +1,11 @@
 <script>
+	import { MARKETS } from '$lib/languages.js';
 	/**
-	 * Availability picker: "All markets" or "Some markets" (tick DK/SE/NO/INT/PL).
+	 * Availability picker: "All markets" or "Some markets" (tick the markets).
 	 * value: string[] | null  — null = all markets; array = exactly those markets
 	 * (empty array = none). Calls onchange(null | string[]) on every change.
 	 */
 	let { value = null, onchange } = $props();
-	const MARKETS = ['DK', 'SE', 'NO', 'INT', 'PL'];
 	const isAll = $derived(value == null);
 	const set = $derived(new Set(Array.isArray(value) ? value : []));
 

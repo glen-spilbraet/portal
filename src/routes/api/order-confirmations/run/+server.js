@@ -13,6 +13,8 @@ function langForCountry(country) {
 	if (/denmark|danmark|^dk$/.test(c)) return 'da';
 	if (/sweden|sverige|^se$/.test(c)) return 'sv';
 	if (/norway|norge|^no$/.test(c)) return 'no';
+	if (/finland|suomi|^fi$/.test(c)) return 'fi';
+	// Poland stays English until the PDF embeds a font with Polish letters (orderConfirmationPdf.js).
 	return 'en';
 }
 

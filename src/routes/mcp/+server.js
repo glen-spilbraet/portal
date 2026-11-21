@@ -23,6 +23,7 @@ import { runSalesQuery, salesMarketTotals, forecastAccuracy, salesSyncMeta, sale
 import { HUBSPOT_SCHEMA_DOC, hubspotSearch, hubspotGet, hubspotImportDeals } from '$lib/server/mcpHubspot.js';
 import { validateAccessToken } from '$lib/server/mcpOauth.js';
 import { getAllowedUser, getUserPermissions, listKnowledge, getKnowledge, createKnowledge } from '$lib/db.js';
+import { LANGS, LANGUAGES } from '$lib/languages.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
 const SERVER_INFO = { name: 'spilbraet-portal', version: '1.3.0' };
@@ -63,7 +64,7 @@ const TOOLS = [
 			type: 'object',
 			properties: {
 				sku: { type: 'string', description: 'Exact product SKU.' },
-				language: { type: 'string', enum: ['en', 'da', 'sv', 'no'], description: 'Language for name/description/bullets. Defaults to the sheet primary language.' }
+				language: { type: 'string', enum: LANGS, description: `Language for name/description/bullets (${LANGUAGES.map((l) => `${l.code} = ${l.english}`).join(', ')}). Defaults to the sheet primary language; a text missing in the requested language falls back to the primary language.` }
 			},
 			required: ['sku']
 		}

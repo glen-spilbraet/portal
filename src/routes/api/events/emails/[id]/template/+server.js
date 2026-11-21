@@ -7,6 +7,7 @@ export async function PUT(event) {
 	const { db } = await requireEvents(event);
 	const body = await event.request.json().catch(() => ({}));
 	if (!body?.lang) return json({ message: 'lang is required' }, { status: 400 });
-	await upsertTemplate(db, event.params.id, body.lang, { subject: body.subject, body: body.body });
+	const saved = await upsertTemplate(db, event.params.id, body.lang, { subject: body.subject, body: body.body });
+	if (!saved) return json({ message: `Unknown language "${body.lang}"` }, { status: 400 });
 	return json({ ok: true });
 }

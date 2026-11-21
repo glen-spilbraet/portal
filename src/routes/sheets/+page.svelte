@@ -1,4 +1,5 @@
 <script>
+	import { LANGS, MARKETS, langShort, sheetName } from '$lib/languages.js';
 	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
 	import AppNav from '$lib/components/AppNav.svelte';
@@ -17,7 +18,6 @@
 		});
 	}
 
-	const LANGS = ['en', 'da', 'sv', 'no'];
 
 	function langStatus(sheet, lang) {
 		const name = sheet[`name_${lang}`];
@@ -36,7 +36,7 @@
 	function decorate(sheet) {
 		return {
 			...sheet,
-			_display: sheet.name_en || sheet.name_da || sheet.name_sv || sheet.name_no || '',
+			_display: sheetName(sheet) || '',
 		};
 	}
 
@@ -140,7 +140,7 @@
 	const ADV_KEY = 'sheets.filters.v1';
 	const MISSING_OPTS = [['age', 'Age'], ['time', 'Time'], ['players', 'Players'], ['pieces', 'Pieces'], ['gametype', 'Game Type'], ['type', 'Type'], ['short', 'Short text'], ['bullets', 'Bullets'], ['long', 'Long text']];
 	const MISSING_LABEL = Object.fromEntries(MISSING_OPTS);
-	const MARKET_OPTS = ['DK', 'SE', 'NO', 'INT', 'PL'];
+	const MARKET_OPTS = MARKETS;
 	const blankFilter = () => ({ pub: '', pubMode: 'mapped', missing: /** @type {string[]} */ ([]), missingMode: 'any', markets: /** @type {string[]} */ ([]), preorder: '', restock: '' });
 	let filterOpen = $state(false);
 	let f = $state(blankFilter());
@@ -338,7 +338,7 @@
 						{/if}
 					</div>
 				</div>
-				<p class="f-note">Search text above also narrows the filter (name or SKU). “Game Type” / “Type” = nothing selected in that category group. Texts and bullets are checked in each sheet’s primary language.</p>
+				<p class="f-note">Search text above also narrows the filter (name or SKU). “Game Type” / “Type” = nothing selected in that category group. Texts and bullets are checked in the language of every market the sheet is published in (Denmark → Danish, Poland → Polish, Finland → Finnish, …); a sheet that is not published anywhere is checked in its primary language.</p>
 			</section>
 		{/if}
 
@@ -412,8 +412,8 @@
 									{#each LANGS as lang}
 										{@const status = langStatus(sheet, lang)}
 										{#if status !== 'empty'}
-											<span class="lang-pill lang-pill-{status}" title="{lang.toUpperCase()}: {status}">
-												{lang.toUpperCase()}
+											<span class="lang-pill lang-pill-{status}" title="{langShort(lang)}: {status}">
+												{langShort(lang)}
 											</span>
 										{/if}
 									{/each}

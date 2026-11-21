@@ -1,26 +1,34 @@
 /** @param {App.Platform['env']['DB']} db */
 
+import { LANGS } from '$lib/languages.js';
+
 /** A sheet's default image: 3D box → flat front → none (never other photos). */
 export const DEFAULT_IMAGE_SQL = `COALESCE(NULLIF(s.box_image_key, ''), NULLIF(s.box_flat_image_key, ''))`;
+
+// ── Per-language list columns, generated from the shared language list ───────
+// (name_<lang>, usp_filled_<lang> for every language in $lib/languages.js)
+
+/** `t_da.value AS name_da, …` — needs NAME_JOINS_SQL. */
+export const NAME_COLUMNS_SQL = LANGS.map((l) => `t_${l}.value AS name_${l}`).join(', ');
+/** One indexed lookup per language of the (shared) product name. */
+export const NAME_JOINS_SQL = LANGS.map((l) =>
+	`LEFT JOIN translations t_${l} ON t_${l}.sheet_id = s.id AND t_${l}.language = '${l}' AND t_${l}.key = 'product_name'`).join('\n\t');
+/** Filled bullets per language, as correlated counts (for un-grouped queries). */
+const USP_FILLED_SUBQUERIES_SQL = LANGS.map((l) =>
+	`(SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = '${l}' AND key LIKE 'usp_%' AND value != '') AS usp_filled_${l}`).join(',\n\t       ');
+/** Filled bullets per language, over a `LEFT JOIN translations tx` + GROUP BY s.id. */
+const USP_FILLED_GROUPED_SQL = LANGS.map((l) =>
+	`SUM(CASE WHEN tx.language = '${l}' AND tx.key LIKE 'usp\\_%' ESCAPE '\\' THEN 1 ELSE 0 END) AS usp_filled_${l}`).join(',\n\t\t       ');
 
 const SHEET_SELECT = `
 	SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at,
 	       COALESCE(u.first_name, '') as creator_first_name,
-	       t_en.value as name_en,
-	       t_da.value as name_da,
-	       t_sv.value as name_sv,
-	       t_no.value as name_no,
+	       ${NAME_COLUMNS_SQL},
 	       COALESCE(s.usp_count, 3) as usp_count,
-	       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'en' AND key LIKE 'usp_%' AND value != '') as usp_filled_en,
-	       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'da' AND key LIKE 'usp_%' AND value != '') as usp_filled_da,
-	       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'sv' AND key LIKE 'usp_%' AND value != '') as usp_filled_sv,
-	       (SELECT COUNT(*) FROM translations WHERE sheet_id = s.id AND language = 'no' AND key LIKE 'usp_%' AND value != '') as usp_filled_no
+	       ${USP_FILLED_SUBQUERIES_SQL}
 	FROM sales_sheets s
 	LEFT JOIN allowed_users u ON u.email = s.created_by
-	LEFT JOIN translations t_en ON t_en.sheet_id = s.id AND t_en.language = 'en' AND t_en.key = 'product_name'
-	LEFT JOIN translations t_da ON t_da.sheet_id = s.id AND t_da.language = 'da' AND t_da.key = 'product_name'
-	LEFT JOIN translations t_sv ON t_sv.sheet_id = s.id AND t_sv.language = 'sv' AND t_sv.key = 'product_name'
-	LEFT JOIN translations t_no ON t_no.sheet_id = s.id AND t_no.language = 'no' AND t_no.key = 'product_name'`;
+	${NAME_JOINS_SQL}`;
 
 export async function listSheets(db, { limit = 30, offset = 0 } = {}) {
 	const rows = await db
@@ -50,19 +58,13 @@ export async function listIncompleteSheets(db, salesDb) {
 		db.prepare(`
 		SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.box_image_key AS box_3d_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at, s.box_processed, s.primary_language,
 		       COALESCE(u.first_name, '') as creator_first_name,
-		       t_en.value as name_en, t_da.value as name_da, t_sv.value as name_sv, t_no.value as name_no,
+		       ${NAME_COLUMNS_SQL},
 		       COALESCE(s.usp_count, 3) as usp_count,
-		       SUM(CASE WHEN tx.language = 'en' AND tx.key LIKE 'usp\\_%' ESCAPE '\\' THEN 1 ELSE 0 END) as usp_filled_en,
-		       SUM(CASE WHEN tx.language = 'da' AND tx.key LIKE 'usp\\_%' ESCAPE '\\' THEN 1 ELSE 0 END) as usp_filled_da,
-		       SUM(CASE WHEN tx.language = 'sv' AND tx.key LIKE 'usp\\_%' ESCAPE '\\' THEN 1 ELSE 0 END) as usp_filled_sv,
-		       SUM(CASE WHEN tx.language = 'no' AND tx.key LIKE 'usp\\_%' ESCAPE '\\' THEN 1 ELSE 0 END) as usp_filled_no,
+		       ${USP_FILLED_GROUPED_SQL},
 		       ${TEXT_COLUMNS_SQL}
 		FROM sales_sheets s
 		LEFT JOIN allowed_users u ON u.email = s.created_by
-		LEFT JOIN translations t_en ON t_en.sheet_id = s.id AND t_en.language = 'en' AND t_en.key = 'product_name'
-		LEFT JOIN translations t_da ON t_da.sheet_id = s.id AND t_da.language = 'da' AND t_da.key = 'product_name'
-		LEFT JOIN translations t_sv ON t_sv.sheet_id = s.id AND t_sv.language = 'sv' AND t_sv.key = 'product_name'
-		LEFT JOIN translations t_no ON t_no.sheet_id = s.id AND t_no.language = 'no' AND t_no.key = 'product_name'
+		${NAME_JOINS_SQL}
 		LEFT JOIN translations tx ON tx.sheet_id = s.id AND ${TEXT_JOIN_SQL}
 		GROUP BY s.id
 		ORDER BY s.updated_at DESC`).all(),
@@ -113,14 +115,11 @@ export async function listSheetsNeedingAwardUpdate(db, today = new Date().toISOS
 			) GROUP BY skl
 		)
 		SELECT s.id, s.sku, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.updated_at, s.awards_updated_at,
-		       t_en.value AS name_en, t_da.value AS name_da, t_sv.value AS name_sv, t_no.value AS name_no,
+		       ${NAME_COLUMNS_SQL},
 		       sig.last_created, sig.cnt AS press_count
 		FROM sales_sheets s
 		JOIN sku_sig sig ON sig.skl = lower(s.sku)
-		LEFT JOIN translations t_en ON t_en.sheet_id = s.id AND t_en.language = 'en' AND t_en.key = 'product_name'
-		LEFT JOIN translations t_da ON t_da.sheet_id = s.id AND t_da.language = 'da' AND t_da.key = 'product_name'
-		LEFT JOIN translations t_sv ON t_sv.sheet_id = s.id AND t_sv.language = 'sv' AND t_sv.key = 'product_name'
-		LEFT JOIN translations t_no ON t_no.sheet_id = s.id AND t_no.language = 'no' AND t_no.key = 'product_name'
+		${NAME_JOINS_SQL}
 		WHERE s.awards_updated_at IS NULL OR sig.last_created > s.awards_updated_at
 		ORDER BY (s.awards_updated_at IS NULL) DESC, sig.last_created DESC`
 	).bind(today, today).all();
@@ -205,6 +204,34 @@ export async function getTranslations(db, sheetId) {
 		result[row.language][row.key] = row.value;
 	}
 	return result;
+}
+
+/**
+ * Does a sheet have real text (description, bullets, …) in a language? The
+ * product name does not count: it is one shared value copied to every language.
+ */
+export async function sheetHasTexts(db, sheetId, language) {
+	return !!(await db.prepare(
+		`SELECT 1 FROM translations WHERE sheet_id = ? AND language = ? AND key != 'product_name' AND trim(COALESCE(value, '')) != '' LIMIT 1`
+	).bind(sheetId, language).first());
+}
+
+/**
+ * The product name is one shared value: make sure `language` has it too (copied
+ * from the primary language, else any language). Called when text is first
+ * written in a language, so the shop feed never gets texts without a name.
+ */
+export async function ensureProductName(db, sheetId, language) {
+	await db.prepare(
+		`INSERT INTO translations (id, sheet_id, language, key, value)
+		 SELECT ?, s.id, ?, 'product_name', t.value
+		 FROM sales_sheets s
+		 JOIN translations t ON t.sheet_id = s.id AND t.key = 'product_name' AND trim(COALESCE(t.value, '')) != ''
+		 WHERE s.id = ?
+		 ORDER BY (t.language = s.primary_language) DESC, (t.language = 'en') DESC
+		 LIMIT 1
+		 ON CONFLICT(sheet_id, language, key) DO NOTHING`
+	).bind(crypto.randomUUID(), language, sheetId).run();
 }
 
 export async function setTranslation(db, sheetId, language, key, value) {
@@ -1242,7 +1269,7 @@ export async function removeCampaignContact(db, campaignId, contactId) {
 }
 
 export async function getCampaignSheetsAllTranslations(db, campaignId) {
-  // Returns one entry per sheet with all 4 languages' translations nested under .tr
+  // Returns one entry per sheet with every language's translations nested under .tr
   const rows = await db.prepare(`
     SELECT
       cs.sheet_id, cs.added_at,
@@ -1252,7 +1279,7 @@ export async function getCampaignSheetsAllTranslations(db, campaignId) {
     FROM campaign_sheets cs
     JOIN sales_sheets s ON s.id = cs.sheet_id
     LEFT JOIN translations t ON t.sheet_id = s.id
-      AND t.language IN ('en', 'da', 'sv', 'no')
+      AND t.language IN (${LANGS.map((l) => `'${l}'`).join(', ')})
       AND t.key IN ('product_name','product_description','usp_1','usp_2','usp_3','usp_4','usp_5','usp_6')
     WHERE cs.campaign_id = ?
     ORDER BY cs.display_order ASC, cs.added_at ASC, t.language, t.key
@@ -1269,12 +1296,12 @@ export async function getCampaignSheetsAllTranslations(db, campaignId) {
         share_token: row.share_token,
         data_fields: row.data_fields,
         usp_count: row.usp_count,
-        tr: { en: {}, da: {}, sv: {}, no: {} },
+        tr: Object.fromEntries(LANGS.map((l) => [l, {}])),
       });
       sheetOrder.push(row.sheet_id);
     }
     if (row.language && row.key && row.value != null) {
-      sheetsMap.get(row.sheet_id).tr[row.language][row.key] = row.value;
+      (sheetsMap.get(row.sheet_id).tr[row.language] ??= {})[row.key] = row.value;
     }
   }
   return sheetOrder.map(id => sheetsMap.get(id));

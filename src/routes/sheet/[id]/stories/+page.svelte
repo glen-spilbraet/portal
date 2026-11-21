@@ -1,10 +1,10 @@
 <script>
+	import { LANG_LABELS } from '$lib/languages.js';
 	import { onMount, untrack } from 'svelte';
 	import { renderBulletStory, renderProductStory, assignSlots, formatAttr, loadImage, toBlob } from '$lib/storyRender.js';
 
 	let { data } = $props();
 
-	const LANG_LABELS = { da: 'Dansk', sv: 'Svenska', no: 'Norsk', en: 'English' };
 	const TILTS = [-2.5, 2.5, -2.5];
 
 	let lang = $state(data.lang);

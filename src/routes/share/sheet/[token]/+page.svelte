@@ -1,17 +1,19 @@
 <script>
 	import SheetCanvas from '$lib/components/SheetCanvas.svelte';
+	import { goto } from '$app/navigation';
 	let { data } = $props();
 
 	let language = $state(data.language);
 	let translations = $state(data.translations);
 
+	// This page is public: it re-loads itself in the chosen language (the
+	// signed-in sheet API is not available to visitors).
 	async function switchLanguage(code) {
-		language = code;
-		const res = await fetch(`/api/sheets/${data.sheet.id}?lang=${code}`);
-		if (res.ok) translations = await res.json();
 		const url = new URL(window.location.href);
 		url.searchParams.set('lang', code);
-		window.history.replaceState({}, '', url.toString());
+		await goto(`${url.pathname}${url.search}`, { replaceState: true, noScroll: true, keepFocus: true });
+		language = data.language;
+		translations = data.translations;
 	}
 
 	let downloading = $state(false);

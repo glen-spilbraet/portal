@@ -1,4 +1,6 @@
 <script>
+	import { LANGS, LANGUAGES, logoFor } from '$lib/languages.js';
+  import { campaignSheetTexts } from '$lib/email-html.js';
   import AppNav from '$lib/components/AppNav.svelte';
   import { goto } from '$app/navigation';
 
@@ -149,8 +151,8 @@
   let contactFilter    = $state('all'); // 'all' | 'selected'
   let processingIds    = $state(new Set());
 
-  const LANG_ORDER  = ['da', 'sv', 'no', 'en'];
-  const LANG_LABELS = { da: 'Danish', sv: 'Swedish', no: 'Norwegian', en: 'English' };
+  const LANG_ORDER  = LANGS;
+  const LANG_LABELS = Object.fromEntries(LANGUAGES.map((l) => [l.code, l.english]));
 
   const groupedContacts = $derived.by(() => {
     const source = contactFilter === 'selected'
@@ -239,16 +241,11 @@
   }
 
   // ── Email preview ──────────────────────────────────────────────────────────
-  const PREVIEW_LANGS = [
-    { code: 'en', label: 'EN' },
-    { code: 'da', label: 'DA' },
-    { code: 'sv', label: 'SV' },
-    { code: 'no', label: 'NO' },
-  ];
+  const PREVIEW_LANGS = LANGUAGES.map((l) => ({ code: l.code, label: l.short }));
 
   let previewLang = $state('en');
   const previewLogo = $derived(
-    previewLang === 'sv' ? '/logo-se.svg' : previewLang === 'no' ? '/logo-no.svg' : '/logo-da.svg'
+    logoFor(previewLang)
   );
 
   function glGet(key, fallback) {
@@ -262,19 +259,16 @@
 
   const previewSheets = $derived(
     rawEmailSheets.map(sheet => {
-      const t = sheet.tr[previewLang] ?? {};
-      const usps = [];
-      for (let i = 1; i <= sheet.usp_count; i++) {
-        const v = t[`usp_${i}`]; if (v) usps.push(v);
-      }
+      // Same texts (and same fallback) as the e-mail that is actually sent.
+      const { product_name, product_description, usps } = campaignSheetTexts(sheet, previewLang);
       return {
         sheet_id: sheet.sheet_id,
         sku: sheet.sku,
         box_image_key: sheet.box_image_key,
         share_token: sheet.share_token,
         data_fields: sheet.data_fields,
-        product_name: t.product_name || sheet.sku,
-        product_description: t.product_description || '',
+        product_name,
+        product_description,
         usps,
       };
     })

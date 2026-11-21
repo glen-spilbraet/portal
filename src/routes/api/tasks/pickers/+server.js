@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { requireTasks } from '$lib/server/tasksAuth.js';
 import { searchCustomerAssoc } from '$lib/server/tasks.js';
 import { searchSheets } from '$lib/db.js';
+import { sheetName } from '$lib/languages.js';
 
 /**
  * Autocomplete source for association pickers.
@@ -19,7 +20,7 @@ export async function GET(event) {
 		const rows = await searchSheets(db, q);
 		return json((rows ?? []).slice(0, 12).map((r) => ({
 			ref_id: r.sku,
-			label: r.name_en || r.name_da || r.name_sv || r.name_no || r.sku,
+			label: sheetName(r) || r.sku,
 		})));
 	}
 	if (type === 'customer') {

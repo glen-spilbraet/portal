@@ -1,4 +1,5 @@
 <script>
+	import { langCurrency, logoFor } from '$lib/languages.js';
 	import { SVG_AGE, SVG_TIME, SVG_PLAYERS } from '$lib/ata-svgs.js';
 	import * as XLSX from 'xlsx';
 	import { zipSync } from 'fflate';
@@ -243,7 +244,7 @@
 
 			// List price column — only when this catalogue shows list prices.
 			const showPrice = !!catalogue.show_list_price;
-			const priceCurrency = ({ da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' })[lang] ?? 'EUR';
+			const priceCurrency = langCurrency(lang);
 			const priceLabel = `${globalLabel('listpris') ?? 'List price'} (${priceCurrency})`;
 
 			const headers = [];
@@ -439,7 +440,7 @@
 				</div>
 			{/if}
 			<img class="pattern-overlay" src="/pattern.png" alt="" aria-hidden="true" />
-			<img src={lang === 'sv' ? '/logo-se.svg' : lang === 'no' ? '/logo-no.svg' : '/logo-da.svg'} alt="Logo" class="front-logo" />
+			<img src={logoFor(lang)} alt="Logo" class="front-logo" />
 			<div class="front-content">
 				{#if catalogue.logo_key}
 					<div class="logo-card" style="background: {catalogue.logo_bg_color ?? '#FFFFFF'}">
@@ -568,7 +569,7 @@
 
 										{#if itemPrices?.[fieldVal(fields, 'sku')]}
 											{@const listPrice = itemPrices[fieldVal(fields, 'sku')]}
-											{@const currency = ({ da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' })[catalogue.language ?? 'en'] ?? 'EUR'}
+											{@const currency = langCurrency(catalogue.language ?? 'en')}
 											{@const listLabel = globalLabels['listpris']?.[catalogue.language ?? 'en'] ?? globalLabels['listpris']?.['en'] ?? 'List price'}
 											<p class="list-price"><strong>{listLabel}:</strong> {currency} {listPrice.toFixed(2)}</p>
 										{/if}

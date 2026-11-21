@@ -1,4 +1,5 @@
 <script>
+	import { LANGUAGES } from '$lib/languages.js';
 	import AppNav from '$lib/components/AppNav.svelte';
 	import { renderOrderPdf } from '$lib/orderConfirmationPdf.js';
 
@@ -12,7 +13,7 @@
 	/** @type {any[]} */
 	let unresolved = $state([]);
 
-	const LANG_LABEL = { da: 'Danish', sv: 'Swedish', no: 'Norwegian', en: 'English' };
+	const LANG_LABEL = Object.fromEntries(LANGUAGES.map((l) => [l.code, l.english]));
 
 	let tokens = $derived([...new Set(input.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean))]);
 

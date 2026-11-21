@@ -5,13 +5,8 @@ import { getBadgesForSku } from '$lib/server/awards.js';
 import { listTaxonomy, productCategoryIds, CATEGORY_LANGS } from '$lib/server/categories.js';
 import { getStockMeta } from '$lib/server/mcpProducts.js';
 import { MARKETS, resolvePublisherForSku, getPublisherMarkets, getProductWebshop } from '$lib/server/webshopMarkets.js';
+import { LANGUAGES } from '$lib/languages.js';
 
-const LANGUAGES = [
-	{ code: 'en', label: 'English' },
-	{ code: 'da', label: 'Dansk' },
-	{ code: 'sv', label: 'Svenska' },
-	{ code: 'no', label: 'Norsk' }
-];
 
 export async function load({ params, url, platform }) {
 	const db = platform?.env?.DB;

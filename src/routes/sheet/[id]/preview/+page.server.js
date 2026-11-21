@@ -2,13 +2,8 @@ import { error } from '@sveltejs/kit';
 import { getSheet, getTranslations, getImages, getGlobalLabels, getCtaVersionTranslations } from '$lib/db.js';
 import { fetchSalesPrices } from '$lib/server/rackbeat.js';
 import { getBadgesForSku } from '$lib/server/awards.js';
+import { LANGUAGES } from '$lib/languages.js';
 
-const LANGUAGES = [
-	{ code: 'en', label: 'English' },
-	{ code: 'da', label: 'Dansk' },
-	{ code: 'sv', label: 'Svenska' },
-	{ code: 'no', label: 'Norsk' }
-];
 
 export async function load({ params, url, platform }) {
 	const db = platform?.env?.DB;

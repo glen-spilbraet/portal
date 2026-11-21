@@ -3,6 +3,7 @@ import { verifySession } from '$lib/auth.js';
 import { getAllowedUser, searchSheets } from '$lib/db.js';
 import { cleanDeal, createDeal, searchParties, resolveMembers } from '$lib/server/exclusivity.js';
 import { notifyShops } from '$lib/server/shopNotify.js';
+import { sheetName } from '$lib/languages.js';
 
 /** Admin gate (role via DB). Agreements live on the shared SALES_DB. */
 async function requireAdmin(cookies, platform) {
@@ -28,7 +29,7 @@ export async function GET({ url, cookies, platform }) {
 		const rows = await searchSheets(platform.env.DB, q);
 		return json((rows ?? []).slice(0, 12).map((r) => ({
 			sku: r.sku,
-			label: r.name_en || r.name_da || r.name_sv || r.name_no || r.sku,
+			label: sheetName(r) || r.sku,
 		})));
 	}
 	if (type === 'customer') {

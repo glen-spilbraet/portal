@@ -7,7 +7,7 @@ import { requireShopKey } from '$lib/server/shopFeedAuth.js';
  * Build a landing page only where `show_in_shop` is true (toggled per
  * publisher/series in the Portal); remove it when it turns false.
  *
- *   { generated_at, languages: ['da','sv','no','en','pl'],
+ *   { generated_at, languages: ['da','sv','no','en','pl','fi'],
  *     publishers: [{ name, slug, sku_prefixes, show_in_shop, image, image_cdn, has_content, updated_at,
  *                    texts: { da: { subheader, text }, … },
  *                    series: [{ id, name, slug, product_count, show_in_shop, image, image_cdn, has_content, updated_at, texts }] }] }

@@ -13,9 +13,10 @@
 
 /** @typedef {import('@cloudflare/workers-types').D1Database} D1 */
 
-export const MARKETS = ['DK', 'SE', 'NO', 'INT', 'PL'];
-const MARKET_SET = new Set(MARKETS);
-export const sanitizeMarkets = (arr) => [...new Set((arr ?? []).map((m) => String(m).toUpperCase()).filter((m) => MARKET_SET.has(m)))];
+import { MARKETS, sanitizeMarkets } from '$lib/languages.js';
+
+// Market codes live in $lib/languages.js (shared with the browser).
+export { MARKETS, sanitizeMarkets };
 
 /** Resolve a SKU's publisher like the sales sync / shop feed: override → prefix (leading letters) → the prefix itself. @param {D1} db */
 export async function resolvePublisherForSku(db, sku) {
@@ -98,7 +99,7 @@ export async function setProductWebshop(db, sku, { publishedMarkets, overrideLic
 
 /**
  * Effective markets a product is actually published to, for the webshop:
- *   override → the explicit selection (any of the 5 markets)
+ *   override → the explicit selection (any market)
  *   else, no explicit selection → all allowed markets (the default)
  *   else → explicit selection ∩ allowed
  */

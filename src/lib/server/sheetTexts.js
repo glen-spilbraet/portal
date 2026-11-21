@@ -9,12 +9,11 @@
 
 /** @typedef {import('@cloudflare/workers-types').D1Database} D1 */
 
-import { sanitizeMarkets } from '$lib/server/webshopMarkets.js';
+import { LANGS, MARKET_LANG, sanitizeMarkets } from '$lib/languages.js';
 
-/** Webshop market → text language. Poland uses the English texts (no Polish translations). */
-/** @type {Record<string, string>} */
-export const MARKET_LANG = { DK: 'da', SE: 'sv', NO: 'no', INT: 'en', PL: 'en' };
-export const TEXT_LANGS = ['da', 'sv', 'no', 'en'];
+/** Text languages = every content language (see $lib/languages.js). */
+export const TEXT_LANGS = LANGS;
+export { MARKET_LANG };
 
 /**
  * Per-language text columns: short_<l>, long_<l>, usp_<l> (filled bullets).

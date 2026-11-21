@@ -1,4 +1,5 @@
 <script>
+	import { LANGUAGES } from '$lib/languages.js';
 	import { enhance } from '$app/forms';
 	let { form } = $props();
 
@@ -7,12 +8,6 @@
 	let preview = $state(null);
 	let existingSheet = $state(null); // { id, sku } if a sheet for this SKU already exists
 
-	const LANGUAGES = [
-		{ code: 'en', label: 'English' },
-		{ code: 'da', label: 'Dansk' },
-		{ code: 'sv', label: 'Svenska' },
-		{ code: 'no', label: 'Norsk' }
-	];
 
 	async function lookupSku() {
 		const trimmed = sku.trim();

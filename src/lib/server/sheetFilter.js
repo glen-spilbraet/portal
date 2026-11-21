@@ -15,6 +15,7 @@
 
 import { MARKETS, sanitizeMarkets } from '$lib/server/webshopMarkets.js';
 import { TEXT_JOIN_SQL, TEXT_COLUMNS_SQL, loadMarketResolver, requiredLangs, missingTexts } from '$lib/server/sheetTexts.js';
+import { LANGS, sheetNames } from '$lib/languages.js';
 
 export const MISSING_KEYS = ['age', 'time', 'players', 'pieces', 'gametype', 'type', 'short', 'bullets', 'long'];
 const lc = (s) => String(s ?? '').trim().toLowerCase();
@@ -55,15 +56,12 @@ export async function filterOptions(salesDb) {
  * @param {ReturnType<typeof parseFilter>} f
  */
 export async function filterSheets(db, salesDb, f) {
-	// ── Sheets + texts (da/sv/no/en) + names, one aggregate pass ───────────
+	// ── Sheets + texts (every language) + names, one aggregate pass ───────────
 	// Texts are checked in the languages of the sheet's published markets (sheetTexts.js).
 	const sheets = (await db.prepare(
 		`SELECT s.id, s.sku, COALESCE(NULLIF(s.box_image_key, ''), NULLIF(s.box_flat_image_key, '')) AS box_image_key, s.updated_at, s.featured_at, s.data_fields,
 		        s.preorder_date, s.restock_date, COALESCE(s.usp_count, 3) AS usp_count, s.primary_language,
-		        (SELECT value FROM translations WHERE sheet_id = s.id AND language = 'en' AND key = 'product_name') AS name_en,
-		        (SELECT value FROM translations WHERE sheet_id = s.id AND language = 'da' AND key = 'product_name') AS name_da,
-		        (SELECT value FROM translations WHERE sheet_id = s.id AND language = 'sv' AND key = 'product_name') AS name_sv,
-		        (SELECT value FROM translations WHERE sheet_id = s.id AND language = 'no' AND key = 'product_name') AS name_no,
+		        ${LANGS.map((l) => `(SELECT value FROM translations WHERE sheet_id = s.id AND language = '${l}' AND key = 'product_name') AS name_${l}`).join(',\n\t\t        ')},
 		        ${TEXT_COLUMNS_SQL}
 		 FROM sales_sheets s
 		 LEFT JOIN translations tx ON tx.sheet_id = s.id AND ${TEXT_JOIN_SQL}
@@ -101,7 +99,7 @@ export async function filterSheets(db, salesDb, f) {
 		if (f.featured && !s.featured_at) continue;
 		if (f.preorder && (f.preorder === 'yes') !== !!s.preorder_date) continue;
 		if (f.restock && (f.restock === 'yes') !== !!s.restock_date) continue;
-		const names = [s.name_en, s.name_da, s.name_sv, s.name_no].filter(Boolean);
+		const names = sheetNames(s);
 		if (q && !key.includes(q) && !names.some((n) => lc(n).includes(q))) continue;
 
 		if (f.marketsNone || f.markets.length) {
@@ -125,7 +123,7 @@ export async function filterSheets(db, salesDb, f) {
 
 		out.push({
 			id: s.id, sku, box_image_key: s.box_image_key, updated_at: s.updated_at, featured_at: s.featured_at,
-			name_en: s.name_en, name_da: s.name_da, name_sv: s.name_sv, name_no: s.name_no,
+			...Object.fromEntries(LANGS.map((l) => [`name_${l}`, s[`name_${l}`]])),
 			publisher, markets, missing, preorder_date: s.preorder_date, restock_date: s.restock_date,
 		});
 	}

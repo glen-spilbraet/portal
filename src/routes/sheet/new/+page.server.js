@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { createSheet, setTranslation, updateSheet } from '$lib/db.js';
 import { fetchRackbeatProductFull } from '$lib/rackbeat.js';
 import { verifySession } from '$lib/auth.js';
+import { DEFAULT_LANG, normalizeLang } from '$lib/languages.js';
 
 export const actions = {
 	default: async ({ request, cookies, platform }) => {
@@ -13,7 +14,7 @@ export const actions = {
 
 		const data = await request.formData();
 		const sku = data.get('sku')?.toString().trim();
-		const primaryLanguage = data.get('primary_language')?.toString() ?? 'en';
+		const primaryLanguage = normalizeLang(data.get('primary_language')) ?? DEFAULT_LANG;
 		if (!sku) return fail(400, { error: 'SKU is required' });
 
 		const id = crypto.randomUUID();

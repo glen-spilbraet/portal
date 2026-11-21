@@ -1,15 +1,10 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
+	import { LANGUAGES } from '$lib/languages.js';
 	import { invalidateAll, goto } from '$app/navigation';
 
 	let { data } = $props();
 
-	const LANGS = [
-		{ code: 'da', label: 'Dansk' },
-		{ code: 'se', label: 'Svenska' },
-		{ code: 'no', label: 'Norsk' },
-		{ code: 'en', label: 'English' },
-	];
 	const PLACEHOLDERS = ['{{event_title}}', '{{venue_name}}', '{{event_date}}', '{{start_time}}', '{{contact_name}}', '{{share_url}}'];
 
 	// Settings form
@@ -136,7 +131,7 @@
 		<div class="card">
 			<h2 class="card-title">Email content</h2>
 			<div class="tabs">
-				{#each LANGS as l}
+				{#each LANGUAGES as l}
 					<button class="tab" class:active={tab === l.code} onclick={() => (tab = l.code)}>
 						{l.label}
 						{#if hasContent(l.code)}<span class="dot"></span>{/if}
@@ -154,7 +149,7 @@
 
 			<div class="right">
 				{#if tplSaved}<span class="flash">Saved ✓</span>{/if}
-				<button class="btn primary" onclick={saveTemplate} disabled={savingTpl}>{savingTpl ? 'Saving…' : `Save ${LANGS.find((l) => l.code === tab)?.label}`}</button>
+				<button class="btn primary" onclick={saveTemplate} disabled={savingTpl}>{savingTpl ? 'Saving…' : `Save ${LANGUAGES.find((l) => l.code === tab)?.label}`}</button>
 			</div>
 		</div>
 	</main>

@@ -20,6 +20,8 @@ const STAT_LABELS = {
 	sv: { age: 'Ålder', time: 'Speltid', players: 'Antal spelare' },
 	no: { age: 'Alder', time: 'Spilletid', players: 'Antall spillere' },
 	en: { age: 'Age', time: 'Play time', players: 'Players' },
+	pl: { age: 'Wiek', time: 'Czas gry', players: 'Liczba graczy' },
+	fi: { age: 'Ikä', time: 'Peliaika', players: 'Pelaajamäärä' },
 };
 
 // ── Loading ───────────────────────────────────────────────────────────────

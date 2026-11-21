@@ -1,8 +1,8 @@
 import { error } from '@sveltejs/kit';
 import { getSheet, getTranslations, getImages } from '$lib/db.js';
 import { getBadgesForSku } from '$lib/server/awards.js';
+import { DEFAULT_LANG, LANGS, normalizeLang } from '$lib/languages.js';
 
-const LANGS = ['da', 'sv', 'no', 'en'];
 
 /** data_fields JSON → { key: value } for non-empty values. */
 function fieldMap(dataFields) {
@@ -46,7 +46,7 @@ export async function load({ params, url, platform, parent }) {
 	}
 	const available = LANGS.filter((l) => Object.keys(t(l)).length > 0);
 	const reqLang = url.searchParams.get('lang');
-	const lang = LANGS.includes(reqLang ?? '') ? reqLang : (LANGS.includes(primary) ? primary : 'da');
+	const lang = normalizeLang(reqLang) ?? normalizeLang(primary) ?? DEFAULT_LANG;
 
 	const f = fieldMap(sheet.data_fields);
 	const img = (r) => ({ key: r.r2_key, cropX: r.crop_x ?? 50, cropY: r.crop_y ?? 50 });

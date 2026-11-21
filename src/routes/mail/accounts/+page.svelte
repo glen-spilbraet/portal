@@ -1,15 +1,10 @@
 <script>
+	import { LANGUAGES } from '$lib/languages.js';
   import AppNav from '$lib/components/AppNav.svelte';
   import MailTabs from '$lib/components/MailTabs.svelte';
 
   let { data } = $props();
 
-  const LANGUAGES = [
-    { code: 'en', label: 'English' },
-    { code: 'da', label: 'Dansk' },
-    { code: 'sv', label: 'Svenska' },
-    { code: 'no', label: 'Norsk' },
-  ];
 
   let accounts = $state(data.accounts);
   let newName = $state('');
