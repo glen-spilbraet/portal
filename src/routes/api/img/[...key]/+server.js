@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { hardenServedFile } from '$lib/server/uploads.js';
 
 /** GET /api/img/[...key] — stream image from R2.
  *  No auth required: R2 keys are UUID-based random paths, not guessable.
@@ -25,6 +26,7 @@ export async function GET({ params, url, platform }) {
 		if (variantObj) {
 			const headers = new Headers();
 			variantObj.writeHttpMetadata(headers);
+			hardenServedFile(headers);
 			headers.set('Cache-Control', 'public, max-age=3600');
 			return new Response(variantObj.body, { headers });
 		}
@@ -36,6 +38,7 @@ export async function GET({ params, url, platform }) {
 
 	const headers = new Headers();
 	obj.writeHttpMetadata(headers);
+	hardenServedFile(headers);
 	headers.set('Cache-Control', 'public, max-age=3600');
 
 	return new Response(obj.body, { headers });

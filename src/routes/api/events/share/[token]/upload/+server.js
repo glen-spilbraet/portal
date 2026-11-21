@@ -2,6 +2,8 @@ import { warmImageWidths } from '$lib/server/imageCdn.js';
 import { json, error } from '@sveltejs/kit';
 import { getEventByToken, addAsset } from '$lib/server/events.js';
 
+const MAX_BYTES = 100 * 1024 * 1024;
+
 function kindFor(type) {
 	if (type?.startsWith('image/')) return 'image';
 	if (type?.startsWith('video/')) return 'video';
@@ -22,7 +24,12 @@ export async function POST(event) {
 	const file = form.get('file');
 	if (!file || typeof file === 'string') error(400, 'No file provided');
 
-	const ext = file.name?.split('.').pop()?.toLowerCase() ?? 'bin';
+	// Photos and videos only, of a sane size — this endpoint needs no login.
+	const kind = kindFor(file.type);
+	if (kind === 'file' || /svg/i.test(file.type)) error(400, 'Only photos and videos can be uploaded here');
+	if (file.size > MAX_BYTES) error(413, 'That file is too large (max 100 MB)');
+	const rawExt = file.name?.split('.').pop()?.toLowerCase() ?? '';
+	const ext = /^[a-z0-9]{1,5}$/.test(rawExt) && !['svg', 'html', 'htm', 'xml', 'js'].includes(rawExt) ? rawExt : (kind === 'image' ? 'jpg' : 'mp4');
 	const r2Key = `events/${crypto.randomUUID()}.${ext}`;
 	await bucket.put(r2Key, await file.arrayBuffer(), {
 		httpMetadata: { contentType: file.type || 'application/octet-stream' }

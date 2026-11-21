@@ -4,10 +4,13 @@ import { d1WithRetry } from '$lib/server/d1Retry.js';
 import { logError, describe, newRef, rawDb } from '$lib/server/errorLog.js';
 import { perfActive, recordRequest } from '$lib/server/perfLog.js';
 import { verifySession } from '$lib/auth.js';
+import { gate, sessionSecret } from '$lib/server/access.js';
 
 /** Signed-in user's email for the error log (null if anonymous). @param {import('@sveltejs/kit').RequestEvent} event */
 async function userOf(event) {
-	try { return await verifySession(event.cookies.get('session') ?? '', event.platform?.env?.APP_SECRET ?? 'dev-secret'); }
+	const known = /** @type {any} */ (event.locals).auth?.email;
+	if (known) return known;
+	try { return await verifySession(event.cookies.get('session') ?? '', sessionSecret(event.platform) ?? ''); }
 	catch { return null; }
 }
 
@@ -108,7 +111,9 @@ export async function handle({ event, resolve }) {
 		} catch (e) { console.warn('D1 retry wrapper not applied', e); }
 	}
 
-	const response = await handleShop(event, resolve);
+	// One access gate for pages, form actions and API endpoints (see access.js).
+	const blocked = await gate(event);
+	const response = blocked ?? await handleShop(event, resolve);
 
 	// Edits that change report Initiatives → new data version, so cached
 	// Initiatives are rebuilt on next view (reportCache.js dataVersion).

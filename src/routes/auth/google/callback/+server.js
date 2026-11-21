@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { createSession } from '$lib/auth.js';
 import { getAllowedUser } from '$lib/db.js';
+import { safeNext, sessionSecret } from '$lib/server/access.js';
 
 export async function GET({ url, cookies, platform }) {
 	const code = url.searchParams.get('code');
@@ -13,7 +14,8 @@ export async function GET({ url, cookies, platform }) {
 
 	const clientId = platform?.env?.GOOGLE_CLIENT_ID;
 	const clientSecret = platform?.env?.GOOGLE_CLIENT_SECRET;
-	const secret = platform?.env?.APP_SECRET ?? 'dev-secret';
+	const secret = sessionSecret(platform);
+	if (!secret) return new Response('Server is missing its session secret', { status: 500 });
 	const db = platform?.env?.DB;
 
 	if (!clientId || !clientSecret) {
@@ -80,5 +82,5 @@ export async function GET({ url, cookies, platform }) {
 		secure: url.protocol === 'https:',
 	});
 
-	redirect(302, next.startsWith('/') ? next : '/');
+	redirect(302, safeNext(next));
 }

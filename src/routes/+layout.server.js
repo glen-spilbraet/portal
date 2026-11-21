@@ -1,6 +1,7 @@
 import { redirect, error } from '@sveltejs/kit';
 import { verifySession, createSession, sessionAgeMs } from '$lib/auth.js';
 import { getAllowedUser, getUserPermissions } from '$lib/db.js';
+import { sectionForPath, isSheetEditPath, isPublicPath, sessionSecret } from '$lib/server/access.js';
 
 const SESSION_TTL_S = 7 * 24 * 60 * 60;
 // Re-issue the session cookie once it's older than this, so active users never
@@ -26,47 +27,15 @@ async function dbRead(fn, tries = 3) {
 	throw lastErr;
 }
 
-/** Map a pathname to the section key it requires. Returns null for unguarded paths. */
-function sectionForPath(pathname) {
-	if (pathname === '/')                                    return 'stats';
-	if (pathname.startsWith('/sheets') || pathname.startsWith('/sheet/')) return 'sheets';
-	if (pathname.startsWith('/catalogues'))                  return 'catalogues';
-	if (pathname.startsWith('/planograms'))                  return 'planograms';
-	if (pathname.startsWith('/data'))                        return 'data';
-	if (pathname.startsWith('/mail'))                        return 'mail';
-	if (pathname.startsWith('/price-lists'))                 return 'price_lists';
-	if (pathname.startsWith('/orders/rest-check'))           return 'rest_check';
-	if (pathname.startsWith('/orders/price-sync'))           return 'price_sync';
-	if (pathname.startsWith('/orders/order-confirmations'))  return 'order_conf';
-	if (pathname.startsWith('/orders/q4-orders'))            return 'q4_orders';
-	if (pathname.startsWith('/orders'))                      return 'orders';
-	if (pathname.startsWith('/product'))                     return 'product';
-	if (pathname.startsWith('/forecast'))                    return 'forecast';
-	if (pathname.startsWith('/reports'))                     return 'reports';
-	if (pathname.startsWith('/warehouse'))                   return 'warehouse';
-	if (pathname.startsWith('/credit-notes'))                return 'credit_notes';
-	if (pathname.startsWith('/knowledge'))                   return 'knowledge';
-	if (pathname.startsWith('/awards'))                      return 'awards';
-	if (pathname.startsWith('/initiatives'))                 return 'initiatives';
-	if (pathname.startsWith('/events'))                      return 'events';
-	return null;
-}
-
-export async function load({ cookies, url, platform }) {
+export async function load({ cookies, url, platform, locals }) {
 	const isDev = platform?.env?.ENVIRONMENT === 'dev';
 
-	// Public / auth routes — skip all checks
-	if (url.pathname === '/login') return { isDev };
-	if (url.pathname.startsWith('/share/')) return { isDev };
-	if (url.pathname.startsWith('/planograms/share/')) return { isDev };
-	if (url.pathname.startsWith('/events/share/')) return { isDev }; // public venue event page (token-gated)
-	if (url.pathname.startsWith('/events/guru/')) return { isDev };  // public guru proposal page (token-gated)
-	if (url.pathname.startsWith('/reports/share/')) return { isDev }; // public shared report (token-gated)
-	if (url.pathname.startsWith('/media/')) return { isDev };         // public per-media asset library (key-gated)
-	if (url.pathname.startsWith('/auth/')) return { isDev };
+	// Public / auth routes (share links, sign-in, …) — see PUBLIC in access.js
+	if (isPublicPath(url.pathname)) return { isDev };
 
 	const token  = cookies.get('session');
-	const secret = platform?.env?.APP_SECRET ?? 'dev-secret';
+	const secret = sessionSecret(platform);
+	if (!secret) error(500, 'Server is missing its session secret.');
 
 	const email = await verifySession(token ?? '', secret);
 	if (!email) redirect(303, `/login?next=${encodeURIComponent(url.pathname)}`);
@@ -77,9 +46,11 @@ export async function load({ cookies, url, platform }) {
 	const db = platform?.env?.DB;
 	if (!db) error(503, 'Service temporarily unavailable. Please try again.');
 
+	// hooks.server.js (access gate) has normally looked the user up already.
+	const known = /** @type {any} */ (locals).auth?.email === email ? /** @type {any} */ (locals).auth : null;
 	let user;
 	try {
-		user = await dbRead(() => getAllowedUser(db, email));
+		user = known?.user ?? await dbRead(() => getAllowedUser(db, email));
 	} catch {
 		error(503, 'Service temporarily unavailable. Please try again.');
 	}
@@ -99,7 +70,7 @@ export async function load({ cookies, url, platform }) {
 
 	let realPermissions;
 	try {
-		realPermissions = await dbRead(() => getUserPermissions(db, user));
+		realPermissions = known?.permissions ?? await dbRead(() => getUserPermissions(db, user));
 	} catch {
 		error(503, 'Service temporarily unavailable. Please try again.');
 	}
@@ -158,11 +129,8 @@ export async function load({ cookies, url, platform }) {
 
 	// Sheets has two levels: view (overview, search, preview) and edit (the
 	// editor). View-only users may browse but not open the editor / create.
-	if (section === 'sheets' && !effectivePermissions.sheetsEdit) {
-		const p = url.pathname;
-		if (p === '/sheet/new' || /^\/sheet\/[^/]+$/.test(p)) {
-			error(403, "You don't have edit access to Sheets.");
-		}
+	if (section === 'sheets' && !effectivePermissions.sheetsEdit && isSheetEditPath(url.pathname)) {
+		error(403, "You don't have edit access to Sheets.");
 	}
 
 	return {

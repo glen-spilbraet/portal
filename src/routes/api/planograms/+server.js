@@ -1,17 +1,21 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
 import { getEffectiveEmail } from '$lib/server/effectiveEmail.js';
-import { listPlanogramProjects, createPlanogramProject } from '$lib/db.js';
+import { listPlanogramProjects, listOwnPlanogramProjects, listSharedPlanograms, createPlanogramProject } from '$lib/db.js';
 
 async function checkAuth(cookies, platform) {
 	return verifySession(cookies.get('session') ?? '', platform?.env?.APP_SECRET ?? 'dev-secret');
 }
 
-export async function GET({ cookies, platform }) {
-	if (!(await checkAuth(cookies, platform))) error(401);
+/** GET — admins: everything; others: their own plus what is shared with them. */
+export async function GET({ cookies, platform, locals }) {
+	const email = await checkAuth(cookies, platform);
+	if (!email) error(401);
 	const db = platform?.env?.DB;
 	if (!db) error(500);
-	return json(await listPlanogramProjects(db));
+	if (/** @type {any} */ (locals).auth?.user?.role === 'admin') return json(await listPlanogramProjects(db));
+	const [own, shared] = await Promise.all([listOwnPlanogramProjects(db, email), listSharedPlanograms(db, email)]);
+	return json([...own, ...shared]);
 }
 
 export async function POST({ request, cookies, platform }) {
