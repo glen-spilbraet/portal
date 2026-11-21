@@ -651,72 +651,76 @@
 
 	<main class="layout">
 		<div class="main-col">
-		<!-- Images -->
-		<section class="card">
-			<div class="card-head"><h2>Images</h2><span class="hint">3D box and flat for the webshop · content photos · people playing for the sheet</span></div>
-
-			<div class="img-grid">
-			<div class="img-group">
-				<h3>Box photo</h3>
-				<div class="box-row">
-					<div class="box-slot">
-						<span class="slot-label">3D <em>(sheet main)</em></span>
-						{#if data.sheet.box_image_key}<img src={thumbUrl(data.sheet.box_image_key)} crossorigin="anonymous" onload={(e) => healThumb(e, data.sheet.box_image_key)} alt="" decoding="async" />{:else}<div class="ph">No 3D photo</div>{/if}
-						{#if data.sheet.box_image_key}
-							{#if data.sheet.box_processed}
-								<span class="box-tag ok" title="Made with the box cropper (square + padding)">✓ New crop</span>
-							{:else}
-								<span class="box-tag old" title="Uploaded before the box cropper — consider re-cropping">● Legacy photo</span>
-							{/if}
-						{/if}
-						<div class="slot-actions">
-							<button class="mini" onclick={() => boxInput.click()} disabled={uploading === 'box'}>{uploading === 'box' ? 'Uploading…' : 'Replace'}</button>
-							{#if data.sheet.box_image_key}<button class="mini danger" onclick={clearBox}>Remove</button>{/if}
-						</div>
-						<input type="file" accept="image/*" bind:this={boxInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'box'); e.currentTarget.value = ''; }} hidden />
-					</div>
-					<div class="box-slot">
-						<span class="slot-label">Flat <em>(webshop)</em></span>
-						{#if data.sheet.box_flat_image_key}<img src={thumbUrl(data.sheet.box_flat_image_key)} crossorigin="anonymous" onload={(e) => healThumb(e, data.sheet.box_flat_image_key)} alt="" decoding="async" />{:else}<div class="ph">No flat photo</div>{/if}
-						<div class="slot-actions">
-							<button class="mini" onclick={() => flatInput.click()} disabled={uploading === 'box_flat'}>{uploading === 'box_flat' ? 'Uploading…' : 'Replace'}</button>
-							{#if data.sheet.box_flat_image_key}<button class="mini danger" onclick={clearBoxFlat}>Remove</button>{/if}
-						</div>
-						<input type="file" accept="image/*" bind:this={flatInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'box_flat'); e.currentTarget.value = ''; }} hidden />
-					</div>
+		<!-- Images: one gallery — 3D box, flat front, content photos, people playing -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<section class="card gal-card" class:over={gridDrag}
+			ondragover={(e) => { e.preventDefault(); gridDrag = true; }}
+			ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) gridDrag = false; }}
+			ondrop={(e) => { e.preventDefault(); gridDrag = false; uploadMany(e.dataTransfer?.files); }}>
+			<div class="card-head">
+				<h2>Images</h2>
+				<div class="gal-add">
+					<button class="mini" onclick={() => boxInput.click()} disabled={uploading === 'box'}>{uploading === 'box' ? 'Uploading…' : data.sheet.box_image_key ? 'Replace 3D box' : '+ 3D box'}</button>
+					<button class="mini" onclick={() => flatInput.click()} disabled={uploading === 'box_flat'}>{uploading === 'box_flat' ? 'Uploading…' : data.sheet.box_flat_image_key ? 'Replace flat front' : '+ Flat front'}</button>
+					<button class="mini" onclick={() => contentInput.click()} disabled={uploading === 'content'}>{uploading === 'content' ? 'Uploading…' : '+ Content'}</button>
+					<button class="mini" onclick={() => gridInput.click()} disabled={!!gridProgress}>{gridProgress ? `Uploading ${gridProgress}…` : '+ People playing'}</button>
 				</div>
 			</div>
+			<input type="file" accept="image/*" bind:this={boxInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'box'); e.currentTarget.value = ''; }} hidden />
+			<input type="file" accept="image/*" bind:this={flatInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'box_flat'); e.currentTarget.value = ''; }} hidden />
+			<input type="file" accept="image/*" bind:this={contentInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'content'); e.currentTarget.value = ''; }} hidden />
+			<input type="file" accept="image/*" multiple bind:this={gridInput} onchange={(e) => { uploadMany(e.currentTarget.files); e.currentTarget.value = ''; }} hidden />
 
-			<div class="img-group">
-				<div class="group-head"><h3>Content <em>(webshop)</em></h3><button class="mini" onclick={() => contentInput.click()} disabled={uploading === 'content'}>{uploading === 'content' ? 'Uploading…' : '+ Add'}</button></div>
-				<input type="file" accept="image/*" bind:this={contentInput} onchange={(e) => { pickCrop(e.currentTarget.files?.[0], 'content'); e.currentTarget.value = ''; }} hidden />
-				{#if data.contentImages.length}
-					<div class="thumbs">{#each data.contentImages as img (img.id)}<div class="thumb"><img src={thumbUrl(img.r2_key)} crossorigin="anonymous" onload={(e) => healThumb(e, img.r2_key)} alt="" loading="lazy" decoding="async" /><button class="x" onclick={() => deleteImg(img.id)}>✕</button></div>{/each}</div>
-				{:else}<p class="empty">No content images.</p>{/if}
-			</div>
+			<div class="gal">
+				<!-- 3D box -->
+				{#if data.sheet.box_image_key}
+					<figure class="tile fit">
+						<img src={thumbUrl(data.sheet.box_image_key)} crossorigin="anonymous" onload={(e) => healThumb(e, data.sheet.box_image_key)} alt="3D box" decoding="async" />
+						{#if !data.sheet.box_processed}<span class="tile-flag" title="Uploaded before the box cropper — consider replacing it with a new crop">Legacy</span>{/if}
+						<figcaption>3D box</figcaption>
+						<button class="tile-x" title="Remove the 3D box photo" aria-label="Remove the 3D box photo" onclick={clearBox}>✕</button>
+					</figure>
+				{:else}
+					<button type="button" class="tile none" onclick={() => boxInput.click()} title="Add the 3D box photo">
+						<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>
+						<span class="cap">3D box</span>
+					</button>
+				{/if}
 
-			<div class="img-group">
-				<div class="group-head"><h3>People Playing <em>(sheet grid)</em></h3><button class="mini" onclick={() => gridInput.click()} disabled={!!gridProgress}>{gridProgress ? `Uploading ${gridProgress}…` : '+ Add photos'}</button></div>
-				<input type="file" accept="image/*" multiple bind:this={gridInput} onchange={(e) => { uploadMany(e.currentTarget.files); e.currentTarget.value = ''; }} hidden />
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="drop-zone" class:over={gridDrag}
-					ondragover={(e) => { e.preventDefault(); gridDrag = true; }}
-					ondragleave={() => (gridDrag = false)}
-					ondrop={(e) => { e.preventDefault(); gridDrag = false; uploadMany(e.dataTransfer?.files); }}>
-					{gridProgress ? `Uploading ${gridProgress}…` : 'Drop photos here — or use “+ Add photos” to pick several at once'}
-				</div>
-				{#if data.images.length}
-					<div class="thumbs">{#each data.images as img (img.id)}
-						<div class="thumb">
-							<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-							<img src={thumbUrl(img.r2_key)} crossorigin="anonymous" onload={(e) => healThumb(e, img.r2_key)} alt="" loading="lazy" decoding="async" title="Click to set focal point" style="object-position:{img.crop_x ?? 50}% {img.crop_y ?? 50}%" onclick={(e) => setFocal(e, img)} />
-							<button class="x" onclick={() => deleteImg(img.id)}>✕</button>
-						</div>
-					{/each}</div>
-					<p class="hint">Click a photo to set its focal point (how it crops in the grid).</p>
-				{:else}<p class="empty">No people-playing photos.</p>{/if}
+				<!-- Flat front -->
+				{#if data.sheet.box_flat_image_key}
+					<figure class="tile fit">
+						<img src={thumbUrl(data.sheet.box_flat_image_key)} crossorigin="anonymous" onload={(e) => healThumb(e, data.sheet.box_flat_image_key)} alt="Flat front" decoding="async" />
+						<figcaption>Flat front</figcaption>
+						<button class="tile-x" title="Remove the flat front photo" aria-label="Remove the flat front photo" onclick={clearBoxFlat}>✕</button>
+					</figure>
+				{:else}
+					<button type="button" class="tile none" onclick={() => flatInput.click()} title="Add the flat front photo">
+						<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.5" width="14" height="17" rx="1.5"/><path d="M8.5 8h7M8.5 11.5h7"/></svg>
+						<span class="cap">Flat front</span>
+					</button>
+				{/if}
+
+				<!-- Content photos (webshop) -->
+				{#each data.contentImages as img (img.id)}
+					<figure class="tile">
+						<img src={thumbUrl(img.r2_key)} crossorigin="anonymous" onload={(e) => healThumb(e, img.r2_key)} alt="Content" loading="lazy" decoding="async" />
+						<figcaption>Content</figcaption>
+						<button class="tile-x" title="Delete this photo" aria-label="Delete this content photo" onclick={() => deleteImg(img.id)}>✕</button>
+					</figure>
+				{/each}
+
+				<!-- People playing (sheet grid) — click sets the focal point -->
+				{#each data.images as img (img.id)}
+					<figure class="tile">
+						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+						<img class="focal" src={thumbUrl(img.r2_key)} crossorigin="anonymous" onload={(e) => healThumb(e, img.r2_key)} alt="People playing" loading="lazy" decoding="async" title="Click to set the focal point (how it crops on the sheet)" style="object-position:{img.crop_x ?? 50}% {img.crop_y ?? 50}%" onclick={(e) => setFocal(e, img)} />
+						<figcaption>People</figcaption>
+						<button class="tile-x" title="Delete this photo" aria-label="Delete this people-playing photo" onclick={() => deleteImg(img.id)}>✕</button>
+					</figure>
+				{/each}
 			</div>
-			</div>
+			{#if gridDrag}<div class="gal-drop">Drop to add people-playing photos</div>{/if}
 		</section>
 
 
@@ -1190,16 +1194,25 @@
 	.head-meta { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: #A1A1AA; white-space: nowrap; }
 	.head-meta .sku { font-size: 10.5px; padding: 1px 7px; }
 
-	/* Images: the three groups side by side */
-	.img-grid { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.25fr); gap: 22px; align-items: start; }
-	.img-grid .img-group { border-top: none; padding: 0; }
-	.img-grid .box-row { flex-wrap: nowrap; gap: 12px; }
-	.img-grid .box-slot { width: 124px; }
-	.img-grid .box-slot img, .img-grid .box-slot .ph { width: 124px; height: 100px; }
-	.img-grid .thumbs { gap: 8px; }
-	.img-grid .thumb { width: 84px; height: 84px; }
-	.img-grid .drop-zone { padding: 9px; }
-	@media (max-width: 1250px) { .img-grid { grid-template-columns: 1fr; gap: 16px; } .img-grid .img-group + .img-group { border-top: 1px solid #F1EADB; padding-top: 14px; } }
+	/* Images: one gallery of square, labelled tiles */
+	.gal-card { position: relative; }
+	.gal-card.over { border-color: #F57832; }
+	.gal-add { display: flex; flex-wrap: wrap; gap: 6px; }
+	.gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+	.tile { position: relative; margin: 0; padding: 0; aspect-ratio: 1 / 1; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #FAFAFA; }
+	.tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+	.tile.fit img { object-fit: contain; padding: 6px; box-sizing: border-box; }
+	.tile img.focal { cursor: crosshair; }
+	.tile figcaption, .tile .cap { position: absolute; left: 6px; bottom: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.2px; color: #fff; background: rgba(24, 24, 27, 0.66); border-radius: 5px; padding: 2px 6px; pointer-events: none; }
+	.tile-flag { position: absolute; left: 6px; top: 6px; font-size: 10.5px; font-weight: 700; color: #92400E; background: #FDE9C8; border-radius: 5px; padding: 2px 6px; }
+	.tile-x { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; color: #fff; background: rgba(24, 24, 27, 0.7); border: none; border-radius: 6px; cursor: pointer; opacity: 0; transition: opacity .12s; }
+	.tile:hover .tile-x, .tile-x:focus-visible { opacity: 1; }
+	.tile-x:hover { background: #DC2626; }
+	@media (hover: none) { .tile-x { opacity: 1; } }
+	.tile.none { display: flex; align-items: center; justify-content: center; font: inherit; color: #C9C2B4; background: #FDFBF6; border: 1.5px dashed #E4DAC2; cursor: pointer; }
+	.tile.none:hover { color: #F57832; border-color: #F5C9A8; background: #FFF8F2; }
+	.tile.none .cap { color: #8a7550; background: transparent; padding: 0; left: 0; right: 0; bottom: 8px; text-align: center; }
+	.gal-drop { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #B15A12; background: rgba(255, 248, 242, 0.92); border-radius: 13px; pointer-events: none; }
 
 	/* Webshop markets as chips */
 	.ws-chips { display: flex; flex-wrap: wrap; gap: 6px; }
