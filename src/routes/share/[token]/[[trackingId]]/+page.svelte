@@ -547,7 +547,7 @@
 													</button>
 												{/if}
 											</div>
-											{#if !hidden.badges && (age || time || players)}
+											{#if age || time || players}
 												<div class="badges-side">
 													{#if age}<div class="badge-hex-wrap">{@html SVG_AGE}<span class="badge-val">{fmtAge(age)}</span></div>{/if}
 													{#if time}<div class="badge-hex-wrap">{@html SVG_TIME}<span class="badge-val">{time}</span></div>{/if}
@@ -555,7 +555,7 @@
 												</div>
 											{/if}
 										</div>
-										{#if !hidden.stock_date && stockDate}
+										{#if stockDate}
 											<div class="stock-tag-wrap">
 												<div class="stock-tag">
 													<span class="stock-label">{globalLabel('stock_date') ?? 'Est. Stock Date'}</span>
@@ -574,10 +574,10 @@
 											<p class="list-price"><strong>{listLabel}:</strong> {currency} {listPrice.toFixed(2)}</p>
 										{/if}
 
-										{#if !hidden.description && item.product_description}
+										{#if item.product_description}
 											<p class="product-desc">{item.product_description}</p>
 										{/if}
-										{#if !hidden.bullets && item.usps?.length > 0}
+										{#if item.usps?.length > 0}
 											<ul class="usp-list">
 												{#each item.usps as usp}
 													<li class="usp-item">
