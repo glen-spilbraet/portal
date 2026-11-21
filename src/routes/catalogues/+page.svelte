@@ -1,9 +1,9 @@
 <script>
+	import { LANG_LABELS } from '$lib/languages.js';
 	import AppNav from '$lib/components/AppNav.svelte';
 
 	let { data } = $props();
 
-	const LANG_LABELS = { en: 'English', da: 'Dansk', sv: 'Svenska', no: 'Norsk' };
 
 	// ── State ──────────────────────────────────────────────────────────────────
 	let catalogues    = $state(data.catalogues);

@@ -1,4 +1,5 @@
 <script>
+	import { MARKETS, langShort } from '$lib/languages.js';
 	import { invalidateAll } from '$app/navigation';
 	import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
 	import BoxCropper from '$lib/components/BoxCropper.svelte';
@@ -237,7 +238,7 @@
 	}
 
 	// ── Webshop published markets (per-market, gated by publisher licence) ──────
-	const WS_MARKETS = data.webshopMarkets ?? ['DK', 'SE', 'NO', 'INT', 'PL'];
+	const WS_MARKETS = data.webshopMarkets ?? MARKETS;
 	let wsOverride = $state(!!data.webshopOverride);
 	// Default (no explicit selection) = every market the publisher licence allows.
 	const initPublished = () => new Set(data.webshopPublished ?? (wsOverride ? [] : (data.webshopAllowed ?? [])));
@@ -661,7 +662,7 @@
 		<!-- Universal (per language) -->
 		<section class="card">
 			<div class="card-head">
-				<div><h2>Universal info</h2><span class="hint">Per language ({language.toUpperCase()}) · shared across sheet, catalogue &amp; webshop</span></div>
+				<div><h2>Universal info</h2><span class="hint">Per language ({langShort(language)}) · shared across sheet, catalogue &amp; webshop</span></div>
 				<div class="cp-btns">
 					<button class="mini" onclick={copyUniversal} title="Copy all text (for translation)">{copyMsg || 'Copy text'}</button>
 					<button class="mini" onclick={pasteUniversal} title="Paste translated text back">{pasteMsg || 'Paste text'}</button>

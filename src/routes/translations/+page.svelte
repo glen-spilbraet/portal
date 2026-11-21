@@ -1,4 +1,5 @@
 <script>
+	import { LANGUAGES } from '$lib/languages.js';
 	import AppNav from '$lib/components/AppNav.svelte';
 
 	let { data } = $props();
@@ -20,12 +21,6 @@
 		{ key: 'mail_sheet_link', display: 'Sheet link text', textarea: false, placeholder: 'View sales sheet →' },
 	];
 
-	const LANGS = [
-		{ code: 'en', label: 'English' },
-		{ code: 'da', label: 'Dansk' },
-		{ code: 'sv', label: 'Svenska' },
-		{ code: 'no', label: 'Norsk' }
-	];
 
 	let labels = $state(structuredClone(data.globalLabels ?? {}));
 	let ctaVersions = $state(structuredClone(data.ctaVersions ?? []));
@@ -96,7 +91,7 @@
 				<thead>
 					<tr>
 						<th class="col-field">Field</th>
-						{#each LANGS as lang}
+						{#each LANGUAGES as lang}
 							<th>{lang.label}</th>
 						{/each}
 					</tr>
@@ -105,7 +100,7 @@
 					{#each LABEL_KEYS as { key, display }}
 						<tr>
 							<td class="col-field-val">{display}</td>
-							{#each LANGS as lang}
+							{#each LANGUAGES as lang}
 								<td>
 									<input type="text" class="label-input"
 										value={labels[key]?.[lang.code] ?? ''}
@@ -124,7 +119,7 @@
 		<div class="section-header">
 			<div>
 				<h2 class="section-title">Mail Campaign Texts</h2>
-				<p class="section-sub">Text used in outgoing mail campaigns. Supports all 4 languages.</p>
+				<p class="section-sub">Text used in outgoing mail campaigns. One text per language; a language left empty uses the English text.</p>
 			</div>
 		</div>
 
@@ -133,7 +128,7 @@
 				<thead>
 					<tr>
 						<th class="col-field">Field</th>
-						{#each LANGS as lang}
+						{#each LANGUAGES as lang}
 							<th>{lang.label}</th>
 						{/each}
 					</tr>
@@ -142,7 +137,7 @@
 					{#each MAIL_KEYS as { key, display, textarea, placeholder }}
 						<tr>
 							<td class="col-field-val">{display}</td>
-							{#each LANGS as lang}
+							{#each LANGUAGES as lang}
 								<td>
 									{#if textarea}
 										<textarea class="label-input label-textarea"
@@ -192,7 +187,7 @@
 						</button>
 					</div>
 					<table class="cta-langs-table">
-						{#each LANGS as lang}
+						{#each LANGUAGES as lang}
 							<tr>
 								<td class="lang-label">{lang.label}</td>
 								<td>

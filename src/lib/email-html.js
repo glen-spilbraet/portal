@@ -1,3 +1,4 @@
+import { DEFAULT_LANG, LANGS, logoFor, pickLang } from '$lib/languages.js';
 /**
  * Generates a full inline-styled HTML email string for a mail campaign.
  *
@@ -121,8 +122,7 @@ function renderSheet(sheet, origin, sheetLinkText, isFirst) {
 }
 
 function getLogoUrl(origin, lang) {
-  const file = lang === 'sv' ? 'logo-se.svg' : lang === 'no' ? 'logo-no.svg' : 'logo-da.svg';
-  return `${origin}/${file}`;
+  return `${origin}${logoFor(lang)}`;
 }
 
 export function generateEmailHtml({ header, intro, sheetLinkText, sheets, origin, lang = 'en' }) {
@@ -196,4 +196,33 @@ export function generateEmailHtml({ header, intro, sheetLinkText, sheets, origin
   </table>
 </body>
 </html>`;
+}
+
+/**
+ * A campaign sheet's texts in `lang` — shared by the e-mail that is sent and
+ * its preview, so the two can never disagree. A product that has no texts in
+ * `lang` yet (common for newer languages) is shown in English, else in any
+ * language it does have, rather than as an empty card. The fallback is per
+ * product, never per field, so one card never mixes languages.
+ * @param {{ sku: string, usp_count: number, tr: Record<string, Record<string, string>> }} sheet
+ * @param {string} lang
+ */
+export function campaignSheetTexts(sheet, lang) {
+  const hasText = (/** @type {string} */ l) => {
+    const t = sheet.tr?.[l] ?? {};
+    return Object.entries(t).some(([k, v]) => k !== 'product_name' && String(v ?? '').trim() !== '');
+  };
+  const use = [lang, DEFAULT_LANG, ...LANGS].find(hasText) ?? lang;
+  const t = sheet.tr?.[use] ?? {};
+  const usps = [];
+  for (let i = 1; i <= sheet.usp_count; i++) {
+    const v = t[`usp_${i}`];
+    if (v) usps.push(v);
+  }
+  return {
+    lang: use,
+    product_name: t.product_name || pickLang(Object.fromEntries(Object.entries(sheet.tr ?? {}).map(([l, x]) => [l, x?.product_name])), [lang]) || sheet.sku,
+    product_description: t.product_description || '',
+    usps,
+  };
 }

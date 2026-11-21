@@ -1,14 +1,9 @@
 <script>
+	import { LANGUAGES, logoFor, sheetName, sheetNames } from '$lib/languages.js';
 	import ImagePickerModal from '$lib/components/ImagePickerModal.svelte';
 
 	let { data } = $props();
 
-	const LANGUAGES = [
-		{ code: 'en', label: 'English' },
-		{ code: 'da', label: 'Dansk' },
-		{ code: 'sv', label: 'Svenska' },
-		{ code: 'no', label: 'Norsk' }
-	];
 
 	// Editable fields
 	let name = $state(data.catalogue.name);
@@ -29,8 +24,8 @@
 			const sku = fields.find(f => f.key === 'sku')?.value || s.sku || '';
 			return {
 				...s,
-				_display: s.name_en || s.name_da || s.name_sv || s.name_no || sku || '(untitled)',
-				_search: [s.sku, s.name_en, s.name_da, s.name_sv, s.name_no].filter(Boolean).join(' ').toLowerCase()
+				_display: sheetName(s) || sku || '(untitled)',
+				_search: [s.sku, ...sheetNames(s)].join(' ').toLowerCase()
 			};
 		})
 	);
@@ -287,7 +282,7 @@
 			if (res.ok) {
 				const { id } = await res.json();
 				const sheet = data.sheets.find(s => s.id === sheetId);
-				const productName = sheet?.name_en || sheet?.name_da || sheet?.name_sv || sheet?.name_no || '';
+				const productName = sheetName(sheet) || '';
 				items = [...items, {
 					id,
 					catalogue_id: data.catalogue.id,
@@ -319,7 +314,7 @@
 				});
 				if (res.ok) {
 					const { id } = await res.json();
-					const productName = sheet?.name_en || sheet?.name_da || sheet?.name_sv || sheet?.name_no || '';
+					const productName = sheetName(sheet) || '';
 					items = [...items, {
 						id,
 						catalogue_id: data.catalogue.id,
@@ -548,7 +543,7 @@
 
 	function sheetDisplayName(sheet) {
 		if (!sheet) return '';
-		return sheet.name_en || sheet.name_da || sheet.name_sv || sheet.name_no || '(untitled)';
+		return sheetName(sheet) || '(untitled)';
 	}
 
 	// Grid slot editor modal
@@ -649,7 +644,7 @@
 	function getSheetDisplay(item) {
 		if (item.product_name) return item.product_name;
 		const sheet = data.sheets.find(s => s.id === item.sheet_id);
-		return sheet?.name_en || sheet?.name_da || sheet?.name_sv || sheet?.name_no || '(untitled)';
+		return sheetName(sheet) || '(untitled)';
 	}
 
 	function getSheetSku(item) {
@@ -821,7 +816,7 @@
 
 				<!-- Language-matched logo at the bottom -->
 				<img
-					src={language === 'sv' ? '/logo-se.svg' : language === 'no' ? '/logo-no.svg' : '/logo-da.svg'}
+					src={logoFor(language)}
 					alt="Logo"
 					class="front-logo"
 				/>

@@ -3,8 +3,16 @@
  * templates. Builder only for now; the sending engine comes later.
  */
 
-export const EMAIL_LANGS = ['da', 'se', 'no', 'en'];
-export const LANG_LABELS = { da: 'Dansk', se: 'Svenska', no: 'Norsk', en: 'English' };
+import { LANGS, LANG_LABELS, normalizeLang } from '$lib/languages.js';
+
+/**
+ * Templates exist in every content language. Swedish used to be stored as
+ * `se` here (everything else in the Portal uses `sv`): rows are read through
+ * normalizeLang, so old `se` rows keep working, and are rewritten as `sv` on
+ * the next save (migration 0125 renames the rest).
+ */
+export const EMAIL_LANGS = LANGS;
+export { LANG_LABELS };
 
 function uid() { return crypto.randomUUID(); }
 
@@ -17,7 +25,8 @@ export async function listSteps(db) {
 	const filled = {};
 	for (const t of tpls.results ?? []) {
 		const hasContent = (t.subject && t.subject.trim()) || (t.body && t.body.trim());
-		if (hasContent) (filled[t.step_id] ??= []).push(t.lang);
+		const lang = normalizeLang(t.lang);
+		if (hasContent && lang && !(filled[t.step_id] ??= []).includes(lang)) filled[t.step_id].push(lang);
 	}
 	return (steps.results ?? []).map((s) => ({ ...s, languages: filled[s.id] ?? [] }));
 }
@@ -29,7 +38,11 @@ export async function getStep(db, id) {
 	const tpls = await db.prepare('SELECT lang, subject, body FROM event_email_template WHERE step_id = ?').bind(id).all();
 	const templates = {};
 	for (const l of EMAIL_LANGS) templates[l] = { subject: '', body: '' };
-	for (const t of tpls.results ?? []) templates[t.lang] = { subject: t.subject ?? '', body: t.body ?? '' };
+	for (const t of tpls.results ?? []) {
+		const lang = normalizeLang(t.lang);
+		// An old `se` row never overwrites a newer `sv` row for the same step.
+		if (lang && (t.lang === lang || !(templates[lang].subject || templates[lang].body))) templates[lang] = { subject: t.subject ?? '', body: t.body ?? '' };
+	}
 	return { ...step, templates };
 }
 
@@ -72,11 +85,20 @@ export async function deleteStep(db, id) {
 	]);
 }
 
-/** Insert or update one language's template for a step. */
+/**
+ * Insert or update one language's template for a step.
+ * @returns {Promise<boolean>} false if `lang` is not one of the Portal's languages (nothing saved)
+ */
 export async function upsertTemplate(db, stepId, lang, { subject, body }) {
-	if (!EMAIL_LANGS.includes(lang)) return;
-	await db.prepare(
-		`INSERT INTO event_email_template (step_id, lang, subject, body) VALUES (?,?,?,?)
-		 ON CONFLICT(step_id, lang) DO UPDATE SET subject = excluded.subject, body = excluded.body`
-	).bind(stepId, lang, subject ?? null, body ?? null).run();
+	const code = normalizeLang(lang);
+	if (!code) return false;
+	await db.batch([
+		db.prepare(
+			`INSERT INTO event_email_template (step_id, lang, subject, body) VALUES (?,?,?,?)
+			 ON CONFLICT(step_id, lang) DO UPDATE SET subject = excluded.subject, body = excluded.body`
+		).bind(stepId, code, subject ?? null, body ?? null),
+		// Drop the old-spelling row (`se`) once the language is saved under its real code.
+		...(code === 'sv' ? [db.prepare(`DELETE FROM event_email_template WHERE step_id = ? AND lang = 'se'`).bind(stepId)] : []),
+	]);
+	return true;
 }

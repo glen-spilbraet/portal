@@ -8,7 +8,8 @@ import {
   getAllowedUser,
   logCampaignSend,
 } from '$lib/db.js';
-import { generateEmailHtml } from '$lib/email-html.js';
+import { generateEmailHtml, campaignSheetTexts } from '$lib/email-html.js';
+import { DEFAULT_LANG, LANGS, normalizeLang } from '$lib/languages.js';
 
 async function auth(cookies, platform) {
   const email = await verifySession(
@@ -36,19 +37,14 @@ function getLabel(labels, key, lang) {
 
 function buildSheetsForLang(emailSheets, lang) {
   return emailSheets.map(sheet => {
-    const t = sheet.tr[lang] ?? sheet.tr['en'] ?? {};
-    const usps = [];
-    for (let i = 1; i <= sheet.usp_count; i++) {
-      const v = t[`usp_${i}`];
-      if (v) usps.push(v);
-    }
+    const { product_name, product_description, usps } = campaignSheetTexts(sheet, lang);
     return {
       sku: sheet.sku,
       box_image_key: sheet.box_image_key,
       share_token: sheet.share_token,
       data_fields: sheet.data_fields,
-      product_name: t.product_name || sheet.sku,
-      product_description: t.product_description || '',
+      product_name,
+      product_description,
       usps,
     };
   });
@@ -56,7 +52,7 @@ function buildSheetsForLang(emailSheets, lang) {
 
 /** Build email payload objects for Resend, grouped by language. */
 function buildEmailPayloads({ contacts, emailSheets, globalLabels, from, origin, scheduledAt }) {
-  const langs = ['en', 'da', 'sv', 'no'];
+  const langs = LANGS;
 
   // Pre-build HTML + subject per language (avoid redundant work)
   const byLang = {};
@@ -76,8 +72,8 @@ function buildEmailPayloads({ contacts, emailSheets, globalLabels, from, origin,
   }
 
   return contacts.map(c => {
-    const lang = c.key_account_language || 'en';
-    const { subject, html } = byLang[lang] ?? byLang['en'];
+    const lang = normalizeLang(c.key_account_language) ?? DEFAULT_LANG;
+    const { subject, html } = byLang[lang];
     const payload = { from, to: [c.email], subject, html };
     if (scheduledAt) payload.scheduled_at = scheduledAt;
     return payload;

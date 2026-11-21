@@ -4,8 +4,7 @@
  * + data_fields + sheet_images. Read-only.
  */
 import { getSheet, getTranslations, getImages } from '$lib/db.js';
-
-const LANGS = ['en', 'da', 'sv', 'no'];
+import { LANGS, normalizeLang } from '$lib/languages.js';
 const MAX_USP = 8;
 
 /** Fuzzy search by SKU, product name (any language) or EAN/data-field text. */
@@ -47,7 +46,7 @@ export async function getProductBySku(db, sku, lang, origin) {
 
 	const [translations, images] = await Promise.all([getTranslations(db, row.id), getImages(db, row.id)]);
 	const primary = row.primary_language ?? 'en';
-	const L = lang && LANGS.includes(lang) ? lang : primary;
+	const L = normalizeLang(lang) ?? primary;
 	const t = (language) => translations[language] ?? {};
 
 	const pick = (key) => t(L)[key] || t(primary)[key] || '';

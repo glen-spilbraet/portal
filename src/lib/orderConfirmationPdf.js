@@ -1,9 +1,13 @@
 /**
  * Render a localised Order Confirmation PDF (browser-side, jsPDF).
  * One legal entity for every market (same address + VAT); the market shows via
- * the logo + language. Standard Helvetica (WinAnsi) covers æøåäö.
+ * the logo + language. Standard Helvetica (WinAnsi) covers æøåäö — so Finnish
+ * works, but Polish (ł ą ę ś ć ź ż ń) does NOT: a Polish confirmation needs an
+ * embedded Unicode font first. Until then Polish customers get English (see
+ * langForCountry in api/order-confirmations/run).
  */
 import { jsPDF } from 'jspdf';
+import { logoFor } from '$lib/languages.js';
 
 // Same seller block for all markets. Fill SELLER_VAT once provided ('' hides the line).
 const SELLER = ['Spilbræt ApS', 'Trekronergade 149B, 1. sal', '2500 Valby'];
@@ -14,12 +18,15 @@ const LABELS = {
 	sv: { title: 'Orderbekräftelse', order: 'Order', delivery: 'Förväntat leveransdatum', seller: 'Säljare', sku: 'SKU', product: 'PRODUKTER', qty: 'ANTAL', price: 'STYCKPRIS', discount: 'RABATT', total: 'SUMMA', grand: 'Totalt', none: '—', locale: 'sv-SE' },
 	no: { title: 'Ordrebekreftelse', order: 'Ordre', delivery: 'Forventet leveringsdato', seller: 'Selger', sku: 'SKU', product: 'PRODUKTER', qty: 'ANTALL', price: 'ENHETSPRIS', discount: 'RABATT', total: 'SUM', grand: 'Totalt', none: '—', locale: 'nb-NO' },
 	en: { title: 'Order Confirmation', order: 'Order', delivery: 'Expected delivery date', seller: 'Seller', sku: 'SKU', product: 'PRODUCTS', qty: 'QTY', price: 'UNIT PRICE', discount: 'DISCOUNT', total: 'TOTAL', grand: 'Total', none: '—', locale: 'en-GB' },
+	fi: { title: 'Tilausvahvistus', order: 'Tilaus', delivery: 'Arvioitu toimituspäivä', seller: 'Myyjä', sku: 'SKU', product: 'TUOTTEET', qty: 'MÄÄRÄ', price: 'YKSIKKÖHINTA', discount: 'ALENNUS', total: 'YHTEENSÄ', grand: 'Yhteensä', none: '—', locale: 'fi-FI' },
 };
-const LOGO = { da: '/logo-da.svg', sv: '/logo-se.svg', no: '/logo-no.svg', en: '/logo-da.svg' };
+
+/** Languages a confirmation can be rendered in (see the font note above for Polish). */
+export const ORDER_CONFIRMATION_LANGS = Object.keys(LABELS);
 
 const logoCache = {};
 async function loadLogo(lang) {
-	const url = LOGO[lang] || LOGO.en;
+	const url = logoFor(lang);
 	if (logoCache[url]) return logoCache[url];
 	const svg = await (await fetch(url)).text();
 	const blobUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));

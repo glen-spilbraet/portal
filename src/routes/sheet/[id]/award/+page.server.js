@@ -1,8 +1,8 @@
 import { error, fail } from '@sveltejs/kit';
 import { getSheet, getTranslations, markSheetAwardsUpdated } from '$lib/db.js';
 import { getBadgesForSku, listAllInstances } from '$lib/server/awards.js';
+import { LANGS, normalizeLang } from '$lib/languages.js';
 
-const LANGS = ['en', 'da', 'sv', 'no'];
 
 /** Press/award instances where this SKU is the main product OR an additional one. */
 function pressForSku(all, sku) {
@@ -35,7 +35,7 @@ export async function load({ params, url, platform, parent }) {
 
 	const primaryLanguage = sheet.primary_language ?? 'en';
 	const reqLang = url.searchParams.get('lang');
-	const lang = LANGS.includes(reqLang ?? '') ? reqLang : primaryLanguage;
+	const lang = normalizeLang(reqLang) ?? primaryLanguage;
 
 	const [translations, badges, allInstances] = await Promise.all([
 		getTranslations(db, params.id),

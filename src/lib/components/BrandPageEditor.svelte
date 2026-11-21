@@ -1,4 +1,5 @@
 <script>
+	import { LANGUAGES, langShort } from '$lib/languages.js';
 	/**
 	 * Edit the webshop landing-page content for one publisher or series:
 	 * subheader + text per language, and one 4:3 image (often a logo).
@@ -9,10 +10,7 @@
 
 	let { kind, ref, initial = null, onsaved = () => {} } = $props();
 
-	const LANGS = [
-		{ code: 'da', label: 'Danish' }, { code: 'sv', label: 'Swedish' }, { code: 'no', label: 'Norwegian' },
-		{ code: 'en', label: 'English' }, { code: 'pl', label: 'Polish' }
-	];
+	const LANGS = LANGUAGES.map((l) => ({ code: l.code, label: l.english }));
 	const blank = () => Object.fromEntries(LANGS.map((l) => [l.code, { subheader: '', body: '' }]));
 
 	let loaded = $state(false);
@@ -161,7 +159,7 @@
 				<div class="tabs" role="tablist">
 					{#each LANGS as l (l.code)}
 						<button type="button" role="tab" class="tab" class:on={lang === l.code} aria-selected={lang === l.code} title={l.label} onclick={() => (lang = l.code)}>
-							{l.code.toUpperCase()}<span class="dot" class:filled={filled(l.code)}></span>
+							{langShort(l.code)}<span class="dot" class:filled={filled(l.code)}></span>
 						</button>
 					{/each}
 				</div>

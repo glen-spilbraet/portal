@@ -1,16 +1,16 @@
 <script>
+	import { LANGS, sheetName } from '$lib/languages.js';
 	import AppNav from '$lib/components/AppNav.svelte';
 
 	let { data } = $props();
 
-	const LANGS = ['en', 'da', 'sv', 'no'];
 
 	function formatDate(ts) {
 		return new Date(ts * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 	}
 
 	function displayName(s) {
-		return s.name_en || s.name_da || s.name_sv || s.name_no || '';
+		return sheetName(s) || '';
 	}
 </script>
 

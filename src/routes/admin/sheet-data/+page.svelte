@@ -1,4 +1,5 @@
 <script>
+	import { LANG_SHORT } from '$lib/languages.js';
 	import AppNav from '$lib/components/AppNav.svelte';
 
 	let { data } = $props();
@@ -75,7 +76,7 @@
 		return key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
 	}
 
-	const LANG_LABELS = { en: 'EN', da: 'DA', sv: 'SV', no: 'NO' };
+	const LANG_LABELS = LANG_SHORT;
 </script>
 
 <svelte:head>

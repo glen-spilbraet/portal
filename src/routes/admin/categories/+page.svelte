@@ -1,14 +1,15 @@
 <script>
+	import { LANG_LABELS, langShort } from '$lib/languages.js';
 	import AppNav from '$lib/components/AppNav.svelte';
 	import { enhance } from '$app/forms';
 
 	let { data, form } = $props();
 
-	const LANG_NAMES = /** @type {Record<string, string>} */ ({ da: 'Dansk', sv: 'Svenska', no: 'Norsk', en: 'English', pl: 'Polski' });
+	const LANG_NAMES = LANG_LABELS;
 	/** @param {Record<string, string>} labels */
 	const title = (labels) => labels.da || labels.en || Object.values(labels)[0] || '(unnamed)';
 	/** Other languages as "sv · no · en". @param {Record<string, string>} labels */
-	const others = (labels) => data.langs.filter((l) => l !== 'da' && labels[l]).map((l) => `${l.toUpperCase()}: ${labels[l]}`).join(' · ');
+	const others = (labels) => data.langs.filter((l) => l !== 'da' && labels[l]).map((l) => `${langShort(l)}: ${labels[l]}`).join(' · ');
 
 	/**
 	 * The one modal for creating/editing groups and categories.

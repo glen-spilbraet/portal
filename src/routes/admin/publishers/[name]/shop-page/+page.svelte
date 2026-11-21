@@ -1,4 +1,5 @@
 <script>
+	import { LANGS, langShort } from '$lib/languages.js';
 	import AppNav from '$lib/components/AppNav.svelte';
 	import BrandPageEditor from '$lib/components/BrandPageEditor.svelte';
 	import { invalidateAll } from '$app/navigation';
@@ -7,7 +8,6 @@
 
 	/** Series whose editor is open. @type {string | null} */
 	let open = $state(null);
-	const LANGS = ['da', 'sv', 'no', 'en', 'pl'];
 </script>
 
 <svelte:head><title>Shop page — {data.name}</title></svelte:head>
@@ -41,7 +41,7 @@
 						<span class="status">
 							<span class="pill" class:shop={st?.show}>{st?.show ? 'In shop' : 'Hidden'}</span>
 							<span class="pill" class:ok={st?.image}>{st?.image ? 'Image' : 'No image'}</span>
-							{#each LANGS as l (l)}<span class="lang" class:ok={st?.langs.includes(l)}>{l.toUpperCase()}</span>{/each}
+							{#each LANGS as l (l)}<span class="lang" class:ok={st?.langs.includes(l)}>{langShort(l)}</span>{/each}
 						</span>
 					</button>
 					{#if open === s.id}

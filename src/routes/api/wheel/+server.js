@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { requireTasks } from '$lib/server/tasksAuth.js';
 import { searchSheets } from '$lib/db.js';
 import * as W from '$lib/server/wheel.js';
+import { sheetName } from '$lib/languages.js';
 
 /** Picker search: ?type=product|series|publisher&q=… */
 export async function GET(event) {
@@ -13,7 +14,7 @@ export async function GET(event) {
 		const rows = await searchSheets(db, q);
 		return json((rows ?? []).slice(0, 12).map((r) => ({
 			ref_id: r.sku,
-			label: r.name_en || r.name_da || r.name_sv || r.name_no || r.sku,
+			label: sheetName(r) || r.sku,
 			sub: r.sku,
 		})));
 	}

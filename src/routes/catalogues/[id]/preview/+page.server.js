@@ -2,13 +2,12 @@ import { error } from '@sveltejs/kit';
 import { getCatalogue, getCatalogueItemsWithTranslations, getGlobalLabels } from '$lib/db.js';
 import { fetchSalesPrices } from '$lib/server/rackbeat.js';
 import { getBadgesForSkus } from '$lib/server/awards.js';
+import { langCurrency } from '$lib/languages.js';
 
 function itemSku(i) {
 	try { return JSON.parse(i.data_fields || '[]').find(f => f.key === 'sku')?.value || null; }
 	catch { return null; }
 }
-
-const LANG_CURRENCY = { da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' };
 
 export async function load({ params, platform }) {
 	const db = platform?.env?.DB;
@@ -33,7 +32,7 @@ export async function load({ params, platform }) {
 	let itemPrices = null;
 	if (catalogue.show_list_price) {
 		const apiKey  = platform?.env?.RACKBEAT_API_KEY;
-		const currency = LANG_CURRENCY[catalogue.language ?? 'en'] ?? 'EUR';
+		const currency = langCurrency(catalogue.language ?? 'en');
 		const results = await Promise.all(
 			skus.map(async sku => ({ sku, price: (await fetchSalesPrices(sku, apiKey))?.[currency] ?? null }))
 		);

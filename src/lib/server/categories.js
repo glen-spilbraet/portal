@@ -5,7 +5,10 @@
  * publisher registry. Read by the shop feed (shopFeed.js).
  */
 
-export const CATEGORY_LANGS = ['da', 'sv', 'no', 'en', 'pl'];
+import { LANGS } from '$lib/languages.js';
+
+/** Category labels exist in every content language. */
+export const CATEGORY_LANGS = LANGS;
 
 /** @typedef {import('@cloudflare/workers-types').D1Database} D1 */
 /** @typedef {{ id: string, position: number, labels: Record<string, string>, count?: number }} Cat */

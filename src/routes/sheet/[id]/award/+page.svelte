@@ -1,4 +1,5 @@
 <script>
+	import { langShort } from '$lib/languages.js';
 	import { enhance } from '$app/forms';
 
 	let { data } = $props();
@@ -13,10 +14,13 @@
 		sv: { header: 'Press & utmärkelser',     nominee: (c, m) => `Nominerad till ${c} av ${m}`, winner: (c, m) => `Vinnare av ${c} – ${m}` },
 		no: { header: 'Presseomtale og priser',  nominee: (c, m) => `Nominert til ${c} av ${m}`,  winner: (c, m) => `Vinner av ${c} – ${m}` },
 		en: { header: 'Press & awards',          nominee: (c, m) => `Nominated for ${c} by ${m}`, winner: (c, m) => `Winner of ${c} – ${m}` },
+		// Polish and Finnish inflect the award's name inside a sentence, so these use a "label: name" form.
+		pl: { header: 'Prasa i nagrody',         nominee: (c, m) => `Nominacja: ${c} – ${m}`,     winner: (c, m) => `Zwycięzca: ${c} – ${m}` },
+		fi: { header: 'Lehdistö ja palkinnot',   nominee: (c, m) => `Ehdolla: ${c} – ${m}`,       winner: (c, m) => `Voittaja: ${c} – ${m}` },
 	};
 
 	function buildLines(md) {
-		const S = SCAFFOLD[data.lang] ?? SCAFFOLD.da;
+		const S = SCAFFOLD[data.lang] ?? SCAFFOLD.en;
 		const q = (t) => (md ? `*"${t}"*` : `"${t}"`);
 		// Awards & nominations first, then press quotes — each section newest first.
 		const awards = [];
@@ -278,7 +282,7 @@
 				</div>
 				<p class="hint">
 					<strong>Copy for webshop</strong> gives the markdown version (bold header, italic quotes) to paste
-					into the shop admin. Wording follows the sheet language ({data.lang.toUpperCase()}); quotes stay in
+					into the shop admin. Wording follows the sheet language ({langShort(data.lang)}); quotes stay in
 					their original language.
 				</p>
 			{/if}

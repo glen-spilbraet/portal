@@ -1,4 +1,5 @@
 <script>
+	import { langCurrency, logoFor } from '$lib/languages.js';
 	import ImageGrid from './ImageGrid.svelte';
 
 	let {
@@ -46,9 +47,8 @@
 	}
 
 	// Language → currency for list price display
-	const LANG_CURRENCY = { da: 'DKK', sv: 'SEK', no: 'NOK', en: 'EUR' };
 	const salesPrice = $derived(() => {
-		const currency = LANG_CURRENCY[language] ?? 'EUR';
+		const currency = langCurrency(language);
 		const price    = salesPrices?.[currency];
 		if (!price || price <= 0) return null;
 		const label = globalLabels['listpris']?.[language] ?? globalLabels['listpris']?.['en'] ?? 'List price';
@@ -363,9 +363,7 @@
 
 	// ── Logo: localised by language code ─────────────────────────────────
 	let logoSrc = $derived(
-		language === 'sv' ? '/logo-se.svg' :
-		language === 'no' ? '/logo-no.svg' :
-		'/logo-da.svg'   // en, da, and everything else
+		logoFor(language)
 	);
 
 	// ── Game badge SVGs ───────────────────────────────────────────────────

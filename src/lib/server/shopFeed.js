@@ -11,6 +11,7 @@
  */
 import { listTaxonomy } from './categories.js';
 import { membersByDeal } from './exclusivity.js';
+import { MARKETS } from '$lib/languages.js';
 
 const MAX_USP = 8;
 
@@ -375,7 +376,7 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 		// = licensed markets (absent/empty = none). products[].published_markets:
 		// null = default (publish to all the publisher allows); array = explicit;
 		// override_license = publish regardless of the publisher licence.
-		markets: ['DK', 'SE', 'NO', 'INT', 'PL'],
+		markets: MARKETS,
 		publisher_markets: publisherMarkets,
 		product_webshop: productWebshop,
 		// Exclusivity: while an agreement is running (start_date ≤ today ≤ end_date,

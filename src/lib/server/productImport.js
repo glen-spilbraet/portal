@@ -2,7 +2,7 @@
  * One-time product migration from the shop CSV into the Portal.
  *
  * Syncs ONLY: SKU (match/create), name (new sheets only), published markets
- * (DK/SE/NO/INT — PL never touched), Game Type (Spiltype) + Type (Typen)
+ * (DK/SE/NO/INT — markets the CSV has no column for, PL and FI, are never touched), Game Type (Spiltype) + Type (Typen)
  * categories, and preorder/restock dates. Everything else in the CSV is ignored.
  *
  * Portal split: sheets + dates live on the app DB (`DB`); published markets,
@@ -11,13 +11,16 @@
 
 import { createSheet, setTranslation, updateSheet } from '$lib/db.js';
 import { listTaxonomy } from '$lib/server/categories.js';
-import { MARKETS, getPublisherMarkets, resolvePublisherForSku } from '$lib/server/webshopMarkets.js';
+import { MARKETS, sanitizeMarkets, getPublisherMarkets, resolvePublisherForSku } from '$lib/server/webshopMarkets.js';
 
 const PRIMARY_LANGUAGE = 'da';           // fallback when a new sheet publishes nothing (see primaryLanguageForRow)
 const CSV_DELIM = ';';
 
-// CSV "Publiseret <X>" → Portal market. PL is intentionally absent.
+// CSV "Publiseret <X>" → Portal market. The CSV has no column for PL or FI.
 const MARKET_FROM_CSV = { DA: 'DK', SE: 'SE', NO: 'NO', EN: 'INT' };
+/** Markets the CSV cannot say anything about — kept exactly as they are in the Portal. */
+const CSV_MARKETS = new Set(Object.values(MARKET_FROM_CSV));
+const NOT_IN_CSV = MARKETS.filter((m) => !CSV_MARKETS.has(m));
 
 // Category synonyms (lowercased CSV token → a label that exists in the Portal).
 // Direct any-language label matches are tried first; these are the fallbacks.
@@ -234,7 +237,7 @@ export async function buildPlan(db, salesDb, rows) {
 		const willCreate = !existingSheet;
 		if (willCreate) create++;
 
-		// ── Published markets (clamped to licence; PL + override preserved) ──
+		// ── Published markets (clamped to licence; PL/FI + override preserved) ──
 		const pub = publisherForSku(state, sku);
 		const licence = await licenceFor(pub);
 		const existingWs = state.webshopBySku.get(key) ?? { publishedMarkets: null, overrideLicense: false };
@@ -247,9 +250,9 @@ export async function buildPlan(db, salesDb, rows) {
 			if (override || licence.has(mkt)) wanted[mkt] = true;
 			else missed.push(mkt); // CSV wants it but publisher isn't licensed → not mirrored
 		}
-		const publishedSet = MARKETS.filter((m) => m !== 'PL' && wanted[m]);
-		// Preserve PL exactly as it was (only when explicitly set before).
-		if (Array.isArray(existingPublished) && existingPublished.includes('PL')) publishedSet.push('PL');
+		// Markets without a CSV column (PL, FI) stay exactly as they were (only when explicitly set before).
+		const kept = Array.isArray(existingPublished) ? NOT_IN_CSV.filter((m) => existingPublished.includes(m)) : [];
+		const publishedSet = MARKETS.filter((m) => wanted[m] || kept.includes(m));
 		if (missed.length) notMirrored.push({ sku, markets: missed });
 		// No markets in the CSV = "not decided yet": the product follows its
 		// publisher's licence (NULL). A hand-made selection already in the Portal
@@ -382,7 +385,7 @@ export async function applyItems(db, salesDb, items, by) {
 				if (maxBullets > curCount) await updateSheet(db, sheetId, { usp_count: maxBullets });
 			}
 
-			// Published markets (SALES_DB) — full set incl. preserved PL; override untouched.
+			// Published markets (SALES_DB) — full set incl. preserved PL/FI; override untouched.
 			// null = follow the publisher licence; undefined = leave as is.
 			if (it.published !== undefined) {
 			const prev = await salesDb.prepare('SELECT override_license FROM product_webshop WHERE lower(sku)=lower(?)').bind(it.sku).first();
@@ -391,7 +394,7 @@ export async function applyItems(db, salesDb, items, by) {
 				`INSERT INTO product_webshop (sku, published_markets, override_license, updated_by, updated_at)
 				 VALUES (?, ?, ?, ?, ?)
 				 ON CONFLICT(sku) DO UPDATE SET published_markets=excluded.published_markets, updated_by=excluded.updated_by, updated_at=excluded.updated_at`
-			).bind(it.sku, it.published == null ? null : JSON.stringify(it.published), overrideLicense ? 1 : 0, by ?? null, new Date().toISOString()).run();
+			).bind(it.sku, it.published == null ? null : JSON.stringify(sanitizeMarkets(it.published)), overrideLicense ? 1 : 0, by ?? null, new Date().toISOString()).run();
 			}
 
 			// Categories — sweep the managed groups only, when CSV had values

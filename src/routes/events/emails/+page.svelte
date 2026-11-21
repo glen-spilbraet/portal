@@ -1,11 +1,11 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
+	import { LANGS, langShort } from '$lib/languages.js';
 	import { invalidateAll, goto } from '$app/navigation';
 
 	let { data } = $props();
 	let busy = $state(false);
 
-	const LANGS = ['da', 'se', 'no', 'en'];
 
 	function offsetLabel(d) {
 		if (d === 0) return 'On the day';
@@ -73,7 +73,7 @@
 							</div>
 						</div>
 						<div class="langs">
-							{#each LANGS as l}<span class="lang {s.languages.includes(l) ? 'on' : ''}">{l}</span>{/each}
+							{#each LANGS as l}<span class="lang {s.languages.includes(l) ? 'on' : ''}">{langShort(l)}</span>{/each}
 						</div>
 						<div class="step-actions">
 							<button class="pill {s.active ? 'on' : 'off'}" onclick={() => toggleActive(s)}>{s.active ? 'Active' : 'Off'}</button>

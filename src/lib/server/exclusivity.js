@@ -13,12 +13,12 @@
 
 /** @typedef {import('@cloudflare/workers-types').D1Database} D1 */
 
-import { MARKETS } from '$lib/server/webshopMarkets.js';
+import { MARKETS, MARKET_LABEL } from '$lib/languages.js';
 
-export { MARKETS };
-export const MARKET_LABEL = { DK: 'Denmark', SE: 'Sweden', NO: 'Norway', INT: 'International', PL: 'Poland' };
+export { MARKETS, MARKET_LABEL };
 // sales_deals.market values (derived from company country) per market code.
-const SALES_MARKET = { DK: 'Denmark', SE: 'Sweden', NO: 'Norway', INT: 'International', PL: 'International' };
+// Sales stats only know four markets: Poland and Finland count as International.
+const SALES_MARKET = /** @type {Record<string, string>} */ ({ DK: 'Denmark', SE: 'Sweden', NO: 'Norway', INT: 'International', PL: 'International', FI: 'International' });
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 

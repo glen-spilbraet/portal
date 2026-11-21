@@ -1,4 +1,5 @@
 <script>
+	import { LANGUAGES, langShort } from '$lib/languages.js';
 	import AppNav from '$lib/components/AppNav.svelte';
 
 	let { data } = $props();
@@ -11,12 +12,6 @@
 	const userNames  = data.userNames ?? {};
 	function displayName(email) { return userNames[email] ?? email?.split('@')[0] ?? email; }
 
-	const LANGUAGES = [
-		{ code: 'en', label: 'English' },
-		{ code: 'da', label: 'Dansk' },
-		{ code: 'sv', label: 'Svenska' },
-		{ code: 'no', label: 'Norsk' },
-	];
 	function langLabel(code) { return LANGUAGES.find(l => l.code === code)?.label ?? code; }
 
 	// Navigation: null = root, 'shared' = Shared with me, uuid = folder id
@@ -525,7 +520,7 @@
 									<div class="card-name">
 										{project.name}
 										{#if project.language}
-											<span class="lang-pill">{project.language.toUpperCase()}</span>
+											<span class="lang-pill">{langShort(project.language)}</span>
 										{/if}
 									</div>
 									<div class="card-meta">
