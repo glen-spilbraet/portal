@@ -561,6 +561,10 @@
 		await upload(new File([blob], `${type}.png`, { type: 'image/png' }), type);
 	}
 
+	// Header thumbnail: the 3D box, else the flat front — so it is always clear which product is open.
+	const headImage = $derived(data.sheet.box_image_key || data.sheet.box_flat_image_key || null);
+	const shortDate = (d) => { const t = new Date(d); return isNaN(+t) ? d : t.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+
 	// ── Settings ───────────────────────────────────────────────────────────────
 	let hidden = $state(JSON.parse(data.sheet.hidden_elements || '{}'));
 	let ctaId = $state(data.sheet.cta_version_id ?? null);
@@ -601,8 +605,16 @@
 <div class="editor">
 	<header class="bar">
 		<div class="left">
-			<a href="/sheets" class="back">← Sheets</a>
-			<span class="sku">{data.sheet.sku}</span>
+			<a href="/sheets" class="back" title="Back to Sheets">←</a>
+			{#if headImage}
+				<img class="head-thumb" src={thumbUrl(headImage)} crossorigin="anonymous" onload={(e) => healThumb(e, headImage)} alt="" decoding="async" />
+			{:else}
+				<div class="head-thumb none" title="No box photo yet">?</div>
+			{/if}
+			<div class="head-id">
+				<input class="head-name" bind:value={name} onblur={saveName} placeholder="Product name" title="Product name (shared by all languages) — click to edit" aria-label="Product name" />
+				<span class="head-meta"><span class="sku">{data.sheet.sku}</span>{#if data.webshopPublisher}<span>{data.webshopPublisher}</span>{/if}</span>
+			</div>
 			<button class="feat" class:on={featured} onclick={toggleFeatured} disabled={featBusy} aria-pressed={featured}
 				title={featured ? 'Shown under Featured Products in the webshop — click to remove' : 'Feature this product in the webshop'}>
 				<svg width="15" height="15" viewBox="0 0 24 24" fill={featured ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
@@ -625,200 +637,12 @@
 	</header>
 
 	<main class="layout">
-		<!-- Basic product info: floating left panel, table-ish -->
-		<aside class="side">
-			<div class="side-card">
-				<div class="side-head"><h2>Product info</h2>
-					<button class="mini" onclick={refreshFromRackbeat} disabled={refreshing} title={refreshTip || 'Refresh data fields from Rackbeat'}>{refreshMsg || (refreshing ? '…' : 'Refresh')}</button>
-				</div>
-				<label class="name-fld"><span>Product name <em>(all languages)</em></span>
-					<input bind:value={name} onblur={saveName} placeholder="Product name" />
-				</label>
-				<div class="info-table">
-					{#each dataFields as f, i}
-						{#if f.key !== STOCK_KEY && !GAME_KEYS.includes(f.key)}
-							<div class="info-row"><span class="k">{fieldLabel(f)}</span>
-								{#if RO_KEYS.includes(f.key)}
-									<span class="v ro" title="From Rackbeat — correct it there; syncs to the sheet automatically (hourly)">{f.value || '—'}</span>
-								{:else}
-									<input class="v" bind:value={dataFields[i].value} onblur={saveDataFields} />
-								{/if}
-							</div>
-						{/if}
-					{/each}
-				</div>
-
-				<!-- Game attributes: editable, written back to Rackbeat -->
-				<div class="game-attrs">
-					<div class="ga-row">
-						<span class="k">{gLabel('age', 'Age')}</span>
-						<input class="num solo" inputmode="numeric" placeholder="—"
-							bind:value={ageVal}
-							oninput={(e) => (ageVal = onlyDigits(e.currentTarget.value))}
-							onblur={saveAge} />
-					</div>
-					<div class="ga-row">
-						<span class="k">{gLabel('time', 'Time')}</span>
-						<div class="fromto">
-							<input class="num" inputmode="numeric" placeholder="from"
-								bind:value={timeFrom}
-								oninput={(e) => (timeFrom = onlyDigits(e.currentTarget.value))}
-								onblur={saveTime} />
-							<span class="dash">–</span>
-							<input class="num" inputmode="numeric" placeholder="to"
-								bind:value={timeTo}
-								oninput={(e) => (timeTo = onlyDigits(e.currentTarget.value))}
-								onblur={saveTime} />
-						</div>
-					</div>
-					<div class="ga-row">
-						<span class="k">{gLabel('players', 'Players')}</span>
-						<div class="fromto">
-							<input class="num" inputmode="numeric" placeholder="from"
-								bind:value={playFrom}
-								oninput={(e) => (playFrom = onlyDigits(e.currentTarget.value))}
-								onblur={savePlayers} />
-							<span class="dash">–</span>
-							<input class="num" inputmode="numeric" placeholder="to"
-								bind:value={playTo}
-								oninput={(e) => (playTo = onlyDigits(e.currentTarget.value))}
-								onblur={savePlayers} />
-						</div>
-					</div>
-					<div class="ga-row">
-						<span class="k">{gLabel('pieces', 'Pieces')}</span>
-						<input class="num solo" inputmode="numeric" placeholder="—"
-							bind:value={piecesVal}
-							oninput={(e) => (piecesVal = onlyDigits(e.currentTarget.value))}
-							onblur={savePieces} />
-					</div>
-					{#if rbErr}<div class="ga-note err">{rbErr}</div>{/if}
-					{#if rbMsg}<div class="ga-note">{rbMsg}</div>{/if}
-				</div>
-
-				<!-- Stock: read-only from Rackbeat (synced hourly) -->
-				<div class="rb-stock" title="From Rackbeat, synced hourly — read-only">
-					{#if rbHas}
-						<div class="rbs-main">
-							<span class="k">Available</span>
-							<span class="rbs-num" class:out={Number(data.sheet.rb_available) <= 0}>{rbN(data.sheet.rb_available)}</span>
-						</div>
-						<div class="rbs-sub">On hand {rbN(data.sheet.rb_stock)} · In orders {rbN(data.sheet.rb_in_order)} · On PO {rbN(data.sheet.rb_purchased)}</div>
-					{:else}
-						<div class="rbs-main"><span class="k">Available</span><span class="rbs-none">{data.stockMeta ? 'Not in Rackbeat' : 'Not synced yet'}</span></div>
-					{/if}
-					{#if rbAsOf}<div class="rbs-asof">Rackbeat · {rbAsOf}{#if data.stockMeta?.status === 'error'} · <span class="rbs-err">last sync failed</span>{/if}</div>{/if}
-				</div>
-			</div>
-
-			<!-- Languages the product itself comes in (components / rule book) -->
-			<div class="side-card pl-card">
-				<div class="side-head"><h2>Product languages</h2></div>
-				<p class="pl-hint">Languages the product comes in — not the languages of the texts on this page.</p>
-				<ProductLanguagePicker value={data.sheet.product_languages} onchange={(next) => save({ type: 'sheet', field: 'product_languages', value: next })} />
-			</div>
-		</aside>
-
 		<div class="main-col">
-		<!-- Universal (per language) -->
-		<section class="card">
-			<div class="card-head">
-				<div><h2>Universal info</h2><span class="hint">Per language ({langShort(language)}) · shared across sheet, catalogue &amp; webshop</span></div>
-				<div class="cp-btns">
-					<button class="mini" onclick={copyUniversal} title="Copy all text (for translation)">{copyMsg || 'Copy text'}</button>
-					<button class="mini" onclick={pasteUniversal} title="Paste translated text back">{pasteMsg || 'Paste text'}</button>
-				</div>
-			</div>
-			<label class="fld"><span>Short description</span>
-				<textarea rows="3" value={t.product_description ?? ''} oninput={(e) => (t.product_description = e.currentTarget.value)} onblur={(e) => putTranslation('product_description', e.currentTarget.value)}></textarea>
-			</label>
-			<div class="fld"><span>Bullets</span>
-				<div class="bullets">
-					{#each Array(uspCount) as _, i}
-						<div class="bullet-row">
-							<input value={usp(i)} oninput={(e) => (t[`usp_${i + 1}`] = e.currentTarget.value)} onblur={(e) => putTranslation(`usp_${i + 1}`, e.currentTarget.value)} placeholder="Bullet {i + 1}" />
-							<button class="x" title="Remove" onclick={() => removeBullet(i)}>✕</button>
-						</div>
-					{/each}
-					{#if uspCount < 6}<button class="add" onclick={addBullet}>+ Add bullet</button>{/if}
-				</div>
-			</div>
-			<div class="fld"><span>Long description <em>(webshop)</em></span>
-				<MarkdownEditor bind:value={t.long_description} onchange={(v) => putTranslation('long_description', v)} />
-			</div>
-		</section>
-
-		<!-- Videos -->
-		<section class="card">
-			<div class="card-head"><h2>Videos</h2><span class="hint">YouTube — normal (16:9) or Shorts (9:16), auto-detected</span></div>
-			{#if vids.length}
-				<div class="vid-list">
-					{#each vids as v (v.id)}
-						<div class="vid">
-							{#if ytId(v.url)}<img class="vthumb" class:portrait={v.orientation === '9:16'} src="https://img.youtube.com/vi/{ytId(v.url)}/mqdefault.jpg" alt="" />{/if}
-							<div class="vmeta">
-								<span class="vorient {v.orientation === '9:16' ? 'p' : 'l'}">{v.orientation}</span>
-								<a class="vurl" href={v.url} target="_blank" rel="noopener">{v.url}</a>
-								<MarketAvailability value={v.markets} onchange={(m) => setVideoMkts(v.id, m)} />
-							</div>
-							<button class="x" onclick={() => removeVideo(v.id)}>✕</button>
-						</div>
-					{/each}
-				</div>
-			{:else}<p class="empty">No videos yet.</p>{/if}
-			<div class="vid-add">
-				<input placeholder="Paste YouTube link…" bind:value={videoUrl} onkeydown={(e) => e.key === 'Enter' && addVideo()} />
-				<select bind:value={videoOrient}><option value="auto">Auto</option><option value="16:9">16:9</option><option value="9:16">9:16</option></select>
-				<button class="btn primary sm" onclick={addVideo}>Add</button>
-			</div>
-			{#if videoErr}<p class="err">{videoErr}</p>{/if}
-		</section>
-
-		<!-- Articles (visual link cards) -->
-		<section class="card">
-			<div class="card-head"><h2>Articles</h2><span class="hint">Press, blog or other web articles — paste a URL and it builds a visual card</span></div>
-			{#if arts.length}
-				<div class="art-list">
-					{#each arts as a (a.id)}
-						<div class="art">
-							<div class="art-card">
-								{#if a.image_key}
-									<img class="art-img" src={thumbUrl(a.image_key)} crossorigin="anonymous" onload={(e) => healThumb(e, a.image_key)} alt="" loading="lazy" decoding="async" />
-								{:else if a.image_url}
-									<img class="art-img" src={a.image_url} alt="" />
-								{:else}
-									<div class="art-img ph">No image</div>
-								{/if}
-								<div class="art-body">
-									<div class="art-site">
-										{#if a.favicon_url}<img class="art-fav" src={a.favicon_url} alt="" />{/if}
-										<span>{a.site_name || new URL(a.url).hostname}</span>
-									</div>
-									<a class="art-title" href={a.url} target="_blank" rel="noopener">{a.title || a.url}</a>
-									{#if a.description}<p class="art-desc">{a.description}</p>{/if}
-								</div>
-								<button class="x art-x" title="Remove" onclick={() => removeArticle(a.id)}>✕</button>
-							</div>
-							<div class="art-avail">
-								<span class="avail-label">Available in</span>
-								<MarketAvailability value={a.markets} onchange={(m) => setArticleMkts(a.id, m)} />
-							</div>
-						</div>
-					{/each}
-				</div>
-			{:else}<p class="empty">No articles yet.</p>{/if}
-			<div class="vid-add">
-				<input placeholder="Paste article URL (https://…)" bind:value={articleUrl} onkeydown={(e) => e.key === 'Enter' && addArticle()} disabled={articleAdding} />
-				<button class="btn primary sm" onclick={addArticle} disabled={articleAdding}>{articleAdding ? 'Fetching…' : 'Add'}</button>
-			</div>
-			{#if articleErr}<p class="err">{articleErr}</p>{/if}
-			{#if articleInfo}<p class="info">{articleInfo}</p>{/if}
-		</section>
-
 		<!-- Images -->
 		<section class="card">
-			<div class="card-head"><h2>Images</h2></div>
+			<div class="card-head"><h2>Images</h2><span class="hint">3D box and flat for the webshop · content photos · people playing for the sheet</span></div>
 
+			<div class="img-grid">
 			<div class="img-group">
 				<h3>Box photo</h3>
 				<div class="box-row">
@@ -879,41 +703,114 @@
 					<p class="hint">Click a photo to set its focal point (how it crops in the grid).</p>
 				{:else}<p class="empty">No people-playing photos.</p>{/if}
 			</div>
-		</section>
-
-		<!-- Settings -->
-		<section class="card">
-			<div class="card-head"><h2>Sheet settings</h2></div>
-			{#if stockIdx >= 0}
-				<label class="fld narrow"><span>Expected stock date <em>(free text, e.g. Q4, Nov '27)</em></span>
-					<input bind:value={dataFields[stockIdx].value} onblur={saveDataFields} placeholder="Q4 / Nov '27 / In stock" />
-				</label>
-			{/if}
-			{#if data.ctaVersions?.length}
-				<label class="fld narrow"><span>CTA version</span>
-					<select value={ctaId ?? ''} onchange={(e) => setCta(e.currentTarget.value || null)}>
-						<option value="">None</option>
-						{#each data.ctaVersions as v}<option value={v.id}>{v.name}</option>{/each}
-					</select>
-				</label>
-			{/if}
-			<div class="fld"><span>Sheet element visibility</span>
-				<div class="toggles">
-					{#each TOGGLES as tg}
-						<button class="tg" class:off={hidden[tg.key]} onclick={() => toggle(tg.key)}>
-							<span class="tg-dot"></span>{tg.label}{#if hidden[tg.key]}<em>hidden</em>{/if}
-						</button>
-					{/each}
-				</div>
 			</div>
 		</section>
+
+
+		<!-- Universal (per language) -->
+		<section class="card">
+			<div class="card-head">
+				<div><h2>Universal info</h2><span class="hint">Per language ({langShort(language)}) · shared across sheet, catalogue &amp; webshop</span></div>
+				<div class="cp-btns">
+					<button class="mini" onclick={copyUniversal} title="Copy all text (for translation)">{copyMsg || 'Copy text'}</button>
+					<button class="mini" onclick={pasteUniversal} title="Paste translated text back">{pasteMsg || 'Paste text'}</button>
+				</div>
+			</div>
+			<label class="fld"><span>Short description</span>
+				<textarea rows="3" value={t.product_description ?? ''} oninput={(e) => (t.product_description = e.currentTarget.value)} onblur={(e) => putTranslation('product_description', e.currentTarget.value)}></textarea>
+			</label>
+			<div class="fld"><span>Bullets</span>
+				<div class="bullets">
+					{#each Array(uspCount) as _, i}
+						<div class="bullet-row">
+							<input value={usp(i)} oninput={(e) => (t[`usp_${i + 1}`] = e.currentTarget.value)} onblur={(e) => putTranslation(`usp_${i + 1}`, e.currentTarget.value)} placeholder="Bullet {i + 1}" />
+							<button class="x" title="Remove" onclick={() => removeBullet(i)}>✕</button>
+						</div>
+					{/each}
+					{#if uspCount < 6}<button class="add" onclick={addBullet}>+ Add bullet</button>{/if}
+				</div>
+			</div>
+			<div class="fld"><span>Long description <em>(webshop)</em></span>
+				<MarkdownEditor bind:value={t.long_description} onchange={(v) => putTranslation('long_description', v)} />
+			</div>
+		</section>
+
+
+		<!-- Videos -->
+		<section class="card">
+			<div class="card-head"><h2>Videos</h2><span class="hint">YouTube — normal (16:9) or Shorts (9:16), auto-detected</span></div>
+			{#if vids.length}
+				<div class="vid-list">
+					{#each vids as v (v.id)}
+						<div class="vid">
+							{#if ytId(v.url)}<img class="vthumb" class:portrait={v.orientation === '9:16'} src="https://img.youtube.com/vi/{ytId(v.url)}/mqdefault.jpg" alt="" />{/if}
+							<div class="vmeta">
+								<span class="vorient {v.orientation === '9:16' ? 'p' : 'l'}">{v.orientation}</span>
+								<a class="vurl" href={v.url} target="_blank" rel="noopener">{v.url}</a>
+								<MarketAvailability value={v.markets} onchange={(m) => setVideoMkts(v.id, m)} />
+							</div>
+							<button class="x" onclick={() => removeVideo(v.id)}>✕</button>
+						</div>
+					{/each}
+				</div>
+			{:else}<p class="empty">No videos yet.</p>{/if}
+			<div class="vid-add">
+				<input placeholder="Paste YouTube link…" bind:value={videoUrl} onkeydown={(e) => e.key === 'Enter' && addVideo()} />
+				<select bind:value={videoOrient}><option value="auto">Auto</option><option value="16:9">16:9</option><option value="9:16">9:16</option></select>
+				<button class="btn primary sm" onclick={addVideo}>Add</button>
+			</div>
+			{#if videoErr}<p class="err">{videoErr}</p>{/if}
+		</section>
+
+
+		<!-- Articles (visual link cards) -->
+		<section class="card">
+			<div class="card-head"><h2>Articles</h2><span class="hint">Press, blog or other web articles — paste a URL and it builds a visual card</span></div>
+			{#if arts.length}
+				<div class="art-list">
+					{#each arts as a (a.id)}
+						<div class="art">
+							<div class="art-card">
+								{#if a.image_key}
+									<img class="art-img" src={thumbUrl(a.image_key)} crossorigin="anonymous" onload={(e) => healThumb(e, a.image_key)} alt="" loading="lazy" decoding="async" />
+								{:else if a.image_url}
+									<img class="art-img" src={a.image_url} alt="" />
+								{:else}
+									<div class="art-img ph">No image</div>
+								{/if}
+								<div class="art-body">
+									<div class="art-site">
+										{#if a.favicon_url}<img class="art-fav" src={a.favicon_url} alt="" />{/if}
+										<span>{a.site_name || new URL(a.url).hostname}</span>
+									</div>
+									<a class="art-title" href={a.url} target="_blank" rel="noopener">{a.title || a.url}</a>
+									{#if a.description}<p class="art-desc">{a.description}</p>{/if}
+								</div>
+								<button class="x art-x" title="Remove" onclick={() => removeArticle(a.id)}>✕</button>
+							</div>
+							<div class="art-avail">
+								<span class="avail-label">Available in</span>
+								<MarketAvailability value={a.markets} onchange={(m) => setArticleMkts(a.id, m)} />
+							</div>
+						</div>
+					{/each}
+				</div>
+			{:else}<p class="empty">No articles yet.</p>{/if}
+			<div class="vid-add">
+				<input placeholder="Paste article URL (https://…)" bind:value={articleUrl} onkeydown={(e) => e.key === 'Enter' && addArticle()} disabled={articleAdding} />
+				<button class="btn primary sm" onclick={addArticle} disabled={articleAdding}>{articleAdding ? 'Fetching…' : 'Add'}</button>
+			</div>
+			{#if articleErr}<p class="err">{articleErr}</p>{/if}
+			{#if articleInfo}<p class="info">{articleInfo}</p>{/if}
+		</section>
+
 		</div>
 
-		<!-- Right pane: webshop publishing + categories -->
-		<aside class="cats-side">
+		<!-- One rail: everything that is set per product, most-used first -->
+		<aside class="rail">
 			<!-- Webshop published markets (gated by publisher licence) -->
 			<div class="side-card">
-				<div class="side-head"><h2>Webshop Published</h2>
+				<div class="side-head"><h2>Webshop</h2>
 					<span class="save" class:on={wsMsg === 'Saving…'} class:err={wsMsg.startsWith('Not saved')}>{wsMsg}</span>
 				</div>
 				<div class="ws-pub">
@@ -926,16 +823,15 @@
 							<button type="button" class="ws-reset" onclick={followLicence} title="Publish wherever the publisher is licensed, and keep following later licence changes">Follow licence</button>
 						{/if}
 					</p>
-					<div class="ws-markets">
+					<div class="ws-chips" role="group" aria-label="Markets">
 						{#each WS_MARKETS as m}
-							<label class="ws-row" class:disabled={!wsEnabled(m)} title={MARKET_LABEL[m]}>
-								<input type="checkbox" checked={wsChecked(m)} disabled={!wsEnabled(m)} onchange={(e) => { e.currentTarget.checked = wsChecked(m); toggleMarket(m); }} />
-								<span class="ws-m">{m}</span>
-								{#if !wsAllowed.has(m) && !wsOverride}<span class="ws-lock" title="Not licensed by the publisher">licence</span>
-								{:else if wsMissingTexts.includes(m)}<span class="ws-lock warn" title="Published here, but the sheet has no {langInfo(MARKET_LANG[m]).english} short description or bullets yet">no {langShort(MARKET_LANG[m])} texts</span>{/if}
-							</label>
+							{@const locked = !wsEnabled(m)}
+							<button type="button" class="ws-chip" class:on={wsChecked(m)} class:warn={wsMissingTexts.includes(m)} disabled={locked} aria-pressed={wsChecked(m)}
+								title={locked ? `${MARKET_LABEL[m]} — not licensed by the publisher` : wsMissingTexts.includes(m) ? `${MARKET_LABEL[m]} — published, but there are no ${langInfo(MARKET_LANG[m]).english} texts yet` : MARKET_LABEL[m]}
+								onclick={() => toggleMarket(m)}>{m}</button>
 						{/each}
 					</div>
+					{#if wsMissingTexts.length}<p class="ws-missing">Missing texts: {wsMissingTexts.map((m) => langShort(MARKET_LANG[m])).join(', ')}</p>{/if}
 					<label class="ws-override">
 						<input type="checkbox" checked={wsOverride} onchange={(e) => { e.currentTarget.checked = wsOverride; toggleOverride(); }} />
 						<span>Override publisher licence</span>
@@ -944,9 +840,75 @@
 				</div>
 			</div>
 
-			<!-- Webshop dates -->
+
+			<!-- Game attributes (editable, written back to Rackbeat) + expected stock date -->
 			<div class="side-card">
-				<div class="side-head"><h2>Dates</h2></div>
+				<div class="side-head"><h2>Game</h2></div>
+				<!-- Game attributes: editable, written back to Rackbeat -->
+				<div class="game-attrs first">
+					<div class="ga-row">
+						<span class="k">{gLabel('age', 'Age')}</span>
+						<input class="num solo" inputmode="numeric" placeholder="—"
+							bind:value={ageVal}
+							oninput={(e) => (ageVal = onlyDigits(e.currentTarget.value))}
+							onblur={saveAge} />
+					</div>
+					<div class="ga-row">
+						<span class="k">{gLabel('time', 'Time')}</span>
+						<div class="fromto">
+							<input class="num" inputmode="numeric" placeholder="from"
+								bind:value={timeFrom}
+								oninput={(e) => (timeFrom = onlyDigits(e.currentTarget.value))}
+								onblur={saveTime} />
+							<span class="dash">–</span>
+							<input class="num" inputmode="numeric" placeholder="to"
+								bind:value={timeTo}
+								oninput={(e) => (timeTo = onlyDigits(e.currentTarget.value))}
+								onblur={saveTime} />
+						</div>
+					</div>
+					<div class="ga-row">
+						<span class="k">{gLabel('players', 'Players')}</span>
+						<div class="fromto">
+							<input class="num" inputmode="numeric" placeholder="from"
+								bind:value={playFrom}
+								oninput={(e) => (playFrom = onlyDigits(e.currentTarget.value))}
+								onblur={savePlayers} />
+							<span class="dash">–</span>
+							<input class="num" inputmode="numeric" placeholder="to"
+								bind:value={playTo}
+								oninput={(e) => (playTo = onlyDigits(e.currentTarget.value))}
+								onblur={savePlayers} />
+						</div>
+					</div>
+					<div class="ga-row">
+						<span class="k">{gLabel('pieces', 'Pieces')}</span>
+						<input class="num solo" inputmode="numeric" placeholder="—"
+							bind:value={piecesVal}
+							oninput={(e) => (piecesVal = onlyDigits(e.currentTarget.value))}
+							onblur={savePieces} />
+					</div>
+					{#if rbErr}<div class="ga-note err">{rbErr}</div>{/if}
+					{#if rbMsg}<div class="ga-note">{rbMsg}</div>{/if}
+				</div>
+
+			{#if stockIdx >= 0}
+				<label class="fld rail-fld"><span>Expected stock date <em>(free text, e.g. Q4, Nov '27)</em></span>
+					<input bind:value={dataFields[stockIdx].value} onblur={saveDataFields} placeholder="Q4 / Nov '27 / In stock" />
+				</label>
+			{/if}
+			</div>
+
+			<!-- Languages the product itself comes in (components / rule book) -->
+			<div class="side-card pl-card">
+				<div class="side-head"><h2>Product languages</h2></div>
+				<p class="pl-hint">Languages the product comes in — not the languages of the texts on this page.</p>
+				<ProductLanguagePicker value={data.sheet.product_languages} onchange={(next) => save({ type: 'sheet', field: 'product_languages', value: next })} />
+			</div>
+
+			<!-- Webshop dates -->
+			<details class="side-card fold">
+				<summary class="side-head"><h2>Dates</h2><span class="fold-sum">{[preorderDate && `Preorder ${shortDate(preorderDate)}`, restockDate && `Restock ${shortDate(restockDate)}`].filter(Boolean).join(' · ') || 'Not set'}</span></summary>
 				<div class="dates">
 					<div class="date-fld">
 						<span class="dlabel">Preorder date</span>
@@ -971,7 +933,8 @@
 						</div>
 					</div>
 				</div>
-			</div>
+			</details>
+
 
 			<!-- Categories: collapsible multi-select per group -->
 			<div class="side-card">
@@ -1006,6 +969,58 @@
 					{/each}
 				{/if}
 			</div>
+
+			<!-- Rarely touched: read-only product data, stock, sheet settings -->
+			<details class="side-card fold">
+				<summary class="side-head"><h2>Details</h2><span class="fold-sum">SKU, size, stock, sheet settings</span></summary>
+				<div class="info-table">
+					{#each dataFields as f, i}
+						{#if f.key !== STOCK_KEY && !GAME_KEYS.includes(f.key)}
+							<div class="info-row"><span class="k">{fieldLabel(f)}</span>
+								{#if RO_KEYS.includes(f.key)}
+									<span class="v ro" title="From Rackbeat — correct it there; syncs to the sheet automatically (hourly)">{f.value || '—'}</span>
+								{:else}
+									<input class="v" bind:value={dataFields[i].value} onblur={saveDataFields} />
+								{/if}
+							</div>
+						{/if}
+					{/each}
+				</div>
+
+				<!-- Stock: read-only from Rackbeat (synced hourly) -->
+				<div class="rb-stock" title="From Rackbeat, synced hourly — read-only">
+					{#if rbHas}
+						<div class="rbs-main">
+							<span class="k">Available</span>
+							<span class="rbs-num" class:out={Number(data.sheet.rb_available) <= 0}>{rbN(data.sheet.rb_available)}</span>
+						</div>
+						<div class="rbs-sub">On hand {rbN(data.sheet.rb_stock)} · In orders {rbN(data.sheet.rb_in_order)} · On PO {rbN(data.sheet.rb_purchased)}</div>
+					{:else}
+						<div class="rbs-main"><span class="k">Available</span><span class="rbs-none">{data.stockMeta ? 'Not in Rackbeat' : 'Not synced yet'}</span></div>
+					{/if}
+					{#if rbAsOf}<div class="rbs-asof">Rackbeat · {rbAsOf}{#if data.stockMeta?.status === 'error'} · <span class="rbs-err">last sync failed</span>{/if}</div>{/if}
+				</div>
+				<div class="fold-body">
+					<button class="mini" onclick={refreshFromRackbeat} disabled={refreshing} title={refreshTip || 'Refresh data fields from Rackbeat'}>{refreshMsg || (refreshing ? 'Refreshing…' : 'Refresh from Rackbeat')}</button>
+			{#if data.ctaVersions?.length}
+				<label class="fld narrow"><span>CTA version</span>
+					<select value={ctaId ?? ''} onchange={(e) => setCta(e.currentTarget.value || null)}>
+						<option value="">None</option>
+						{#each data.ctaVersions as v}<option value={v.id}>{v.name}</option>{/each}
+					</select>
+				</label>
+			{/if}
+			<div class="fld"><span>Sheet element visibility</span>
+				<div class="toggles">
+					{#each TOGGLES as tg}
+						<button class="tg" class:off={hidden[tg.key]} onclick={() => toggle(tg.key)}>
+							<span class="tg-dot"></span>{tg.label}{#if hidden[tg.key]}<em>hidden</em>{/if}
+						</button>
+					{/each}
+				</div>
+			</div>
+				</div>
+			</details>
 		</aside>
 	</main>
 </div>
@@ -1025,7 +1040,7 @@
 
 <style>
 	.editor { min-height: 100vh; }
-	.bar { position: sticky; top: 0; z-index: 50; background: #fff; border-bottom: 1px solid var(--border); height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 20px; }
+	.bar { position: sticky; top: 0; z-index: 50; background: #fff; border-bottom: 1px solid var(--border); height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 20px; }
 	.left, .right { display: flex; align-items: center; gap: 10px; }
 	.back { font-size: 13px; font-weight: 600; color: #71717A; text-decoration: none; }
 	.back:hover { color: #18181B; }
@@ -1139,10 +1154,58 @@
 	.tg em { font-style: normal; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.3px; }
 
 	/* Layout: floating left info panel + main form column */
-	.layout { max-width: 1440px; margin: 0 auto; padding: 24px 20px 80px; display: flex; align-items: flex-start; gap: 20px; }
+	/* Two columns. The page scrolls as one; the rail is pinned and scrolls by
+	   itself only when it is taller than the window (no more waiting for the
+	   centre column to reach its end). */
+	.layout { max-width: 1440px; margin: 0 auto; padding: 20px 20px 80px; display: flex; align-items: flex-start; gap: 20px; }
 	.main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
-	.side { width: 300px; flex-shrink: 0; position: sticky; top: 68px; }
-	.cats-side { width: 288px; flex-shrink: 0; position: sticky; top: 68px; display: flex; flex-direction: column; gap: 16px; }
+	.rail { width: 320px; flex-shrink: 0; position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; display: flex; flex-direction: column; gap: 14px; padding-bottom: 4px; }
+	.rail .side-card { flex-shrink: 0; }
+	.rail .pl-card { margin-top: 0; }
+
+	/* Header identity */
+	.head-thumb { width: 40px; height: 40px; flex-shrink: 0; object-fit: contain; background: #FAFAFA; border: 1px solid var(--border); border-radius: 9px; }
+	.head-thumb.none { display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800; color: #D4D4D8; }
+	.head-id { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+	.head-name { font: inherit; font-size: 14.5px; font-weight: 800; color: #18181B; background: transparent; border: 1px solid transparent; border-radius: 7px; padding: 1px 6px; margin-left: -6px; width: 300px; max-width: 28vw; text-overflow: ellipsis; }
+	.head-name:hover { border-color: var(--border); }
+	.head-name:focus { outline: none; border-color: #F57832; background: #fff; box-shadow: 0 0 0 3px rgba(245,120,50,0.12); }
+	.head-meta { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: #A1A1AA; white-space: nowrap; }
+	.head-meta .sku { font-size: 10.5px; padding: 1px 7px; }
+
+	/* Images: the three groups side by side */
+	.img-grid { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.25fr); gap: 22px; align-items: start; }
+	.img-grid .img-group { border-top: none; padding: 0; }
+	.img-grid .box-row { flex-wrap: nowrap; gap: 12px; }
+	.img-grid .box-slot { width: 124px; }
+	.img-grid .box-slot img, .img-grid .box-slot .ph { width: 124px; height: 100px; }
+	.img-grid .thumbs { gap: 8px; }
+	.img-grid .thumb { width: 84px; height: 84px; }
+	.img-grid .drop-zone { padding: 9px; }
+	@media (max-width: 1250px) { .img-grid { grid-template-columns: 1fr; gap: 16px; } .img-grid .img-group + .img-group { border-top: 1px solid #F1EADB; padding-top: 14px; } }
+
+	/* Webshop markets as chips */
+	.ws-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+	.ws-chip { font: inherit; font-size: 12px; font-weight: 800; letter-spacing: 0.2px; min-width: 40px; color: #71717A; background: #F4F4F5; border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; cursor: pointer; }
+	.ws-chip:hover:not(:disabled) { border-color: #F5C9A8; }
+	.ws-chip.on { color: #fff; background: #F57832; border-color: #F57832; }
+	.ws-chip.on.warn { box-shadow: inset 0 -3px 0 #FCD34D; }
+	.ws-chip:disabled { color: #D4D4D8; background: #FAFAFA; border-style: dashed; cursor: not-allowed; }
+	.ws-chip.on:disabled { color: #fff; background: #F9B48C; border-color: #F9B48C; border-style: solid; }
+	.ws-missing { font-size: 11.5px; font-weight: 600; color: #B45309; margin: 8px 0 0; }
+
+	/* Folded cards */
+	.fold > summary { cursor: pointer; list-style: none; border-bottom: none; }
+	.fold > summary::-webkit-details-marker { display: none; }
+	.fold > summary h2::before { content: '▸'; display: inline-block; margin-right: 7px; font-size: 11px; color: #A1A1AA; transition: transform .12s; }
+	.fold[open] > summary h2::before { transform: rotate(90deg); }
+	.fold[open] > summary { border-bottom: 1px solid var(--border); }
+	.fold-sum { font-size: 11.5px; color: #A1A1AA; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.fold-body { padding: 12px 14px 4px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+	.fold-body .fld { width: 100%; margin-bottom: 8px; }
+	.game-attrs.first { border-top: none; }
+	.rail-fld { padding: 10px 12px 2px; margin-bottom: 8px; }
+
 
 	/* Webshop published markets */
 	.ws-pub { padding: 10px 14px 12px; }
@@ -1178,8 +1241,7 @@
 	.quick { display: flex; gap: 6px; }
 	.quick button { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; font-family: inherit; color: #52525B; background: #FAFAF7; border: 1px solid var(--border); border-radius: 7px; padding: 5px 4px; cursor: pointer; white-space: nowrap; }
 	.quick button:hover { border-color: #F57832; color: #F57832; background: #fff; }
-	@media (max-width: 1100px) { .cats-side { width: 100%; position: static; } .layout { flex-wrap: wrap; } }
-	@media (max-width: 860px) { .layout { flex-direction: column; } .side { width: 100%; position: static; } }
+	@media (max-width: 980px) { .layout { flex-direction: column; } .rail { width: 100%; position: static; max-height: none; overflow: visible; } .head-name { width: 180px; } }
 
 	/* Category tagging pane */
 	.cats-empty { font-size: 12.5px; color: #71717A; padding: 12px 14px; margin: 0; line-height: 1.5; }
