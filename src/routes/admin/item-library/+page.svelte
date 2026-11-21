@@ -43,6 +43,8 @@
 	}
 </script>
 
+<svelte:head><title>Item library — Admin — Product Portal</title></svelte:head>
+
 <AppNav active="item-library" user={data.user} />
 
 <main class="page-wrap">

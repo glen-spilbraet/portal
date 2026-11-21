@@ -49,6 +49,8 @@
   }
 </script>
 
+<svelte:head><title>Mail campaigns — Product Portal</title></svelte:head>
+
 <div class="page">
   <AppNav active="mail-campaigns" user={data.user} />
   <MailTabs active="campaigns" />

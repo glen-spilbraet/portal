@@ -94,6 +94,8 @@
   }
 </script>
 
+<svelte:head><title>Mail accounts — Product Portal</title></svelte:head>
+
 <div class="page">
   <AppNav active="mail-accounts" user={data.user} />
   <MailTabs active="accounts" />

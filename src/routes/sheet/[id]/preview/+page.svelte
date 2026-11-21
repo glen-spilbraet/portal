@@ -34,6 +34,8 @@
 	}
 </script>
 
+<svelte:head><title>{data.sheet.sku} — Sheet preview</title></svelte:head>
+
 <div class="preview-page">
 	<div class="topbar no-print">
 		<div class="topbar-left">

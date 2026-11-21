@@ -102,7 +102,8 @@ export async function load({ cookies, url, route, platform, locals }) {
 
 	// The dashboard (Stats) is the homepage, but a user may not have it. In that
 	// case land them on the leftmost nav section they can reach — mirroring the
-	// nav order: Stats, Sales (sheets → price list), Orders, Data, Mail.
+	// nav order: Stats, Sales (sheets → price list), Orders, Data, Mail. Every
+	// section must be listed, or a user who only has that one gets a 403 at login.
 	if (url.pathname === '/' && !effectivePermissions.stats) {
 		const fallback = [
 			['product', '/product'],
@@ -117,6 +118,12 @@ export async function load({ cookies, url, route, platform, locals }) {
 			['warehouse', '/warehouse'],
 			['orders', '/orders'],
 			['q4_orders', '/orders/q4-orders'],
+			['rest_check', '/orders/rest-check'],
+			['price_sync', '/orders/price-sync'],
+			['order_conf', '/orders/order-confirmations'],
+			['reports', '/reports'],
+			['credit_notes', '/credit-notes'],
+			['knowledge', '/knowledge'],
 			['data', '/data'],
 			['mail', '/mail/accounts'],
 		].find(([perm]) => effectivePermissions[perm]);
