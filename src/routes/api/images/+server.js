@@ -2,6 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import { addImage } from '$lib/db.js';
 import { verifySession } from '$lib/auth.js';
 import { warmImageWidths } from '$lib/server/imageCdn.js';
+import { assertVariantUpload, imageExt } from '$lib/server/uploads.js';
 
 async function checkAuth(cookies, platform) {
 	const token = cookies.get('session');
@@ -29,6 +30,7 @@ export async function POST({ request, cookies, platform }) {
 	// ── Variant upload (resized copy, no DB change — no sheetId needed) ──
 	const variantKey = formData.get('variantKey')?.toString();
 	if (variantKey) {
+		assertVariantUpload(variantKey, file);
 		const buffer = await file.arrayBuffer();
 		await bucket.put(variantKey, buffer, {
 			httpMetadata: { contentType: file.type }
@@ -39,9 +41,11 @@ export async function POST({ request, cookies, platform }) {
 	if (!sheetId) error(400, 'No sheetId provided');
 
 	// ── Original upload ───────────────────────────────────────────────────
-	const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+	if (!/^[A-Za-z0-9-]+$/.test(sheetId)) error(400, 'Invalid sheetId');
+	const ext = imageExt(file);
 	const imageId = crypto.randomUUID();
-	const r2Key = `${sheetId}/${type}/${imageId}.${ext}`;
+	const folder = ['box', 'box_flat', 'content', 'grid', 'people_playing'].includes(type) ? type : 'grid';
+	const r2Key = `${sheetId}/${folder}/${imageId}.${ext}`;
 
 	const buffer = await file.arrayBuffer();
 	await bucket.put(r2Key, buffer, {

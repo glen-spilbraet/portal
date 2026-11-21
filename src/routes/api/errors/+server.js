@@ -1,5 +1,6 @@
 import { logError } from '$lib/server/errorLog.js';
 import { verifySession } from '$lib/auth.js';
+import { sessionSecret } from '$lib/server/access.js';
 
 /**
  * Receives client-side crash reports from hooks.client.js. Same-origin only;
@@ -10,7 +11,7 @@ export async function POST({ request, platform, cookies, url }) {
 	if (origin && origin !== url.origin) return new Response(null, { status: 204 });
 	const b = await request.json().catch(() => null);
 	if (!b || typeof b.message !== 'string' || !b.message.trim()) return new Response(null, { status: 204 });
-	const user = await verifySession(cookies.get('session') ?? '', platform?.env?.APP_SECRET ?? 'dev-secret').catch(() => null);
+	const user = await verifySession(cookies.get('session') ?? '', sessionSecret(platform) ?? '').catch(() => null);
 	logError(platform, {
 		source: 'client',
 		status: Number(b.status) || 0,

@@ -1,4 +1,5 @@
 import { json, error } from '@sveltejs/kit';
+import { assertVariantUpload } from '$lib/server/uploads.js';
 import { verifySession } from '$lib/auth.js';
 import { updateCatalogue } from '$lib/db.js';
 
@@ -23,6 +24,7 @@ export async function POST({ params, request, cookies, platform }) {
 	// ── Variant upload (resized copy, no DB change) ───────────────────────
 	const variantKey = formData.get('variantKey')?.toString();
 	if (variantKey) {
+		assertVariantUpload(variantKey, file);
 		const buffer = await file.arrayBuffer();
 		await bucket.put(variantKey, buffer, { httpMetadata: { contentType: file.type } });
 		return json({ key: variantKey });

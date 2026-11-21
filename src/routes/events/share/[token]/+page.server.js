@@ -17,8 +17,11 @@ export async function load({ params, platform, url }) {
 		Promise.all(event.skus.map((s) => getProductBySku(db, s, undefined, url.origin).catch(() => null))),
 	]);
 
+	// Public page: internal notes stay internal.
+	const { notes, ...publicEvent } = event;
+
 	return {
-		event,
+		event: publicEvent,
 		products: products.filter(Boolean),
 		badges,
 		marketing: event.assets.filter((a) => a.category === 'marketing'),
