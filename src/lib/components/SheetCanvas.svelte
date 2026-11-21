@@ -13,7 +13,7 @@
 		editable = false,
 		onchange,
 		globalLabels = {},       // { sku: { en: 'SKU', da: 'SKU', ... }, height: { en: 'Height', da: 'Højde', ... }, ... }
-		hiddenElements = {},     // { cta: true, stock_date: true, description: true, bullets: true, data: true }
+		hiddenElements = {},     // { cta: true, list_price: true, data: true } — the only elements that can be switched off; everything else shows when it is filled in
 		salesPrices = null,      // { DKK: number, SEK: number, NOK: number, EUR: number, ... } | null
 	youtubeUrl = null,       // YouTube URL string or null
 	onvideoclick = null,     // callback when play button clicked
@@ -102,9 +102,17 @@
 		if (!dataFields.find(f => f.key === bk)) dataFields.push({ key: bk, label: bk, value: '' });
 	}
 
-	let dataColLeft  = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => f.key !== 'stock_date' && f.key !== 'colli' && f.key !== 'pieces' && !RIGHT_KEYS.includes(f.key) && !BADGE_KEYS.includes(f.key) && f.column !== 'right'));
-	let dataColRight = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => RIGHT_KEYS.includes(f.key) || f.column === 'right'));
+	// A finished sheet lists only the rows that have a value.
+	const filledRow = (f) => editable || String(f.value ?? '').trim() !== '';
+	let dataColLeft  = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => f.key !== 'stock_date' && f.key !== 'colli' && f.key !== 'pieces' && !RIGHT_KEYS.includes(f.key) && !BADGE_KEYS.includes(f.key) && f.column !== 'right').filter(filledRow));
+	let dataColRight = $derived(dataFields.map((f, i) => ({...f, _i: i})).filter(f => RIGHT_KEYS.includes(f.key) || f.column === 'right').filter(filledRow));
 
+	/**
+	 * Elements without a switch (icons, stock date, description, bullets) show
+	 * when they are filled in — a finished sheet never shows an empty slot or a
+	 * "fill me in" prompt. @param {number} idx index into dataFields
+	 */
+	const showField = (idx) => idx >= 0 && (editable || String(dataFields[idx]?.value ?? '').trim() !== '');
 	let ageIdx     = $derived(dataFields.findIndex(f => f.key === 'age'));
 	let timeIdx    = $derived(dataFields.findIndex(f => f.key === 'time'));
 	let playersIdx = $derived(dataFields.findIndex(f => f.key === 'players'));
@@ -488,8 +496,9 @@
 			</div>
 
 			<!-- ATA badges: absolutely positioned on left edge of box frame -->
-			{#if !hiddenElements.badges}
+			{#if showField(ageIdx) || showField(timeIdx) || showField(playersIdx)}
 			<div class="badges-side">
+				{#if showField(ageIdx)}
 				<div class="badge-hex-wrap">
 					{@html SVG_AGE}
 					{#if editable && editingBadge === 'age'}
@@ -508,6 +517,8 @@
 						</span>
 					{/if}
 				</div>
+				{/if}
+				{#if showField(timeIdx)}
 				<div class="badge-hex-wrap">
 					{@html SVG_TIME}
 					{#if editable && editingBadge === 'time'}
@@ -526,6 +537,8 @@
 						</span>
 					{/if}
 				</div>
+				{/if}
+				{#if showField(playersIdx)}
 				<div class="badge-hex-wrap">
 					{@html SVG_PLAYERS}
 					{#if editable && editingBadge === 'players'}
@@ -544,12 +557,13 @@
 						</span>
 					{/if}
 				</div>
+				{/if}
 			</div>
 			{/if}
 			</div><!-- end box-frame -->
 
 			<!-- Est. stock date tag -->
-			{#if stockDateIdx >= 0 && !hiddenElements.stock_date}
+			{#if showField(stockDateIdx)}
 				<div class="stock-tag-wrap">
 					<div class="stock-tag" class:editing-tag={editable}>
 						<span class="stock-tag-label">{globalLabels['stock_date']?.[language] ?? globalLabels['stock_date']?.['en'] ?? 'Est. Stock Date'}</span>
@@ -584,8 +598,8 @@
 				<p class="list-price"><strong>{salesPrice().label}:</strong> {salesPrice().currency} {salesPrice().formatted}</p>
 			{/if}
 
-			<!-- Short description -->
-			{#if !hiddenElements.description}
+			<!-- Short description (shown when there is one) -->
+			{#if editable || productDescription.trim()}
 			<p
 				class="product-description"
 				class:inherited={editable && language !== primaryLanguage && !translations['product_description'] && !localOverrides['product_description']}
@@ -596,11 +610,12 @@
 			></p>
 			{/if}
 
-			<!-- USPs -->
-			{#if !hiddenElements.bullets}
+			<!-- USPs (only the filled ones) -->
+			{#if editable || uspValues.slice(0, uspCount).some((v) => v?.trim())}
 			<div class="usps-section">
 				<ul class="usps">
 					{#each Array.from({ length: uspCount }, (_, i) => i) as i (i)}
+						{#if editable || uspValues[i]?.trim()}
 						<li class="usp-item">
 							<svg class="bullet" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
 								<path d="M3 8.5L6.5 12L13 4.5" stroke="#F57832" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -618,6 +633,7 @@
 								<button class="remove-usp" onclick={() => removeUsp(i + 1)} title="Remove">✕</button>
 							{/if}
 						</li>
+						{/if}
 					{/each}
 				</ul>
 			</div>
@@ -643,7 +659,7 @@
 	{/if}
 
 	<!-- DATA BOTTOM: two-column table below image grid -->
-	{#if !hiddenElements.data}
+	{#if !hiddenElements.data && (dataColLeft.length || dataColRight.length)}
 	<div class="data-bottom">
 		<div class="data-cols">
 			<table class="data-table">
@@ -933,6 +949,9 @@
 		justify-content: flex-start;
 		padding-top: 8px;
 	}
+
+	/* Non-editing: no "fill me in" prompts — an empty field shows nothing */
+	.sheet:not(.editing) [data-placeholder]:empty::before { content: none !important; }
 
 	/* Non-editing: disable interaction on contenteditable elements */
 	.sheet:not(.editing) [contenteditable] {

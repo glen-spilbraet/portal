@@ -563,10 +563,9 @@
 	// ── Settings ───────────────────────────────────────────────────────────────
 	let hidden = $state(JSON.parse(data.sheet.hidden_elements || '{}'));
 	let ctaId = $state(data.sheet.cta_version_id ?? null);
-	const TOGGLES = [
-		{ key: 'cta', label: 'CTA' }, { key: 'stock_date', label: 'Stock date' }, { key: 'list_price', label: 'List price' },
-		{ key: 'description', label: 'Short description' }, { key: 'bullets', label: 'Bullets' }, { key: 'badges', label: 'ATA icons' }, { key: 'data', label: 'Data table' },
-	];
+	// Only these can be switched off per sheet. Everything else on the sheet
+	// (icons, stock date, short description, bullets) shows when it is filled in.
+	const TOGGLES = [{ key: 'list_price', label: 'List price' }, { key: 'data', label: 'Data table' }, { key: 'cta', label: 'CTA' }];
 	async function toggle(key) { hidden = { ...hidden, [key]: !hidden[key] }; await putSheet('hidden_elements', JSON.stringify(hidden)); }
 	async function setCta(id) { ctaId = id; await putSheet('cta_version_id', id); }
 
