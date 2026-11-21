@@ -22,21 +22,20 @@
  *   label: string,     // the language's own name
  *   english: string,   // English name (for Portal UI text)
  *   locale: string,    // number / date formatting
- *   currency: string,  // price currency on sheets and catalogues
  *   logo: string,      // brand logo for customer-facing output
  * }} Language
  */
 
 /** @type {Language[]} */
 export const LANGUAGES = [
-	{ code: 'da', short: 'DA', label: 'Dansk',   english: 'Danish',    locale: 'da-DK', currency: 'DKK', logo: '/logo-da.svg' },
-	{ code: 'sv', short: 'SE', label: 'Svenska', english: 'Swedish',   locale: 'sv-SE', currency: 'SEK', logo: '/logo-se.svg' },
-	{ code: 'no', short: 'NO', label: 'Norsk',   english: 'Norwegian', locale: 'nb-NO', currency: 'NOK', logo: '/logo-no.svg' },
-	{ code: 'en', short: 'EN', label: 'English', english: 'English',   locale: 'en-GB', currency: 'EUR', logo: '/logo-da.svg' },
-	// Poland and Finland are sold in EUR under the Danish brand until they get
-	// their own currency / logo — change it here and every output follows.
-	{ code: 'pl', short: 'PL', label: 'Polski',  english: 'Polish',    locale: 'pl-PL', currency: 'EUR', logo: '/logo-da.svg' },
-	{ code: 'fi', short: 'FI', label: 'Suomi',   english: 'Finnish',   locale: 'fi-FI', currency: 'EUR', logo: '/logo-da.svg' },
+	{ code: 'da', short: 'DA', label: 'Dansk',   english: 'Danish',    locale: 'da-DK', logo: '/logo-da.svg' },
+	{ code: 'sv', short: 'SE', label: 'Svenska', english: 'Swedish',   locale: 'sv-SE', logo: '/logo-se.svg' },
+	{ code: 'no', short: 'NO', label: 'Norsk',   english: 'Norwegian', locale: 'nb-NO', logo: '/logo-no.svg' },
+	{ code: 'en', short: 'EN', label: 'English', english: 'English',   locale: 'en-GB', logo: '/logo-da.svg' },
+	// Poland and Finland use the Danish brand logo until they get their own —
+	// change it here and every output follows.
+	{ code: 'pl', short: 'PL', label: 'Polski',  english: 'Polish',    locale: 'pl-PL', logo: '/logo-da.svg' },
+	{ code: 'fi', short: 'FI', label: 'Suomi',   english: 'Finnish',   locale: 'fi-FI', logo: '/logo-da.svg' },
 ];
 
 /** Language codes, in display order. */
@@ -73,7 +72,6 @@ export function langInfo(code) {
 /** @param {unknown} code */ export const langLabel = (code) => BY_CODE.get(/** @type {string} */ (code))?.label ?? String(code ?? '').toUpperCase();
 /** @param {unknown} code */ export const langShort = (code) => BY_CODE.get(/** @type {string} */ (code))?.short ?? String(code ?? '').toUpperCase();
 /** @param {unknown} code */ export const langLocale = (code) => langInfo(code).locale;
-/** @param {unknown} code */ export const langCurrency = (code) => langInfo(code).currency;
 /** @param {unknown} code */ export const logoFor = (code) => langInfo(code).logo;
 
 /** `{ da: 'Dansk', … }` for select boxes and label maps. */
@@ -108,17 +106,18 @@ export function pickLang(byLang, prefer = []) {
  *   code: string,     // stored code
  *   label: string,    // English name
  *   lang: string,     // language its product texts must be written in
+ *   currency: string, // currency its prices are in (the price itself lives in Rackbeat, per currency)
  * }} Market
  */
 
 /** @type {Market[]} */
 export const MARKET_LIST = [
-	{ code: 'DK',  label: 'Denmark',       lang: 'da' },
-	{ code: 'SE',  label: 'Sweden',        lang: 'sv' },
-	{ code: 'NO',  label: 'Norway',        lang: 'no' },
-	{ code: 'INT', label: 'International', lang: 'en' },
-	{ code: 'PL',  label: 'Poland',        lang: 'pl' },
-	{ code: 'FI',  label: 'Finland',       lang: 'fi' },
+	{ code: 'DK',  label: 'Denmark',       lang: 'da', currency: 'DKK' },
+	{ code: 'SE',  label: 'Sweden',        lang: 'sv', currency: 'SEK' },
+	{ code: 'NO',  label: 'Norway',        lang: 'no', currency: 'NOK' },
+	{ code: 'INT', label: 'International', lang: 'en', currency: 'EUR' },
+	{ code: 'PL',  label: 'Poland',        lang: 'pl', currency: 'PLN' },
+	{ code: 'FI',  label: 'Finland',       lang: 'fi', currency: 'EUR' },
 ];
 
 /** Market codes, in display order. */
@@ -127,6 +126,20 @@ export const MARKETS = MARKET_LIST.map((m) => m.code);
 export const MARKET_LANG = Object.fromEntries(MARKET_LIST.map((m) => [m.code, m.lang]));
 /** Language → its webshop market. */
 export const LANG_MARKET = Object.fromEntries(MARKET_LIST.map((m) => [m.lang, m.code]));
+/** Market → the currency its prices are in. */
+export const MARKET_CURRENCY = Object.fromEntries(MARKET_LIST.map((m) => [m.code, m.currency]));
+
+/**
+ * The price currency for something written in a language (a sales sheet, a
+ * catalogue): the currency of that language's market. Currency belongs to the
+ * MARKET — Finland and International share EUR without sharing a language.
+ * A product without a price in that currency shows no price; nothing is ever
+ * converted from another currency.
+ * @param {unknown} code language code
+ * @returns {string}
+ */
+export const langCurrency = (code) => MARKET_CURRENCY[LANG_MARKET[/** @type {string} */ (code)]] ?? MARKET_CURRENCY[LANG_MARKET[DEFAULT_LANG]];
+
 /** `{ DK: 'Denmark', … }` */
 export const MARKET_LABEL = Object.fromEntries(MARKET_LIST.map((m) => [m.code, m.label]));
 
