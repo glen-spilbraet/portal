@@ -179,7 +179,7 @@
 
 	// ── USP management ────────────────────────────────────────────────────
 	function addUsp() {
-		if (uspCount >= 6) return;
+		if (uspCount >= 3) return;
 		uspCount += 1;
 		saveChange({ type: 'sheet', field: 'usp_count', value: uspCount });
 	}
@@ -428,7 +428,7 @@
 		}
 		for (const [num, val] of Object.entries(newBullets)) {
 			const idx = parseInt(num, 10) - 1;
-			if (idx < 0 || idx >= 6) continue;
+			if (idx < 0 || idx >= 3) continue;
 			// Extend uspCount if needed
 			if (idx >= uspCount) {
 				uspCount = idx + 1;

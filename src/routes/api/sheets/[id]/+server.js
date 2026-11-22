@@ -42,7 +42,8 @@ export async function PUT({ params, request, cookies, platform }) {
 			return json({ ok: true, product_languages: list });
 		}
 		if (!allowed.includes(field)) error(400, `Field '${field}' not writable`);
-		await updateSheet(db, params.id, { [field]: value });
+		// Sheets always have exactly 3 bullets — never store another count.
+		await updateSheet(db, params.id, { [field]: field === 'usp_count' ? 3 : value });
 	} else {
 		error(400, 'Unknown change type');
 	}
