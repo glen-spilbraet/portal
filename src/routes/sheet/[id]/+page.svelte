@@ -432,6 +432,7 @@
 	async function upload(file, type) {
 		if (!file) return;
 		uploading = type;
+		file = await shrinkForUpload(file);
 		const fd = new FormData();
 		fd.append('file', file); fd.append('sheetId', sheetId); fd.append('type', type);
 		if (type === 'content' || type === 'grid') fd.append('order', String(Date.now()));
@@ -452,6 +453,7 @@
 		let failed = 0;
 		for (let i = 0; i < files.length; i++) {
 			gridProgress = `${i + 1}/${files.length}`;
+			files[i] = await shrinkForUpload(files[i]);
 			const fd = new FormData();
 			fd.append('file', files[i]); fd.append('sheetId', sheetId); fd.append('type', 'grid');
 			fd.append('order', String(base + i));
@@ -525,6 +527,35 @@
 		healed.add(key);
 		try { await makeVariants(el, el.naturalWidth, el.naturalHeight, key); }
 		catch (e) { console.warn('thumbnail variants failed', key, e); }
+	}
+	// Files over the CDN's 20 MB limit are scaled down before upload (at most
+	// ~16 megapixels, which every browser's canvas can hold), so the stored
+	// original can be resized by the CDN and the shop like any other. PNG stays
+	// PNG (transparency); everything else becomes JPEG. If the browser can't do
+	// it (e.g. can't decode the file) the file is uploaded as it is.
+	const SHRINK_MAX_PIXELS = 16_000_000;
+	/** @param {File} file @returns {Promise<File>} */
+	async function shrinkForUpload(file) {
+		if (file.size <= CDN_MAX_SOURCE) return file;
+		try {
+			const bmp = await createImageBitmap(file);
+			try {
+				const png = file.type === 'image/png';
+				let scale = Math.min(1, Math.sqrt(SHRINK_MAX_PIXELS / (bmp.width * bmp.height)));
+				for (let attempt = 0; attempt < 4; attempt++, scale *= 0.75) {
+					const canvas = document.createElement('canvas');
+					canvas.width = Math.round(bmp.width * scale);
+					canvas.height = Math.round(bmp.height * scale);
+					canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+					const blob = await new Promise((r) => canvas.toBlob(r, png ? 'image/png' : 'image/jpeg', 0.9));
+					if (blob && blob.size > 0 && blob.size <= CDN_MAX_SOURCE) {
+						const name = file.name.replace(/\.[^.]*$/, '') + (png ? '.png' : '.jpg');
+						return new File([blob], name, { type: blob.type });
+					}
+				}
+			} finally { bmp.close(); }
+		} catch (e) { console.warn('could not scale down before upload', file.name, e); }
+		return file;
 	}
 	/** After uploading `file` as `key`: pre-make the widths the CDN can't. */
 	async function variantsForUpload(file, key) {
