@@ -1781,7 +1781,8 @@ async function processDealPricing(env, dealId, { apply = false, userEmail = null
 //     webshop feed reads it as "content changed"); EAN / weight / height /
 //     width / depth → data_fields (read-only on the sheet); product name →
 //     translations.product_name, the same value in every language that has one
-//     (and the primary language). The name is Rackbeat-owned, not editable.
+//     (and the primary language). The name is Rackbeat-owned, not editable;
+//     is_barred → sales_sheets.rb_barred (a flip bumps updated_at).
 //  2. Game fields (age / time / players / pieces) live in Rackbeat custom fields,
 //     one call per product, so each run refreshes the next FIELD_CHUNK sheets
 //     (cursor in rb_sync_meta id=2 on the prod DB) → every sheet ≈ once a day.
@@ -1791,7 +1792,7 @@ async function processDealPricing(env, dealId, { apply = false, userEmail = null
 // are compared by their digits, so "2+" vs "2" or "30-60'" spacing never churns.
 // Both app DBs: DB = prod portal-db, DEV_DB = portal-db-dev.
 
-const RB_LIST_FIELDS = 'number,name,available_quantity,stock_quantity,in_order_quantity,purchased_quantity,barcode,physical';
+const RB_LIST_FIELDS = 'number,name,is_barred,available_quantity,stock_quantity,in_order_quantity,purchased_quantity,barcode,physical';
 const FIELD_CHUNK = 200;
 const STD_KEYS = ['ean', 'weight', 'height', 'width', 'depth'];
 const GAME_KEYS = ['age', 'time', 'players', 'pieces'];
@@ -1893,6 +1894,7 @@ async function rbListAll(env) {
 				},
 				std: stdValues(p),
 				name: String(p.name ?? '').trim(),
+				barred: p.is_barred ? 1 : 0,
 			});
 		}
 	}
@@ -1924,7 +1926,7 @@ async function syncRackbeatStock(env, { dry = false, chunk = FIELD_CHUNK } = {})
 		const sheets = {};
 		for (const [name, db] of dbs) {
 			sheets[name] = (await db.prepare(
-				`SELECT id, sku, primary_language, data_fields, rb_available, rb_stock, rb_in_order, rb_purchased FROM sales_sheets WHERE trim(sku) != ''`
+				`SELECT id, sku, primary_language, data_fields, rb_barred, rb_available, rb_stock, rb_in_order, rb_purchased FROM sales_sheets WHERE trim(sku) != ''`
 			).all()).results ?? [];
 			// Current product names per sheet (every language).
 			const names = new Map();
@@ -1970,7 +1972,7 @@ async function syncRackbeatStock(env, { dry = false, chunk = FIELD_CHUNK } = {})
 async function applyRackbeat(db, rows, list, game, now, dry) {
 	const same = (a, b) => (a == null ? null : Number(a)) === (b == null ? null : Number(b));
 	const stmts = [];
-	let matched = 0, stockChanged = 0, fieldsChanged = 0, namesChanged = 0;
+	let matched = 0, stockChanged = 0, fieldsChanged = 0, namesChanged = 0, barredChanged = 0;
 	const nameSamples = [];
 	const byKey = {};
 	const samples = [];
@@ -1986,6 +1988,17 @@ async function applyRackbeat(db, rows, list, game, now, dry) {
 			stmts.push(db.prepare(
 				`UPDATE sales_sheets SET rb_available = ?, rb_stock = ?, rb_in_order = ?, rb_purchased = ?, rb_changed_at = ? WHERE id = ?`
 			).bind(s.available, s.stock, s.in_order, s.purchased, now, r.id));
+		}
+
+		// Barred flag (NULL = not in Rackbeat). Only a real flip (not barred ⇄
+		// barred) bumps updated_at for the shop feed; first fill NULL→0 doesn't.
+		const barred = rb ? rb.barred : null;
+		if ((r.rb_barred ?? null) !== barred) {
+			const flip = (r.rb_barred ? 1 : 0) !== (barred ? 1 : 0);
+			if (flip) barredChanged++;
+			stmts.push(db.prepare(
+				`UPDATE sales_sheets SET rb_barred = ?${flip ? ', updated_at = unixepoch()' : ''} WHERE id = ?`
+			).bind(barred, r.id));
 		}
 
 		if (!rb) continue;
@@ -2014,7 +2027,7 @@ async function applyRackbeat(db, rows, list, game, now, dry) {
 		if (samples.length < 25) samples.push({ sku: r.sku, changes });
 		stmts.push(db.prepare(`UPDATE sales_sheets SET data_fields = ?, updated_at = unixepoch() WHERE id = ?`).bind(JSON.stringify(next), r.id));
 	}
-	const res = { sheets: rows.length, matched, changed: stockChanged, fields_changed: fieldsChanged, fields_by_key: byKey, names_changed: namesChanged };
+	const res = { sheets: rows.length, matched, changed: stockChanged, fields_changed: fieldsChanged, fields_by_key: byKey, names_changed: namesChanged, barred_changed: barredChanged };
 	if (dry) return { ...res, samples, name_samples: nameSamples };
 	for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
 	await setRbMeta(db, 1, { last_run: now, status: 'ok', message: null, products: list.size, matched, changed: stockChanged });

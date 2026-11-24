@@ -109,6 +109,7 @@ function stockOf(row, meta) {
 	}
 	return {
 		available: row.rb_available,
+		barred: row.rb_barred == null ? null : !!row.rb_barred,
 		on_hand: row.rb_stock,
 		in_order: row.rb_in_order,
 		on_purchase_order: row.rb_purchased,
@@ -144,7 +145,7 @@ export async function getStock(db, { skus, query, max_available, min_available, 
 
 	const [rows, meta] = await Promise.all([
 		db.prepare(
-			`SELECT s.sku, s.rb_available, s.rb_stock, s.rb_in_order, s.rb_purchased,
+			`SELECT s.sku, s.rb_barred, s.rb_available, s.rb_stock, s.rb_in_order, s.rb_purchased,
 			        (SELECT value FROM translations t WHERE t.sheet_id = s.id AND t.key = 'product_name'
 			          ORDER BY (t.language = s.primary_language) DESC, (t.language = 'en') DESC LIMIT 1) AS name
 			 FROM sales_sheets s WHERE ${where.join(' AND ')}
@@ -157,6 +158,7 @@ export async function getStock(db, { skus, query, max_available, min_available, 
 		sku: r.sku,
 		name: r.name || r.sku,
 		available: r.rb_available,
+		barred: r.rb_barred == null ? null : !!r.rb_barred,
 		on_hand: r.rb_stock,
 		in_order: r.rb_in_order,
 		on_purchase_order: r.rb_purchased

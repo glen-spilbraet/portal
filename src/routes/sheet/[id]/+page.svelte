@@ -644,7 +644,7 @@
 			{/if}
 			<div class="head-id">
 				<span class="head-name" title="Product name — set in Rackbeat">{name || data.sheet.sku}</span>
-				<span class="head-meta"><span class="sku">{data.sheet.sku}</span>{#if data.webshopPublisher}<span>{data.webshopPublisher}</span>{/if}</span>
+				<span class="head-meta"><span class="sku">{data.sheet.sku}</span>{#if data.sheet.rb_barred}<span class="barred" title="Barred in Rackbeat">Barred</span>{/if}{#if data.webshopPublisher}<span>{data.webshopPublisher}</span>{/if}</span>
 			</div>
 			<button class="feat" class:on={featured} onclick={toggleFeatured} disabled={featBusy} aria-pressed={featured}
 				title={featured ? 'Shown under Featured Products in the webshop — click to remove' : 'Feature this product in the webshop'}>
@@ -1214,6 +1214,7 @@
 	.head-name { display: block; font-size: 14.5px; font-weight: 800; color: #18181B; padding: 1px 0; width: 300px; max-width: 28vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.head-meta { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: #A1A1AA; white-space: nowrap; }
 	.head-meta .sku { font-size: 10.5px; padding: 1px 7px; }
+	.head-meta .barred { font-size: 10px; font-weight: 700; color: #B91C1C; background: #FEE2E2; border-radius: 4px; padding: 1px 6px; }
 
 	/* Images: one gallery of square, labelled tiles */
 	.gal-card { position: relative; }

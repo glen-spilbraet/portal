@@ -219,7 +219,7 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 	const vList = variants.map(() => '?').join(',');
 
 	const [sheetsRes, trRes, imgRes, videoRes, articleRes] = await db.batch([
-		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, preorder_date, restock_date, featured_at, updated_at, awards_updated_at, product_languages
+		db.prepare(`SELECT id, sku, primary_language, box_image_key, box_flat_image_key, data_fields, youtube_url, preorder_date, restock_date, featured_at, rb_barred, updated_at, awards_updated_at, product_languages
 			FROM sales_sheets WHERE trim(sku) != ''${sheetFilter} ORDER BY updated_at DESC`).bind(...b),
 		db.prepare(`SELECT sheet_id, language, key, value FROM translations WHERE trim(value) != ''${andBySheet}`).bind(...b),
 		db.prepare(`SELECT sheet_id, r2_key, type FROM sheet_images${bySheet} ORDER BY display_order ASC`).bind(...b),
@@ -300,6 +300,8 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 			sku: String(s.sku).trim(),
 			updated_at: Math.max(Number(s.updated_at) || 0, Number(s.awards_updated_at) || 0),
 			primary_language: s.primary_language ?? null,
+			// Barred (spærret) in Rackbeat: true/false, null = not in Rackbeat / not synced.
+			barred: s.rb_barred == null ? null : !!s.rb_barred,
 			// Languages the product itself comes in (components / rule book), in the
 			// order chosen in the Portal: [{ code, name, manual_only }]. manual_only =
 			// only the rule book is in that language. Empty = not filled in.
