@@ -36,7 +36,7 @@ const reqInfo = (event) => ({
 
 const FULL = [
 	/^\/api\/awards(\/|$)/, /^\/awards(\/|$)/, /^\/sheets\/awards(\/|$)/, /^\/sheet\/[^/]+\/award(\/|$)/,
-	/^\/admin\/categories(\/|$)/, /^\/admin\/publishers(\/|$)/, /^\/api\/admin\/publishers(\/(?!markets|apply-licences)|$)/, /^\/api\/admin\/publisher-map(\/|$)/, /^\/api\/admin\/series(\/|$)/,
+	/^\/admin\/categories(\/|$)/, /^\/admin\/relations(\/|$)/, /^\/admin\/publishers(\/|$)/, /^\/api\/admin\/publishers(\/(?!markets|apply-licences)|$)/, /^\/api\/admin\/publisher-map(\/|$)/, /^\/api\/admin\/series(\/|$)/,
 	/^\/sheet\/new(\/|$)/, /^\/api\/sheets\/?$/, /^\/admin\/sheet-data(\/|$)/
 ];
 

@@ -52,7 +52,7 @@ export const NEEDED_COLS = [
 	...TEXT_COLS
 ];
 
-const parseBullets = (v) => (isBlank(v) ? [] : v.split(/\r?\n/).map((b) => b.trim()).filter(Boolean).slice(0, 6));
+const parseBullets = (v) => (isBlank(v) ? [] : v.split(/\r?\n/).map((b) => b.trim()).filter(Boolean).slice(0, 3)); // sheets always have 3 bullets
 
 /** Streaming CSV parse that stores ONLY `keep` columns. Handles quoted/multiline
  *  fields and "" escapes; line endings handled inline (no extra full-string copies). */
@@ -372,17 +372,13 @@ export async function applyItems(db, salesDb, items, by) {
 
 			// Texts (per language; each field only where it was empty — decided at plan time)
 			if (it.texts) {
-				let maxBullets = 0;
 				for (const [L, t] of Object.entries(it.texts)) {
 					if (t.short) await setTranslation(db, sheetId, L, 'product_description', t.short);
 					if (t.long) await setTranslation(db, sheetId, L, 'long_description', t.long);
 					if (Array.isArray(t.bullets)) {
 						for (let i = 0; i < t.bullets.length; i++) await setTranslation(db, sheetId, L, `usp_${i + 1}`, t.bullets[i]);
-						maxBullets = Math.max(maxBullets, t.bullets.length);
 					}
 				}
-				const curCount = wasCreated ? 0 : (row?.usp_count ?? 0);
-				if (maxBullets > curCount) await updateSheet(db, sheetId, { usp_count: maxBullets });
 			}
 
 			// Published markets (SALES_DB) — full set incl. preserved PL/FI; override untouched.

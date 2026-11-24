@@ -40,6 +40,39 @@
 		};
 	}
 
+	// ── Relations: count badge per card + read-only modal ─────────────────
+	/** @type {Record<string, number>} lower-case SKU → relations (both directions) */
+	let relCounts = $state({});
+	const relCount = (/** @type {any} */ sh) => relCounts[String(sh.sku ?? '').trim().toLowerCase()] ?? 0;
+	onMount(async () => {
+		try {
+			const res = await fetch('/api/sheets/relations');
+			if (res.ok) relCounts = (await res.json()).counts ?? {};
+		} catch { /* badge just stays hidden */ }
+	});
+	/** @type {{ sheet: any, groups: { key: string, label: string, items: any[] }[] | null, error: string } | null} */
+	let relModal = $state(null);
+	async function openRelations(/** @type {any} */ sh) {
+		relModal = { sheet: sh, groups: null, error: '' };
+		try {
+			const res = await fetch(`/api/sheets/${sh.id}/relations`);
+			if (!res.ok) throw new Error();
+			const { types, relations } = await res.json();
+			const en = (/** @type {any} */ t) => t.labels?.en ?? t.labels?.da ?? Object.values(t.labels ?? {})[0] ?? { name: t.id };
+			const groups = [];
+			for (const t of types) {
+				const l = en(t);
+				const f = relations.outgoing.filter((/** @type {any} */ r) => r.type_id === t.id);
+				if (f.length) groups.push({ key: `f:${t.id}`, label: l.forward || `${l.name} for`, items: f });
+				const i = relations.incoming.filter((/** @type {any} */ r) => r.type_id === t.id);
+				if (i.length) groups.push({ key: `i:${t.id}`, label: l.inverse || l.name, items: i });
+			}
+			if (relModal?.sheet === sh) relModal = { sheet: sh, groups, error: '' };
+		} catch {
+			if (relModal?.sheet === sh) relModal = { sheet: sh, groups: null, error: 'Could not load relations.' };
+		}
+	}
+
 	// ── Paginated sheets list ─────────────────────────────────────────────
 	let loadedSheets = $state(data.sheets.map(decorate));
 	let totalCount   = $state(data.totalCount);
@@ -452,6 +485,12 @@
 								</svg>
 								View
 							</a>
+							{#if relCount(sheet)}
+								<button type="button" class="action-btn rel-btn" title="Relations" onclick={() => openRelations(sheet)}>
+									<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.3 10.9l7.4-3.7M8.3 13.1l7.4 3.7"/></svg>
+									{relCount(sheet)}
+								</button>
+							{/if}
 							{#if canEdit}
 							<form method="POST" action="?/delete" use:enhance style="margin-left: auto">
 								<input type="hidden" name="id" value={sheet.id} />
@@ -493,6 +532,39 @@
 		{/if}
 	</main>
 </div>
+
+{#if relModal}
+	<div class="rel-backdrop" onclick={() => (relModal = null)} role="presentation"></div>
+	<div class="rel-modal" role="dialog" aria-modal="true" aria-label="Relations">
+		<div class="rel-head">
+			<div><h2>Relations</h2><p>{relModal.sheet._display || relModal.sheet.sku}</p></div>
+			<button type="button" class="rel-x" aria-label="Close" onclick={() => (relModal = null)}>✕</button>
+		</div>
+		<div class="rel-body">
+			{#if relModal.error}
+				<p class="rel-msg">{relModal.error}</p>
+			{:else if relModal.groups === null}
+				<p class="rel-msg">Loading…</p>
+			{:else if relModal.groups.length === 0}
+				<p class="rel-msg">No relations.</p>
+			{:else}
+				{#each relModal.groups as g (g.key)}
+					<div class="rel-group">
+						<span class="rel-label">{g.label}</span>
+						<ul>
+							{#each g.items as r (r.sku)}
+								<li>
+									{#if r.sheet_id}<a href={canEdit ? `/sheet/${r.sheet_id}` : `/sheet/${r.sheet_id}/preview`}>{r.name ?? r.sku}</a>{:else}<span>{r.name ?? r.sku}</span>{/if}
+									<span class="rel-sku">{r.sku}</span>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/each}
+			{/if}
+		</div>
+	</div>
+{/if}
 
 <style>
 	.page {
@@ -828,6 +900,25 @@
 	}
 	.action-btn:hover { background: #F4F4F5; color: #18181B; }
 	.action-btn.danger { color: #A1A1AA; }
+	.rel-btn { cursor: pointer; font-family: inherit; font-variant-numeric: tabular-nums; color: #B4541A; }
+	.rel-btn:hover { background: #FFF4EC; color: #F57832; }
+
+	.rel-backdrop { position: fixed; inset: 0; background: rgba(40,25,0,0.35); z-index: 300; }
+	.rel-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 310; width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(50,30,0,0.28); }
+	.rel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+	.rel-head h2 { font-size: 15px; font-weight: 800; margin: 0; color: #18181B; }
+	.rel-head p { font-size: 12.5px; color: #A89060; margin: 2px 0 0; font-weight: 600; }
+	.rel-x { border: 0; background: none; font-size: 16px; cursor: pointer; color: #A1A1AA; }
+	.rel-body { padding: 8px 20px 16px; }
+	.rel-msg { font-size: 13px; color: #A1A1AA; margin: 10px 0; }
+	.rel-group { padding: 10px 0; border-bottom: 1px solid #F5EDD8; }
+	.rel-group:last-child { border-bottom: none; }
+	.rel-label { font-size: 11px; font-weight: 800; color: #8a7550; }
+	.rel-group ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+	.rel-group li { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 13.5px; }
+	.rel-group li a { color: #18181B; font-weight: 600; text-decoration: none; }
+	.rel-group li a:hover { color: #F57832; }
+	.rel-sku { font-size: 11.5px; color: #A1A1AA; white-space: nowrap; }
 	.action-btn.danger:hover { background: #FEF2F2; color: var(--danger); }
 
 	/* ── Load more ───────────────────────────────────────────────────────── */

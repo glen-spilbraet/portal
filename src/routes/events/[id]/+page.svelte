@@ -1,5 +1,6 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
+	import TombolaCard from '$lib/components/events/TombolaCard.svelte';
 	import { invalidateAll, goto } from '$app/navigation';
 
 	let { data } = $props();
@@ -449,6 +450,8 @@
 				<a class="btn share-btn" href={data.shareUrl} target="_blank" rel="noopener">Open</a>
 			</div>
 		</div>
+
+		<TombolaCard eventId={data.event.id} tombola={data.tombola} entries={data.tombolaEntries} shoutouts={data.tombolaShoutouts} />
 
 		<!-- Marketing assets (we share TO the venue) -->
 		<div class="card">

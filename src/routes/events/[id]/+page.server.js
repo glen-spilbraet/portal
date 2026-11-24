@@ -3,6 +3,7 @@ import { getEvent, listVenues, listEventTypes, getVenue, listParticipantLog, lis
 import { listGurus, listEventGurus } from '$lib/server/gurus.js';
 import { getProductBySku } from '$lib/server/mcpProducts.js';
 import { getBadgesForSkus } from '$lib/server/awards.js';
+import { getTombolaForEvent, listEntriesAdmin, listShoutoutsAdmin } from '$lib/server/tombola.js';
 
 export async function load({ params, parent, platform, url }) {
 	const { user } = await parent();
@@ -27,6 +28,12 @@ export async function load({ params, parent, platform, url }) {
 		listEventContacts(db, event.id),
 	]);
 
+	// Tombola tables may be missing on an environment without migration 0124 → treat as none.
+	const tombola = await getTombolaForEvent(db, event.id).catch(() => null);
+	const [tombolaEntries, tombolaShoutouts] = tombola
+		? await Promise.all([listEntriesAdmin(db, tombola.id), listShoutoutsAdmin(db, tombola.id)])
+		: [[], []];
+
 	return {
 		user,
 		event,
@@ -40,5 +47,8 @@ export async function load({ params, parent, platform, url }) {
 		gurus,
 		eventGurus: eventGurus.map((g) => ({ ...g, proposalUrl: `${url.origin}/events/guru/${g.proposal_token}` })),
 		shareUrl: `${url.origin}/events/share/${event.share_token}`,
+		tombola: tombola ? { ...tombola, joinUrl: `${url.origin}/tombola/${tombola.code}` } : null,
+		tombolaEntries,
+		tombolaShoutouts,
 	};
 }
