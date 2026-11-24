@@ -161,11 +161,6 @@
 	}
 
 	// ── Text blur handlers ────────────────────────────────────────────────
-	function blurProductName() {
-		localOverrides.product_name = true;
-		saveChange({ type: 'translation', language, key: 'product_name', value: productName ?? '' });
-	}
-
 	function blurProductDescription() {
 		localOverrides.product_description = true;
 		saveChange({ type: 'translation', language, key: 'product_description', value: productDescription ?? '' });
@@ -583,15 +578,8 @@
 		<!-- Product info -->
 		<div class="info">
 			<!-- Product name -->
-			<h1
-				class="product-name"
-				class:inherited={editable && language !== primaryLanguage && !translations['product_name'] && !localOverrides['product_name']}
-				contenteditable="plaintext-only"
-				bind:textContent={productName}
-				onblur={blurProductName}
-				onkeydown={onKeyDown}
-				data-placeholder="Product Name"
-			></h1>
+			<!-- Set by Rackbeat (hourly sync) — never edited here. -->
+			<h1 class="product-name" data-placeholder="Product Name">{productName ?? ''}</h1>
 
 			<!-- List price -->
 			{#if salesPrice() && !hiddenElements.list_price}

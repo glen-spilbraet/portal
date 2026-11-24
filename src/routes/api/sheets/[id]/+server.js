@@ -29,9 +29,11 @@ export async function PUT({ params, request, cookies, platform }) {
 		const language = normalizeLang(body.language);
 		if (!language) error(400, `Unknown language "${body.language ?? ''}"`);
 		if (!key || typeof key !== 'string') error(400, 'Missing key');
+		// The product name comes from Rackbeat (hourly sync) — never edited here.
+		if (key === 'product_name') error(400, 'The product name is set by Rackbeat');
 		await setTranslation(db, params.id, language, key, value ?? '');
 		// First text in a language → give that language the (shared) product name too.
-		if (key !== 'product_name' && String(value ?? '').trim()) await ensureProductName(db, params.id, language);
+		if (String(value ?? '').trim()) await ensureProductName(db, params.id, language);
 	} else if (body.type === 'sheet') {
 		const { field, value } = body;
 		const allowed = ['data_fields', 'usp_count', 'box_image_key', 'box_flat_image_key', 'status', 'hidden_elements', 'cta_version_id', 'youtube_url', 'preorder_date', 'restock_date'];

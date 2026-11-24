@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
-import { getSheet, updateSheet } from '$lib/db.js';
+import { getSheet, updateSheet, setProductName } from '$lib/db.js';
 import { fetchRackbeatProductFull } from '$lib/rackbeat.js';
 
 export async function POST({ params, cookies, platform }) {
@@ -75,6 +75,8 @@ export async function POST({ params, cookies, platform }) {
 	}
 
 	await updateSheet(db, params.id, { data_fields: JSON.stringify(updated) });
+	// Product name is Rackbeat-owned: same value in every language.
+	await setProductName(db, params.id, rb.name);
 
-	return json({ ok: true, data_fields: updated });
+	return json({ ok: true, data_fields: updated, product_name: String(rb.name ?? '').trim() || null });
 }
