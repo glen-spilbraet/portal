@@ -1,4 +1,5 @@
 <script>
+	import RelationsCard from '$lib/components/RelationsCard.svelte';
 	import ProductLanguagePicker from '$lib/components/ProductLanguagePicker.svelte';
 	import { MARKETS, MARKET_LABEL, MARKET_LANG, langInfo, langShort } from '$lib/languages.js';
 	import { invalidateAll } from '$app/navigation';
@@ -1007,6 +1008,12 @@
 					{/each}
 				{/if}
 			</div>
+
+			{#if data.sheet.sku}
+				{#key data.sheet.id}
+					<RelationsCard sheetId={data.sheet.id} sku={data.sheet.sku} types={data.relationTypes} relations={data.relations} />
+				{/key}
+			{/if}
 
 			<!-- Rarely touched: read-only product data, stock, sheet settings -->
 			<details class="side-card fold">

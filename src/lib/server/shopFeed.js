@@ -10,6 +10,7 @@
  * mapping from SALES_DB (shared prod), same as everywhere else in the portal.
  */
 import { listTaxonomy } from './categories.js';
+import { listRelationTypes, relationsForFeed } from './relations.js';
 import { membersByDeal } from './exclusivity.js';
 import { MARKETS, MARKET_LIST, sanitizeMarkets } from '$lib/languages.js';
 import { sanitizeProductLanguages, productLanguageName } from '$lib/productLanguages.js';
@@ -358,6 +359,15 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 	}
 	for (const p of products) /** @type {any} */ (p).badges = badgesBySku[p.sku.toLowerCase()] ?? [];
 
+	// Relations ("Catan 5-6 is an Expansion for Catan"), both directions per
+	// product: forward = this product is <type> for skus; inverse = skus are
+	// <type> for this product. App DB (per environment).
+	const [relationTypes, relBySku] = await Promise.all([
+		listRelationTypes(db).catch(() => []),
+		relationsForFeed(db, only)
+	]);
+	for (const p of products) /** @type {any} */ (p).relations = relBySku[p.sku.toLowerCase()] ?? [];
+
 	// Category groups/categories with labels, and every SKU's categories.
 	// (Usage counts aren't part of the feed — skip that full product_category scan.)
 	const taxonomy = await listTaxonomy(salesDb, { counts: false });
@@ -396,6 +406,14 @@ export async function buildShopFeed(db, salesDb, origin, opts = {}) {
 		// refresh this holds only the requested SKUs' agreements.
 		exclusivity,
 		series,
+		// Product relation types with labels per language: name ("Udvidelse"),
+		// forward ("Udvidelse til" — on the expansion, before its base games) and
+		// inverse ("Udvidelser" — heading on the base game). Each product's links
+		// are in products[].relations: [{ type, direction: 'forward'|'inverse', skus }].
+		// Sort the linked products by release date in the shop.
+		relations: {
+			types: relationTypes.map((t) => ({ id: t.id, position: t.position, labels: t.labels }))
+		},
 		categories: {
 			groups: taxonomy.map((g) => ({
 				id: g.id, position: g.position, labels: g.labels,

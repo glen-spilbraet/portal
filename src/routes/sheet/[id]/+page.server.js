@@ -6,6 +6,7 @@ import { listTaxonomy, productCategoryIds, CATEGORY_LANGS } from '$lib/server/ca
 import { getStockMeta } from '$lib/server/mcpProducts.js';
 import { MARKETS, resolvePublisherForSku, getPublisherMarkets, getProductWebshop } from '$lib/server/webshopMarkets.js';
 import { LANGUAGES } from '$lib/languages.js';
+import { listRelationTypes, relationsForSku } from '$lib/server/relations.js';
 
 
 export async function load({ params, url, platform }) {
@@ -55,6 +56,12 @@ export async function load({ params, url, platform }) {
 
 	const stockMeta = await getStockMeta(db).catch(() => null);
 
+	// Product relations (app DB). Empty until migration 0130 is applied.
+	const [relationTypes, relations] = await Promise.all([
+		listRelationTypes(db).catch(() => []),
+		relationsForSku(db, String(sheet.sku ?? '').trim()).catch(() => ({ outgoing: [], incoming: [] }))
+	]);
+
 	const primaryLanguage = sheet.primary_language ?? 'en';
 	const lang = url.searchParams.get('lang') ?? primaryLanguage;
 
@@ -88,5 +95,7 @@ export async function load({ params, url, platform }) {
 		// the editor warns when a market is published without texts in its language.
 		textLangs: Object.entries(allTranslations).filter(([, tr]) => Object.entries(tr ?? {}).some(([k, v]) => (k === 'product_description' || k.startsWith('usp_')) && String(v ?? '').trim())).map(([l]) => l),
 		stockMeta,
+		relationTypes,
+		relations,
 	};
 }
