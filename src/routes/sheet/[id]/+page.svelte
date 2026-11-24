@@ -53,12 +53,8 @@
 	// ── Per-language text (re-loaded on language switch) ───────────────────────
 	let t = $state(normT(data.translations));
 
-	// Product name is NOT translatable — one shared value, written to every language.
+	// Product name comes from Rackbeat (hourly sync, same in every language) — read-only here.
 	let name = $state(data.baseTranslations?.product_name ?? data.translations?.product_name ?? '');
-	async function saveName() {
-		await Promise.all(data.languages.map((l) => save({ type: 'translation', language: l.code, key: 'product_name', value: name })));
-		t = { ...t, product_name: name };
-	}
 
 	async function switchLanguage(code) {
 		if (code === language) return;
@@ -357,7 +353,7 @@
 		refreshing = true; refreshMsg = '';
 		try {
 			const res = await fetch(`/api/sheets/${sheetId}/refresh`, { method: 'POST' });
-			if (res.ok) { const b = await res.json(); if (Array.isArray(b.data_fields)) { dataFields = b.data_fields; initGameAttrs(); } refreshMsg = 'Updated'; refreshTip = ''; }
+			if (res.ok) { const b = await res.json(); if (Array.isArray(b.data_fields)) { dataFields = b.data_fields; initGameAttrs(); } if (b.product_name) { name = b.product_name; t = { ...t, product_name: b.product_name }; } refreshMsg = 'Updated'; refreshTip = ''; }
 			else {
 				const b = await res.json().catch(() => ({}));
 				refreshMsg = res.status === 404 ? 'Not in Rackbeat' : res.status === 502 ? 'Rackbeat busy' : 'Failed';
@@ -647,7 +643,7 @@
 				<div class="head-thumb none" title="No box photo yet">?</div>
 			{/if}
 			<div class="head-id">
-				<input class="head-name" bind:value={name} onblur={saveName} placeholder="Product name" title="Product name (shared by all languages) — click to edit" aria-label="Product name" />
+				<span class="head-name" title="Product name — set in Rackbeat">{name || data.sheet.sku}</span>
 				<span class="head-meta"><span class="sku">{data.sheet.sku}</span>{#if data.webshopPublisher}<span>{data.webshopPublisher}</span>{/if}</span>
 			</div>
 			<button class="feat" class:on={featured} onclick={toggleFeatured} disabled={featBusy} aria-pressed={featured}
@@ -1046,7 +1042,7 @@
 					{#if rbAsOf}<div class="rbs-asof">Rackbeat · {rbAsOf}{#if data.stockMeta?.status === 'error'} · <span class="rbs-err">last sync failed</span>{/if}</div>{/if}
 				</div>
 				<div class="fold-body">
-					<button class="mini" onclick={refreshFromRackbeat} disabled={refreshing} title={refreshTip || 'Refresh data fields from Rackbeat'}>{refreshMsg || (refreshing ? 'Refreshing…' : 'Refresh from Rackbeat')}</button>
+					<button class="mini" onclick={refreshFromRackbeat} disabled={refreshing} title={refreshTip || 'Refresh name and data fields from Rackbeat'}>{refreshMsg || (refreshing ? 'Refreshing…' : 'Refresh from Rackbeat')}</button>
 			{#if data.ctaVersions?.length}
 				<label class="fld narrow"><span>CTA version</span>
 					<select value={ctaId ?? ''} onchange={(e) => setCta(e.currentTarget.value || null)}>
@@ -1215,9 +1211,7 @@
 	.head-thumb { width: 40px; height: 40px; flex-shrink: 0; object-fit: contain; background: #FAFAFA; border: 1px solid var(--border); border-radius: 9px; }
 	.head-thumb.none { display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800; color: #D4D4D8; }
 	.head-id { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-	.head-name { font: inherit; font-size: 14.5px; font-weight: 800; color: #18181B; background: transparent; border: 1px solid transparent; border-radius: 7px; padding: 1px 6px; margin-left: -6px; width: 300px; max-width: 28vw; text-overflow: ellipsis; }
-	.head-name:hover { border-color: var(--border); }
-	.head-name:focus { outline: none; border-color: #F57832; background: #fff; box-shadow: 0 0 0 3px rgba(245,120,50,0.12); }
+	.head-name { display: block; font-size: 14.5px; font-weight: 800; color: #18181B; padding: 1px 0; width: 300px; max-width: 28vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.head-meta { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: #A1A1AA; white-space: nowrap; }
 	.head-meta .sku { font-size: 10.5px; padding: 1px 7px; }
 

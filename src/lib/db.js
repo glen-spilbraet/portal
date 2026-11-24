@@ -234,6 +234,25 @@ export async function ensureProductName(db, sheetId, language) {
 	).bind(crypto.randomUUID(), language, sheetId).run();
 }
 
+/**
+ * Set the (Rackbeat-owned) product name: every language that has a name row gets
+ * the same value; a sheet with none gets it in its primary language (other
+ * languages are added by ensureProductName when they get texts). Empty = no-op.
+ */
+export async function setProductName(db, sheetId, name) {
+	const v = String(name ?? '').trim();
+	if (!v) return;
+	await db.batch([
+		db.prepare(`UPDATE translations SET value = ? WHERE sheet_id = ? AND key = 'product_name'`).bind(v, sheetId),
+		db.prepare(
+			`INSERT INTO translations (id, sheet_id, language, key, value)
+			 SELECT ?, s.id, s.primary_language, 'product_name', ?
+			 FROM sales_sheets s WHERE s.id = ?
+			 ON CONFLICT(sheet_id, language, key) DO NOTHING`
+		).bind(crypto.randomUUID(), v, sheetId),
+	]);
+}
+
 export async function setTranslation(db, sheetId, language, key, value) {
 	const id = crypto.randomUUID();
 	await db

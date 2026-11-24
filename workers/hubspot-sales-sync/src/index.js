@@ -1779,7 +1779,9 @@ async function processDealPricing(env, dealId, { apply = false, userEmail = null
 //  1. Product list (fields=…, 1000/page ≈ 12 calls for the whole catalogue):
 //     stock → sales_sheets.rb_* (only changed rows, updated_at untouched — the
 //     webshop feed reads it as "content changed"); EAN / weight / height /
-//     width / depth → data_fields (read-only on the sheet).
+//     width / depth → data_fields (read-only on the sheet); product name →
+//     translations.product_name, the same value in every language that has one
+//     (and the primary language). The name is Rackbeat-owned, not editable.
 //  2. Game fields (age / time / players / pieces) live in Rackbeat custom fields,
 //     one call per product, so each run refreshes the next FIELD_CHUNK sheets
 //     (cursor in rb_sync_meta id=2 on the prod DB) → every sheet ≈ once a day.
@@ -1789,7 +1791,7 @@ async function processDealPricing(env, dealId, { apply = false, userEmail = null
 // are compared by their digits, so "2+" vs "2" or "30-60'" spacing never churns.
 // Both app DBs: DB = prod portal-db, DEV_DB = portal-db-dev.
 
-const RB_LIST_FIELDS = 'number,available_quantity,stock_quantity,in_order_quantity,purchased_quantity,barcode,physical';
+const RB_LIST_FIELDS = 'number,name,available_quantity,stock_quantity,in_order_quantity,purchased_quantity,barcode,physical';
 const FIELD_CHUNK = 200;
 const STD_KEYS = ['ean', 'weight', 'height', 'width', 'depth'];
 const GAME_KEYS = ['age', 'time', 'players', 'pieces'];
@@ -1890,6 +1892,7 @@ async function rbListAll(env) {
 					purchased: numOrNull(p.purchased_quantity),
 				},
 				std: stdValues(p),
+				name: String(p.name ?? '').trim(),
 			});
 		}
 	}
@@ -1921,8 +1924,15 @@ async function syncRackbeatStock(env, { dry = false, chunk = FIELD_CHUNK } = {})
 		const sheets = {};
 		for (const [name, db] of dbs) {
 			sheets[name] = (await db.prepare(
-				`SELECT id, sku, data_fields, rb_available, rb_stock, rb_in_order, rb_purchased FROM sales_sheets WHERE trim(sku) != ''`
+				`SELECT id, sku, primary_language, data_fields, rb_available, rb_stock, rb_in_order, rb_purchased FROM sales_sheets WHERE trim(sku) != ''`
 			).all()).results ?? [];
+			// Current product names per sheet (every language).
+			const names = new Map();
+			for (const t of (await db.prepare(`SELECT sheet_id, value FROM translations WHERE key = 'product_name'`).all()).results ?? []) {
+				if (!names.has(t.sheet_id)) names.set(t.sheet_id, []);
+				names.get(t.sheet_id).push(String(t.value ?? '').trim());
+			}
+			for (const r of sheets[name]) r.names = names.get(r.id) ?? [];
 		}
 
 		// Next slice of SKUs (in Rackbeat, union of both DBs, sorted) for the game fields.
@@ -1960,7 +1970,8 @@ async function syncRackbeatStock(env, { dry = false, chunk = FIELD_CHUNK } = {})
 async function applyRackbeat(db, rows, list, game, now, dry) {
 	const same = (a, b) => (a == null ? null : Number(a)) === (b == null ? null : Number(b));
 	const stmts = [];
-	let matched = 0, stockChanged = 0, fieldsChanged = 0;
+	let matched = 0, stockChanged = 0, fieldsChanged = 0, namesChanged = 0;
+	const nameSamples = [];
 	const byKey = {};
 	const samples = [];
 	for (const r of rows) {
@@ -1977,8 +1988,24 @@ async function applyRackbeat(db, rows, list, game, now, dry) {
 			).bind(s.available, s.stock, s.in_order, s.purchased, now, r.id));
 		}
 
-		// Rackbeat-owned data fields (bumps updated_at).
 		if (!rb) continue;
+
+		// Product name (Rackbeat-owned, same in every language; bumps updated_at).
+		// Empty in Rackbeat never blanks the sheet.
+		if (rb.name && (!r.names.length || r.names.some((v) => v !== rb.name))) {
+			namesChanged++;
+			if (nameSamples.length < 25) nameSamples.push({ sku: r.sku, from: [...new Set(r.names)], to: rb.name });
+			stmts.push(
+				db.prepare(`UPDATE translations SET value = ? WHERE sheet_id = ? AND key = 'product_name'`).bind(rb.name, r.id),
+				db.prepare(
+					`INSERT INTO translations (id, sheet_id, language, key, value) VALUES (?, ?, ?, 'product_name', ?)
+					 ON CONFLICT(sheet_id, language, key) DO NOTHING`
+				).bind(crypto.randomUUID(), r.id, r.primary_language || 'en', rb.name),
+				db.prepare(`UPDATE sales_sheets SET updated_at = unixepoch() WHERE id = ?`).bind(r.id),
+			);
+		}
+
+		// Rackbeat-owned data fields (bumps updated_at).
 		const values = { ...rb.std, ...(game.get(sku) ?? {}) };
 		const { next, changes } = mergeFields(r.data_fields, values);
 		if (!next || !changes.length) continue;
@@ -1987,8 +2014,8 @@ async function applyRackbeat(db, rows, list, game, now, dry) {
 		if (samples.length < 25) samples.push({ sku: r.sku, changes });
 		stmts.push(db.prepare(`UPDATE sales_sheets SET data_fields = ?, updated_at = unixepoch() WHERE id = ?`).bind(JSON.stringify(next), r.id));
 	}
-	const res = { sheets: rows.length, matched, changed: stockChanged, fields_changed: fieldsChanged, fields_by_key: byKey };
-	if (dry) return { ...res, samples };
+	const res = { sheets: rows.length, matched, changed: stockChanged, fields_changed: fieldsChanged, fields_by_key: byKey, names_changed: namesChanged };
+	if (dry) return { ...res, samples, name_samples: nameSamples };
 	for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
 	await setRbMeta(db, 1, { last_run: now, status: 'ok', message: null, products: list.size, matched, changed: stockChanged });
 	return res;
