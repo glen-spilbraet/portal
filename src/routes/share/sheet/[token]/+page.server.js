@@ -42,7 +42,7 @@ export async function load({ params, url, platform }) {
 	}
 
 	// Public page: internal fields (who created it, stock figures) stay internal.
-	const { created_by, rb_available, rb_stock, rb_in_order, rb_purchased, rb_changed_at, featured_at, awards_updated_at, ...publicSheet } = sheet;
+	const { created_by, rb_barred, rb_available, rb_stock, rb_in_order, rb_purchased, rb_changed_at, featured_at, awards_updated_at, ...publicSheet } = sheet;
 
 	return {
 		sheet: publicSheet,

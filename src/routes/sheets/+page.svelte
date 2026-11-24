@@ -472,6 +472,7 @@
 						<div class="card-body">
 							<div class="card-meta">
 								<span class="sku">{sheet.sku}</span>
+								{#if sheet.rb_barred}<span class="barred" title="Barred in Rackbeat">Barred</span>{/if}
 								<div class="lang-pills">
 									{#each LANGS as lang}
 										{@const status = langStatus(sheet, lang)}
@@ -873,6 +874,7 @@
 		margin-bottom: 2px;
 	}
 
+	.barred { font-size: 10px; font-weight: 700; color: #B91C1C; background: #FEE2E2; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
 	.sku {
 		font-size: 11px;
 		font-weight: 600;

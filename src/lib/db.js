@@ -21,7 +21,7 @@ const USP_FILLED_GROUPED_SQL = LANGS.map((l) =>
 	`SUM(CASE WHEN tx.language = '${l}' AND tx.key LIKE 'usp\\_%' ESCAPE '\\' THEN 1 ELSE 0 END) AS usp_filled_${l}`).join(',\n\t\t       ');
 
 const SHEET_SELECT = `
-	SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at,
+	SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at, s.rb_barred,
 	       COALESCE(u.first_name, '') as creator_first_name,
 	       ${NAME_COLUMNS_SQL},
 	       COALESCE(s.usp_count, 3) as usp_count,
@@ -56,7 +56,7 @@ export async function listIncompleteSheets(db, salesDb) {
 	const { TEXT_JOIN_SQL, TEXT_COLUMNS_SQL, loadMarketResolver, requiredLangs, missingTexts } = await import('$lib/server/sheetTexts.js');
 	const [rows, marketsOf] = await Promise.all([
 		db.prepare(`
-		SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.box_image_key AS box_3d_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at, s.box_processed, s.primary_language,
+		SELECT s.id, s.sku, s.status, ${DEFAULT_IMAGE_SQL} AS box_image_key, s.box_image_key AS box_3d_key, s.created_at, s.updated_at, s.data_fields, s.created_by, s.featured_at, s.rb_barred, s.box_processed, s.primary_language,
 		       COALESCE(u.first_name, '') as creator_first_name,
 		       ${NAME_COLUMNS_SQL},
 		       COALESCE(s.usp_count, 3) as usp_count,
