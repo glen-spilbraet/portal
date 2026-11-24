@@ -202,3 +202,24 @@ export async function relationsForFeed(db, only) {
 	}
 	return Object.fromEntries(Object.entries(by).map(([k, m]) => [k, [...m.values()]]));
 }
+
+/**
+ * How many relations (both directions) each product has, keyed by lower-case
+ * SKU — only products with at least one. Relations are few, so this is one
+ * small query for the whole sheet overview.
+ * @param {D1} db
+ * @returns {Promise<Record<string, number>>}
+ */
+export async function relationCounts(db) {
+	try {
+		const rows = (await db.prepare(
+			`SELECT k, COUNT(*) AS n FROM (
+				SELECT lower(sku) AS k FROM product_relation
+				UNION ALL SELECT lower(target_sku) FROM product_relation
+			) GROUP BY k`).all()).results ?? [];
+		return Object.fromEntries((/** @type {any[]} */ (rows)).map((r) => [r.k, r.n]));
+	} catch (e) {
+		if (/no such table/i.test(String(/** @type {any} */ (e)?.message ?? e))) return {};
+		throw e;
+	}
+}

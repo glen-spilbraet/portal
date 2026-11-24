@@ -1,8 +1,21 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
 import { getSheet } from '$lib/db.js';
-import { addRelation, removeRelation, relationsForSku } from '$lib/server/relations.js';
+import { addRelation, removeRelation, relationsForSku, listRelationTypes } from '$lib/server/relations.js';
 import { notifyShops } from '$lib/server/shopNotify.js';
+
+/** GET /api/sheets/:id/relations — { types, relations: { outgoing, incoming } } (read-only view). */
+export async function GET({ params, platform }) {
+	const db = platform?.env?.DB;
+	if (!db) error(500, 'DB unavailable');
+	const sheet = await getSheet(db, params.id);
+	if (!sheet?.sku) error(404, 'Sheet not found');
+	const [types, relations] = await Promise.all([
+		listRelationTypes(db).catch(() => []),
+		relationsForSku(db, String(sheet.sku).trim()).catch(() => ({ outgoing: [], incoming: [] }))
+	]);
+	return json({ types, relations });
+}
 
 /**
  * POST /api/sheets/:id/relations
