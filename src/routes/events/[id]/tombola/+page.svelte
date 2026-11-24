@@ -276,7 +276,7 @@
 	<aside class="side">
 		<div class="brand">🎟️ Tombola</div>
 		<h1 class="title">{data.eventTitle}</h1>
-		<div class="qr-card" class:closed={status !== 'open'} class:compact={winners.length > 6}>
+		<div class="qr-card" class:closed={status !== 'open'} class:compact={winners.length > 4}>
 			<svg viewBox="-2 -2 {qr.n + 4} {qr.n + 4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width={qr.n + 4} height={qr.n + 4} fill="#fff" /><path d={qr.d} fill="#00411E" /></svg>
 			{#if status !== 'open'}<div class="qr-closed">Sign-ups closed</div>{/if}
 		</div>
@@ -410,8 +410,8 @@
 	.side { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; padding: 3vh 2vw; gap: 1.4vh; background: linear-gradient(180deg, rgba(0,0,0,.22), rgba(0,0,0,.08)); border-right: 3px solid #F57832; backdrop-filter: blur(6px); overflow: hidden; }
 	.brand { background: #F57832; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; font-size: clamp(12px, 1vw, 20px); padding: .35em 1em; border-radius: 99px; }
 	.title { margin: 0; text-align: center; font-weight: 900; font-size: clamp(20px, 2.1vw, 44px); line-height: 1.1; }
-	.qr-card { position: relative; width: min(18vw, 30vh); flex-shrink: 0; aspect-ratio: 1; background: #fff; border-radius: 1.4vw; padding: 1vw; box-shadow: 0 0 0 6px #F57832, 0 20px 60px rgba(0,0,0,.5); animation: qrpulse 2.4s ease-in-out infinite; }
-	.qr-card.compact { width: min(15vw, 24vh); }
+	.qr-card { position: relative; width: min(22vw, 36vh); flex-shrink: 0; aspect-ratio: 1; background: #fff; border-radius: 1.4vw; padding: 1vw; box-shadow: 0 0 0 6px #F57832, 0 20px 60px rgba(0,0,0,.5); animation: qrpulse 2.4s ease-in-out infinite; }
+	.qr-card.compact { width: min(21vw, 31vh); }
 	.qr-card svg { width: 100%; height: 100%; display: block; }
 	.qr-card.closed { animation: none; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
 	.qr-card.closed svg { opacity: .12; }
@@ -420,9 +420,9 @@
 	.scan { font-weight: 900; font-size: clamp(20px, 2vw, 42px); color: #F57832; }
 	.url { font-family: ui-monospace, monospace; font-size: clamp(12px, .95vw, 20px); opacity: .7; margin-top: -1vh; }
 	.count-box { text-align: center; margin-top: .5vh; }
-	.count { font-size: clamp(56px, 7vw, 150px); font-weight: 900; line-height: 1; background: linear-gradient(180deg, #FFF5D2 10%, #FFE6A5 45%, #F57832 95%); -webkit-background-clip: text; background-clip: text; color: transparent; animation: pop .45s cubic-bezier(.2,1.8,.4,1); }
+	.count { font-size: clamp(56px, min(7vw, 11vh), 150px); font-weight: 900; line-height: 1; background: linear-gradient(180deg, #FFF5D2 10%, #FFE6A5 45%, #F57832 95%); -webkit-background-clip: text; background-clip: text; color: transparent; animation: pop .45s cubic-bezier(.2,1.8,.4,1); }
 	.count-label { font-weight: 800; opacity: .75; font-size: clamp(14px, 1.2vw, 26px); }
-	.winners { width: 100%; flex: 0 0 auto; background: rgba(255,230,165,.08); border: 2px solid rgba(245,120,50,.6); border-radius: 14px; padding: 1.2vh 1.1vw; }
+	.winners { width: 100%; flex: 0 0 auto; margin-top: auto; /* pinned to the bottom of the side panel */ background: rgba(255,230,165,.08); border: 2px solid rgba(245,120,50,.6); border-radius: 14px; padding: 1.2vh 1.1vw; }
 	.winners-head { display: flex; align-items: center; gap: .5em; font-weight: 900; color: #FFE6A5; margin-bottom: .8vh; font-size: clamp(14px, 1.1vw, 24px); }
 	.wcount { margin-left: auto; background: rgba(255,230,165,.15); border-radius: 99px; padding: 0 .6em; font-size: .85em; }
 	.winner-list { display: grid; grid-template-columns: 1fr 1fr; column-gap: 1vw; }
