@@ -41,6 +41,22 @@
 	let busy = $state(false);
 	let errMsg = $state('');
 
+	/** @type {HTMLElement | undefined} */
+	let winnerList = $state();
+	// If the winners still don't fit, glide the list down slowly and back to the top (no scrollbar).
+	$effect(() => {
+		const el = winnerList;
+		if (!el) return;
+		let dir = 1, pause = 60;
+		const iv = setInterval(() => {
+			if (el.scrollHeight <= el.clientHeight + 2) { el.scrollTop = 0; return; }
+			if (pause > 0) { pause--; return; }
+			el.scrollTop += dir;
+			if (dir > 0 && el.scrollTop + el.clientHeight >= el.scrollHeight - 1) { dir = -6; pause = 80; }
+			else if (dir < 0 && el.scrollTop <= 0) { dir = 1; pause = 80; }
+		}, 40);
+		return () => clearInterval(iv);
+	});
 	const winnerIds = $derived(new Set(winners.map((w) => w.entry_id)));
 	const shown = $derived(entries.slice(-120)); // keep the board readable with huge crowds
 	const bubbleScale = $derived(shown.length > 80 ? 0.72 : shown.length > 45 ? 0.85 : 1);
@@ -58,7 +74,7 @@
 		const pts = [...spots.values()];
 		let best = { x: 50, y: 50 }, bestD = -1;
 		for (let i = 0; i < 14; i++) {
-			const c = { x: 6 + Math.random() * 82, y: 14 + Math.random() * 70 };
+			const c = { x: 10 + Math.random() * 76, y: 14 + Math.random() * 70 };
 			let d = Infinity;
 			for (const p of pts) d = Math.min(d, (p.x - c.x) ** 2 + ((p.y - c.y) * 1.6) ** 2);
 			if (d > bestD) { bestD = d; best = c; }
@@ -133,12 +149,6 @@
 	function fullscreen() {
 		if (document.fullscreenElement) document.exitFullscreen();
 		else document.documentElement.requestFullscreen?.();
-	}
-	async function toggleStatus() {
-		const next = status === 'open' ? 'closed' : 'open';
-		if (next === 'closed' && !confirm('Close sign-ups? New people won’t be able to join (everyone already in stays in the draw).')) return;
-		const r = await fetch(`/api/event-tombola/${data.eventId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status: next }) });
-		if (r.ok) status = next;
 	}
 
 	// ── Sound (WebAudio, no files) ─────────────────────────────────────────────
@@ -273,18 +283,12 @@
 <div class="board" class:hide-cursor={!controlsVisible && !draw} onmousemove={poke}>
 	<div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div>
 	<div class="pattern"></div>
-	<!-- Wavy: brand wave along the bottom (Spruce Green behind, Sun Orange in front) -->
-	<svg class="wave" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true">
-		<path class="wave-back" d="M0,58 C220,8 470,8 720,52 C960,96 1210,98 1440,46 L1440,120 L0,120 Z" />
-		<path class="wave-front" d="M0,88 C190,44 410,40 640,78 C880,118 1110,112 1440,68 L1440,120 L0,120 Z" />
-	</svg>
 
 	<!-- Left: QR + count + winners -->
 	<aside class="side">
-		<div class="logo-box"><img src="/logo-da.svg" alt="Spilbræt.dk" /></div>
 		<div class="brand">🎟️ Tombola</div>
 		<h1 class="title">{data.eventTitle}</h1>
-		<div class="qr-card" class:closed={status !== 'open'}>
+		<div class="qr-card" class:closed={status !== 'open'} class:compact={winners.length > 3}>
 			<svg viewBox="-2 -2 {qr.n + 4} {qr.n + 4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width={qr.n + 4} height={qr.n + 4} fill="#fff" /><path d={qr.d} fill="#00411E" /></svg>
 			{#if status !== 'open'}<div class="qr-closed">Sign-ups closed</div>{/if}
 		</div>
@@ -299,9 +303,11 @@
 		</div>
 
 		{#if winners.length}
-			<div class="winners">
-				<div class="winners-head">🏆 Winners</div>
-				{#each winners as w, i (w.entry_id)}<div class="winner-row"><span class="num">{i + 1}</span>{full(w)}</div>{/each}
+			<div class="winners" class:many={winners.length > 5} class:lots={winners.length > 12}>
+				<div class="winners-head">🏆 Winners <span class="wcount">{winners.length}</span></div>
+				<div class="winner-list" bind:this={winnerList}>
+					{#each winners as w, i (w.entry_id)}<div class="winner-row"><span class="num">{i + 1}</span><span class="wname">{full(w)}</span></div>{/each}
+				</div>
 			</div>
 		{/if}
 	</aside>
@@ -340,12 +346,18 @@
 		</div>
 	</section>
 
+	<!-- Sound + fullscreen: subtle icons, top right (everything else is run from the event page) -->
+	<div class="corner" class:dim={!controlsVisible}>
+		<button class="icon" onclick={() => (sound = !sound)} title={sound ? 'Mute' : 'Sound on'} aria-label={sound ? 'Mute' : 'Sound on'}>
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/>{#if sound}<path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/>{:else}<path d="m22 9-6 6"/><path d="m16 9 6 6"/>{/if}</svg>
+		</button>
+		<button class="icon" onclick={fullscreen} title="Fullscreen" aria-label="Fullscreen">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+		</button>
+	</div>
+
 	<!-- Controls -->
 	<div class="controls" class:visible={controlsVisible && !draw}>
-		<a class="ctl ghost" href="/events/{data.eventId}">← Event</a>
-		<button class="ctl ghost" onclick={fullscreen}>⛶ Fullscreen</button>
-		<button class="ctl ghost" onclick={() => (sound = !sound)}>{sound ? '🔊 Sound on' : '🔇 Sound off'}</button>
-		<button class="ctl ghost" onclick={toggleStatus}>{status === 'open' ? '🔒 Close sign-ups' : '🔓 Re-open sign-ups'}</button>
 		<button class="ctl draw" onclick={startDraw} disabled={busy}>🎲 DRAW WINNER</button>
 		{#if errMsg}<span class="ctl-err">{errMsg}</span>{/if}
 	</div>
@@ -390,19 +402,14 @@
 	.g2 { width: 36vw; height: 36vw; background: #148246; left: 68%; top: -12%; opacity: .55; animation-duration: 28s; }
 	.g3 { width: 28vw; height: 28vw; background: #FFE6A5; left: 22%; top: -16%; opacity: .1; animation-duration: 34s; }
 	.pattern { position: absolute; inset: 0; pointer-events: none; background: url(/pattern-tile-white.svg) repeat; background-size: 560px auto; opacity: .06; }
-	.wave { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 11vh; z-index: 3; pointer-events: none; display: block; }
-	.wave-back { fill: #148246; animation: sway 14s ease-in-out infinite alternate; transform-origin: 50% 100%; }
-	.wave-front { fill: #F57832; animation: sway 18s ease-in-out infinite alternate-reverse; transform-origin: 50% 100%; }
-	@keyframes sway { to { transform: translateX(-2.5%) scaleX(1.06); } }
 	@keyframes drift { to { transform: translate(-8vw, 6vh) scale(1.15); } }
 
 	/* Side panel */
-	.side { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; padding: 3vh 2vw 12vh; gap: 1.4vh; background: linear-gradient(180deg, rgba(0,0,0,.22), rgba(0,0,0,.08)); border-right: 3px solid #F57832; backdrop-filter: blur(6px); overflow: hidden; }
-	.logo-box { background: #fff; border-radius: 18px; padding: 1.1vh 1.3vw; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
-	.logo-box img { display: block; height: clamp(34px, 5.2vh, 76px); width: auto; }
+	.side { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; padding: 3vh 2vw; gap: 1.4vh; background: linear-gradient(180deg, rgba(0,0,0,.22), rgba(0,0,0,.08)); border-right: 3px solid #F57832; backdrop-filter: blur(6px); overflow: hidden; }
 	.brand { background: #F57832; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; font-size: clamp(12px, 1vw, 20px); padding: .35em 1em; border-radius: 99px; }
 	.title { margin: 0; text-align: center; font-weight: 900; font-size: clamp(20px, 2.1vw, 44px); line-height: 1.1; }
 	.qr-card { position: relative; width: min(18vw, 30vh); flex-shrink: 0; aspect-ratio: 1; background: #fff; border-radius: 1.4vw; padding: 1vw; box-shadow: 0 0 0 6px #F57832, 0 20px 60px rgba(0,0,0,.5); animation: qrpulse 2.4s ease-in-out infinite; }
+	.qr-card.compact { width: min(15vw, 24vh); }
 	.qr-card svg { width: 100%; height: 100%; display: block; }
 	.qr-card.closed { animation: none; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
 	.qr-card.closed svg { opacity: .12; }
@@ -413,8 +420,14 @@
 	.count-box { text-align: center; margin-top: .5vh; }
 	.count { font-size: clamp(56px, 7vw, 150px); font-weight: 900; line-height: 1; background: linear-gradient(180deg, #FFF5D2 10%, #FFE6A5 45%, #F57832 95%); -webkit-background-clip: text; background-clip: text; color: transparent; animation: pop .45s cubic-bezier(.2,1.8,.4,1); }
 	.count-label { font-weight: 800; opacity: .75; font-size: clamp(14px, 1.2vw, 26px); }
-	.winners { width: 100%; background: rgba(255,230,165,.08); border: 2px solid rgba(245,120,50,.6); border-radius: 14px; padding: 1vh 1vw; overflow: auto; min-height: 0; }
-	.winners-head { font-weight: 900; color: #FFE6A5; margin-bottom: .5vh; font-size: clamp(14px, 1.1vw, 24px); }
+	.winners { width: 100%; flex: 1 1 0; min-height: 4.5em; display: flex; flex-direction: column; background: rgba(255,230,165,.08); border: 2px solid rgba(245,120,50,.6); border-radius: 14px; padding: 1.2vh 1vw; overflow: hidden; }
+	.winners-head { display: flex; align-items: center; gap: .5em; font-weight: 900; color: #FFE6A5; margin-bottom: .8vh; font-size: clamp(14px, 1.1vw, 24px); }
+	.wcount { margin-left: auto; background: rgba(255,230,165,.15); border-radius: 99px; padding: 0 .6em; font-size: .85em; }
+	.winner-list { flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 1fr; align-content: start; column-gap: 1vw; }
+	.winners.many .winner-list { grid-template-columns: 1fr 1fr; }
+	.winners.many .winner-row { font-size: clamp(12px, .85vw, 19px); }
+	.winners.lots .winner-row { font-size: clamp(11px, .75vw, 17px); padding: .12em 0; }
+	.wname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 	.winner-row { display: flex; gap: .6em; align-items: center; font-weight: 800; font-size: clamp(13px, 1vw, 22px); padding: .2em 0; }
 	.num { display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; border-radius: 50%; background: #F57832; color: #fff; font-size: .8em; flex-shrink: 0; }
 
@@ -454,7 +467,7 @@
 	@keyframes speech { from { opacity: 0; scale: .5; } to { opacity: 1; scale: 1; } }
 	.hide-shout { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: #d62f4b; color: #fff; font-size: 11px; cursor: pointer; opacity: 0; transition: opacity .2s; }
 	.speech:hover .hide-shout { opacity: 1; }
-	.toasts { position: absolute; top: 2.5vh; right: 2vw; display: flex; flex-direction: column; gap: 1vh; align-items: flex-end; pointer-events: none; }
+	.toasts { position: absolute; top: 9vh; right: 2vw; display: flex; flex-direction: column; gap: 1vh; align-items: flex-end; pointer-events: none; }
 	.toast { background: #FFF5D2; color: #00411E; border-left: 6px solid #F57832; font-weight: 900; font-size: clamp(14px, 1.2vw, 26px); padding: .55em 1.1em; border-radius: 99px; box-shadow: 0 10px 30px rgba(0,0,0,.4); animation: toast 4.2s ease both; }
 	@keyframes toast { 0% { transform: translateX(120%); } 10%, 85% { transform: translateX(0); opacity: 1; } 100% { opacity: 0; transform: translateY(-20px); } }
 
@@ -466,6 +479,11 @@
 	.ctl.ghost:hover { background: rgba(255,255,255,.2); }
 	.ctl.draw { background: linear-gradient(135deg, #FFE6A5, #F57832 55%); color: #00411E; font-size: 18px; padding: 12px 22px; box-shadow: 0 5px 0 #7B3803; }
 	.ctl.draw:disabled { opacity: .6; }
+	.corner { position: absolute; z-index: 25; top: 2vh; right: 1.5vw; display: flex; gap: 8px; transition: opacity .6s; }
+	.corner.dim { opacity: .25; }
+	.icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); background: rgba(0,42,19,.5); color: #FFF5D2; cursor: pointer; padding: 0; }
+	.icon:hover { background: rgba(245,120,50,.85); color: #fff; }
+	.icon svg { width: 20px; height: 20px; }
 	.ctl-err { color: #ffb3c0; font-weight: 800; }
 
 	/* Draw overlay */
