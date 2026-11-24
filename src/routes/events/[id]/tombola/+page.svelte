@@ -43,6 +43,23 @@
 
 	/** @type {HTMLElement | undefined} */
 	let winnerList = $state();
+	// Fit the winners to the space: 1 column → 2 columns → smaller text → smallest.
+	let fit = $state(0);
+	$effect(() => {
+		const el = winnerList;
+		void winners.length;
+		if (!el) return;
+		const measure = async () => {
+			for (let lvl = 0; lvl < 4; lvl++) {
+				fit = lvl;
+				await tick();
+				if (el.scrollHeight <= el.clientHeight + 2) return;
+			}
+		};
+		measure();
+		addEventListener('resize', measure);
+		return () => removeEventListener('resize', measure);
+	});
 	// If the winners still don't fit, glide the list down slowly and back to the top (no scrollbar).
 	$effect(() => {
 		const el = winnerList;
@@ -303,7 +320,7 @@
 		</div>
 
 		{#if winners.length}
-			<div class="winners" class:many={winners.length > 5} class:lots={winners.length > 12}>
+			<div class="winners fit{fit}">
 				<div class="winners-head">🏆 Winners <span class="wcount">{winners.length}</span></div>
 				<div class="winner-list" bind:this={winnerList}>
 					{#each winners as w, i (w.entry_id)}<div class="winner-row"><span class="num">{i + 1}</span><span class="wname">{full(w)}</span></div>{/each}
@@ -424,9 +441,9 @@
 	.winners-head { display: flex; align-items: center; gap: .5em; font-weight: 900; color: #FFE6A5; margin-bottom: .8vh; font-size: clamp(14px, 1.1vw, 24px); }
 	.wcount { margin-left: auto; background: rgba(255,230,165,.15); border-radius: 99px; padding: 0 .6em; font-size: .85em; }
 	.winner-list { flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 1fr; align-content: start; column-gap: 1vw; }
-	.winners.many .winner-list { grid-template-columns: 1fr 1fr; }
-	.winners.many .winner-row { font-size: clamp(12px, .85vw, 19px); }
-	.winners.lots .winner-row { font-size: clamp(11px, .75vw, 17px); padding: .12em 0; }
+	.winners:is(.fit1, .fit2, .fit3) .winner-list { grid-template-columns: 1fr 1fr; }
+	.winners.fit2 .winner-row { font-size: clamp(12px, .85vw, 19px); }
+	.winners.fit3 .winner-row { font-size: clamp(11px, .72vw, 16px); padding: .1em 0; }
 	.wname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 	.winner-row { display: flex; gap: .6em; align-items: center; font-weight: 800; font-size: clamp(13px, 1vw, 22px); padding: .2em 0; }
 	.num { display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; border-radius: 50%; background: #F57832; color: #fff; font-size: .8em; flex-shrink: 0; }
