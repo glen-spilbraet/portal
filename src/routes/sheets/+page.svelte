@@ -121,7 +121,6 @@
 	});
 
 	// ── Todo filter: sheets missing required info (edit access only) ──────────
-	const TODO_KEY = 'sheets.todo.on';
 	let todo = $state(false);
 	let todoSheets = $state(/** @type {any[]|null} */ (null));
 	let todoLoading = $state(false);
@@ -136,14 +135,9 @@
 	async function setTodo(on) {
 		todo = on;
 		if (on) { featuredOnly = false; f = blankFilter(); }
-		try { localStorage.setItem(TODO_KEY, on ? '1' : '0'); } catch { /* ignore */ }
 		if (on) await loadTodo();
 	}
 	const toggleTodo = () => setTodo(!todo);
-	// Remember the filter across navigation (per browser) until turned off.
-	onMount(() => {
-		try { if (canEdit && localStorage.getItem(TODO_KEY) === '1') setTodo(true); } catch { /* ignore */ }
-	});
 
 	// ── Featured (★ starred for the webshop's "Featured Products") ─────────
 	// Star state per sheet id, so a toggle shows everywhere the sheet appears.
@@ -151,12 +145,15 @@
 	const isStarred = (sh) => starred[sh.id] ?? !!sh.featured_at;
 	let featuredOnly = $state(false);
 	let featuredSheets = $state(/** @type {any[]|null} */ (null));
+	async function loadFeatured() {
+		const res = await fetch('/api/sheets?featured=1');
+		if (res.ok) featuredSheets = (await res.json()).sheets.map(decorate);
+	}
 	async function toggleFeaturedOnly() {
 		featuredOnly = !featuredOnly;
 		if (featuredOnly) {
 			if (todo) setTodo(false);
-			const res = await fetch('/api/sheets?featured=1');
-			if (res.ok) featuredSheets = (await res.json()).sheets.map(decorate);
+			await loadFeatured();
 		}
 	}
 	async function toggleStar(sh, ev) {
@@ -170,7 +167,6 @@
 	}
 
 	// ── Advanced filters (edit access): publisher, missing info, markets, dates ─
-	const ADV_KEY = 'sheets.filters.v1';
 	const MISSING_OPTS = [['age', 'Age'], ['time', 'Time'], ['players', 'Players'], ['pieces', 'Pieces'], ['gametype', 'Game Type'], ['type', 'Type'], ['short', 'Short text'], ['bullets', 'Bullets'], ['long', 'Long text']];
 	const MISSING_LABEL = Object.fromEntries(MISSING_OPTS);
 	const MARKET_OPTS = MARKETS;
@@ -195,14 +191,13 @@
 	function clearFilters() { f = blankFilter(); }
 
 	// Re-run the filter (debounced) whenever a filter, the search text or the
-	// Featured toggle changes. Filters are remembered per browser.
+	// Featured toggle changes.
 	let advTimer = /** @type {ReturnType<typeof setTimeout>|null} */ (null);
 	let advSeq = 0;
 	$effect(() => {
 		const snap = JSON.stringify(f);
 		const q = query.trim();
 		const feat = featuredOnly;
-		try { localStorage.setItem(ADV_KEY, snap); } catch { /* ignore */ }
 		clearTimeout(advTimer ?? undefined);
 		if (!advActive) { advResults = null; return; }
 		if (todo) setTodo(false); // filters replace the Todo view
@@ -227,16 +222,46 @@
 		}, 250);
 		void snap;
 	});
+	// ── Remember search + Featured + Todo + advanced filters per browser, so a
+	// refresh or going into a sheet and back shows exactly the same list. ────
+	const STATE_KEY = 'sheets.view.v2';
+	let restored = false;
 	onMount(() => {
 		try {
-			const saved = JSON.parse(localStorage.getItem(ADV_KEY) || 'null');
-			if (canEdit && saved && typeof saved === 'object') {
-				f = { ...blankFilter(), ...saved };
-				// 'category' was split into 'gametype' + 'type'.
-				if (Array.isArray(f.missing) && f.missing.includes('category')) f.missing = [...f.missing.filter((k) => k !== 'category'), 'gametype', 'type'];
+			let saved = JSON.parse(localStorage.getItem(STATE_KEY) || 'null');
+			if (!saved) {
+				// Pick up the older per-filter keys once.
+				const adv = JSON.parse(localStorage.getItem('sheets.filters.v1') || 'null');
+				saved = { f: adv, todo: localStorage.getItem('sheets.todo.on') === '1' };
+			}
+			if (saved && typeof saved === 'object') {
+				if (typeof saved.q === 'string') query = saved.q;
+				if (canEdit && saved.f && typeof saved.f === 'object') {
+					const nf = { ...blankFilter(), ...saved.f };
+					// 'category' was split into 'gametype' + 'type'.
+					if (Array.isArray(nf.missing) && nf.missing.includes('category')) nf.missing = [...nf.missing.filter((k) => k !== 'category'), 'gametype', 'type'];
+					f = nf;
+				}
+				if (canEdit && saved.open) openFilters();
+				if (saved.featured) { featuredOnly = true; loadFeatured(); }
+				else if (canEdit && saved.todo && !advActive) { todo = true; loadTodo(); }
 			}
 		} catch { /* ignore */ }
+		restored = true;
 	});
+	$effect(() => {
+		const state = JSON.stringify({ q: query, featured: featuredOnly, todo, f, open: filterOpen });
+		if (!restored) return;
+		try { localStorage.setItem(STATE_KEY, state); } catch { /* ignore */ }
+	});
+
+	const anyActive = $derived(!!query.trim() || featuredOnly || todo || advActive);
+	function resetAll() {
+		query = '';
+		featuredOnly = false;
+		todo = false;
+		f = blankFilter();
+	}
 
 	const displayed = $derived.by(() => {
 		if (advActive) return (advResults ?? []).filter((sh) => !featuredOnly || isStarred(sh));
@@ -269,6 +294,12 @@
 				<span class="total-badge">{totalCount} total</span>
 			</div>
 			<div class="header-right">
+				{#if anyActive}
+					<button class="btn-reset" onclick={resetAll} title="Clear search, Featured, Todo and all filters">
+						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+						Reset all filters
+					</button>
+				{/if}
 				<div class="search-wrap">
 					<svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -719,6 +750,13 @@
 	.miss-chip.hit { background: #FDECEC; color: #A2301A; }
 	.miss-ok { font-size: 10.5px; font-weight: 700; color: #16794C; background: #EAF7EF; border-radius: 100px; padding: 1px 7px; }
 	.mk { font-size: 11px; color: #A89C84; font-weight: 600; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.btn-reset {
+		display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
+		background: #FDECEC; color: #A2301A; border: 1px solid #F3B9B0;
+		border-radius: 100px; font-size: 13px; font-weight: 700; font-family: inherit;
+		cursor: pointer; white-space: nowrap;
+	}
+	.btn-reset:hover { background: #FBD9D4; border-color: #E89A8E; }
 	.btn-todo .todo-n { background: rgba(255,255,255,0.3); border-radius: 100px; font-size: 11px; font-weight: 800; padding: 0 7px; }
 	.btn-award-view {
 		display: inline-flex;
