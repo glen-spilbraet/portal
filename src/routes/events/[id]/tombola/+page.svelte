@@ -41,39 +41,9 @@
 	let busy = $state(false);
 	let errMsg = $state('');
 
-	/** @type {HTMLElement | undefined} */
-	let winnerList = $state();
-	// Fit the winners to the space: 1 column → 2 columns → smaller text → smallest.
-	let fit = $state(0);
-	$effect(() => {
-		const el = winnerList;
-		void winners.length;
-		if (!el) return;
-		const measure = async () => {
-			for (let lvl = 0; lvl < 4; lvl++) {
-				fit = lvl;
-				await tick();
-				if (el.scrollHeight <= el.clientHeight + 2) return;
-			}
-		};
-		measure();
-		addEventListener('resize', measure);
-		return () => removeEventListener('resize', measure);
-	});
-	// If the winners still don't fit, glide the list down slowly and back to the top (no scrollbar).
-	$effect(() => {
-		const el = winnerList;
-		if (!el) return;
-		let dir = 1, pause = 60;
-		const iv = setInterval(() => {
-			if (el.scrollHeight <= el.clientHeight + 2) { el.scrollTop = 0; return; }
-			if (pause > 0) { pause--; return; }
-			el.scrollTop += dir;
-			if (dir > 0 && el.scrollTop + el.clientHeight >= el.scrollHeight - 1) { dir = -6; pause = 80; }
-			else if (dir < 0 && el.scrollTop <= 0) { dir = 1; pause = 80; }
-		}, 40);
-		return () => clearInterval(iv);
-	});
+	const WINNERS_SHOWN = 10; // 5 rows × 2 on the board; the rest behind "View all"
+	const latestWinners = $derived(winners.slice(-WINNERS_SHOWN).reverse()); // newest first
+	let showAllWinners = $state(false);
 	const winnerIds = $derived(new Set(winners.map((w) => w.entry_id)));
 	const shown = $derived(entries.slice(-120)); // keep the board readable with huge crowds
 	const bubbleScale = $derived(shown.length > 80 ? 0.72 : shown.length > 45 ? 0.85 : 1);
@@ -287,6 +257,7 @@
 		const onKey = (e) => {
 			if (e.target?.tagName === 'INPUT') return;
 			if (e.key === 'Escape' && draw?.phase === 'reveal') closeDraw();
+			if (e.key === 'Escape') showAllWinners = false;
 			if (e.key === 'f') fullscreen();
 		};
 		addEventListener('keydown', onKey);
@@ -305,7 +276,7 @@
 	<aside class="side">
 		<div class="brand">🎟️ Tombola</div>
 		<h1 class="title">{data.eventTitle}</h1>
-		<div class="qr-card" class:closed={status !== 'open'} class:compact={winners.length > 3}>
+		<div class="qr-card" class:closed={status !== 'open'} class:compact={winners.length > 6}>
 			<svg viewBox="-2 -2 {qr.n + 4} {qr.n + 4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width={qr.n + 4} height={qr.n + 4} fill="#fff" /><path d={qr.d} fill="#00411E" /></svg>
 			{#if status !== 'open'}<div class="qr-closed">Sign-ups closed</div>{/if}
 		</div>
@@ -320,11 +291,14 @@
 		</div>
 
 		{#if winners.length}
-			<div class="winners fit{fit}">
+			<div class="winners">
 				<div class="winners-head">🏆 Winners <span class="wcount">{winners.length}</span></div>
-				<div class="winner-list" bind:this={winnerList}>
-					{#each winners as w, i (w.entry_id)}<div class="winner-row"><span class="num">{i + 1}</span><span class="wname">{full(w)}</span></div>{/each}
+				<div class="winner-list">
+					{#each latestWinners as w (w.entry_id)}<div class="winner-row"><span class="dot"></span><span class="wname">{short(w)}</span></div>{/each}
 				</div>
+				{#if winners.length > WINNERS_SHOWN}
+					<button class="view-all" onclick={() => (showAllWinners = true)}>View all {winners.length} →</button>
+				{/if}
 			</div>
 		{/if}
 	</aside>
@@ -378,6 +352,17 @@
 		<button class="ctl draw" onclick={startDraw} disabled={busy}>🎲 DRAW WINNER</button>
 		{#if errMsg}<span class="ctl-err">{errMsg}</span>{/if}
 	</div>
+
+	{#if showAllWinners && !draw}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<div class="overlay all-winners" role="dialog" tabindex="-1" onclick={() => (showAllWinners = false)}>
+			<div class="aw-head">🏆 All winners <span class="wcount">{winners.length}</span></div>
+			<div class="aw-grid">
+				{#each winners as w (w.entry_id)}<div class="winner-row"><span class="dot"></span><span class="wname">{short(w)}</span></div>{/each}
+			</div>
+			<button class="ctl ghost" onclick={() => (showAllWinners = false)}>Close</button>
+		</div>
+	{/if}
 
 	<!-- Draw overlay -->
 	{#if draw}
@@ -437,16 +422,19 @@
 	.count-box { text-align: center; margin-top: .5vh; }
 	.count { font-size: clamp(56px, 7vw, 150px); font-weight: 900; line-height: 1; background: linear-gradient(180deg, #FFF5D2 10%, #FFE6A5 45%, #F57832 95%); -webkit-background-clip: text; background-clip: text; color: transparent; animation: pop .45s cubic-bezier(.2,1.8,.4,1); }
 	.count-label { font-weight: 800; opacity: .75; font-size: clamp(14px, 1.2vw, 26px); }
-	.winners { width: 100%; flex: 1 1 0; min-height: 4.5em; display: flex; flex-direction: column; background: rgba(255,230,165,.08); border: 2px solid rgba(245,120,50,.6); border-radius: 14px; padding: 1.2vh 1vw; overflow: hidden; }
+	.winners { width: 100%; flex: 0 0 auto; background: rgba(255,230,165,.08); border: 2px solid rgba(245,120,50,.6); border-radius: 14px; padding: 1.2vh 1.1vw; }
 	.winners-head { display: flex; align-items: center; gap: .5em; font-weight: 900; color: #FFE6A5; margin-bottom: .8vh; font-size: clamp(14px, 1.1vw, 24px); }
 	.wcount { margin-left: auto; background: rgba(255,230,165,.15); border-radius: 99px; padding: 0 .6em; font-size: .85em; }
-	.winner-list { flex: 1; min-height: 0; overflow: hidden; display: grid; grid-template-columns: 1fr; align-content: start; column-gap: 1vw; }
-	.winners:is(.fit1, .fit2, .fit3) .winner-list { grid-template-columns: 1fr 1fr; }
-	.winners.fit2 .winner-row { font-size: clamp(12px, .85vw, 19px); }
-	.winners.fit3 .winner-row { font-size: clamp(11px, .72vw, 16px); padding: .1em 0; }
+	.winner-list { display: grid; grid-template-columns: 1fr 1fr; column-gap: 1vw; }
 	.wname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-	.winner-row { display: flex; gap: .6em; align-items: center; font-weight: 800; font-size: clamp(13px, 1vw, 22px); padding: .2em 0; }
-	.num { display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; border-radius: 50%; background: #F57832; color: #fff; font-size: .8em; flex-shrink: 0; }
+	.winner-row { display: flex; gap: .6em; align-items: center; font-weight: 800; font-size: clamp(13px, 1vw, 22px); padding: .22em 0; min-width: 0; }
+	.dot { width: .5em; height: .5em; border-radius: 50%; background: #F57832; flex-shrink: 0; box-shadow: 0 0 0 3px rgba(245,120,50,.25); }
+	.view-all { display: block; margin: .6vh 0 0 auto; background: none; border: 0; padding: .2em 0; font: inherit; font-weight: 800; font-size: clamp(12px, .85vw, 18px); color: #FFE6A5; cursor: pointer; opacity: .85; }
+	.view-all:hover { opacity: 1; text-decoration: underline; }
+	.all-winners { cursor: pointer; }
+	.aw-head { display: flex; align-items: center; gap: .6em; font-weight: 900; color: #FFE6A5; font-size: clamp(26px, 2.8vw, 60px); }
+	.aw-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .4em 3vw; width: min(86vw, 1500px); max-height: 66vh; overflow: hidden; font-size: clamp(16px, 1.5vw, 34px); }
+	.aw-grid .winner-row { font-size: inherit; }
 
 	/* Stage + bubbles */
 	.stage { position: relative; z-index: 1; overflow: hidden; overflow: clip; }
