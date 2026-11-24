@@ -175,7 +175,12 @@
 			const src = pool.length ? pool : entries.filter((e) => e.id !== w.entry_id);
 			const names = [];
 			const len = Math.max(36, Math.min(70, src.length * 3));
-			for (let i = 0; i < len; i++) names.push(src.length ? full(src[Math.floor(Math.random() * src.length)]) : '★ ★ ★');
+			for (let i = 0; i < len; i++) {
+				let n = src.length ? full(src[Math.floor(Math.random() * src.length)]) : '★ ★ ★';
+				// No identical neighbours — with few players the reel would look frozen.
+				for (let k = 0; k < 4 && src.length > 1 && n === names[names.length - 1]; k++) n = full(src[Math.floor(Math.random() * src.length)]);
+				names.push(n);
+			}
 			names.push(full(w));
 			names.push(src.length ? full(src[Math.floor(Math.random() * src.length)]) : ''); // a name peeking below
 			draw = { phase: 'spin', names, winner: w, offset: 0 };
@@ -397,7 +402,7 @@
 	.logo-box img { display: block; height: clamp(34px, 5.2vh, 76px); width: auto; }
 	.brand { background: #F57832; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; font-size: clamp(12px, 1vw, 20px); padding: .35em 1em; border-radius: 99px; }
 	.title { margin: 0; text-align: center; font-weight: 900; font-size: clamp(20px, 2.1vw, 44px); line-height: 1.1; }
-	.qr-card { position: relative; width: min(19vw, 34vh); aspect-ratio: 1; background: #fff; border-radius: 1.4vw; padding: 1vw; box-shadow: 0 0 0 6px #F57832, 0 20px 60px rgba(0,0,0,.5); animation: qrpulse 2.4s ease-in-out infinite; }
+	.qr-card { position: relative; width: min(18vw, 30vh); flex-shrink: 0; aspect-ratio: 1; background: #fff; border-radius: 1.4vw; padding: 1vw; box-shadow: 0 0 0 6px #F57832, 0 20px 60px rgba(0,0,0,.5); animation: qrpulse 2.4s ease-in-out infinite; }
 	.qr-card svg { width: 100%; height: 100%; display: block; }
 	.qr-card.closed { animation: none; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
 	.qr-card.closed svg { opacity: .12; }
