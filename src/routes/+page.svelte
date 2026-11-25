@@ -203,7 +203,7 @@
 		const rows = isCust ? filteredCompanies : filteredDim;
 		const revCols = data.yearCols.map((y) => `${y} Revenue`);
 		const header = isCust
-			? ['Company name', 'Owner Name', ...revCols, 'Index']
+			? ['Company name', 'Rackbeat ID', 'HubSpot ID', 'Owner Name', ...revCols, 'Index']
 			: [dimTitle[dimTab], ...revCols, 'Index'];
 
 		const revCell = (v, i) => (data.colNoData[i] || !v ? '-' : String(v));
@@ -211,7 +211,9 @@
 
 		const lines = [header];
 		for (const r of rows) {
-			const lead = isCust ? [r.name, r.owner ?? ''] : [r.label];
+			const lead = isCust
+				? [r.name, r.rackbeatId ?? '', r.cid === 'none' ? '' : r.cid, r.owner ?? '']
+				: [r.label];
 			lines.push([...lead, revCell(r.rev0, 0), revCell(r.rev1, 1), revCell(r.rev2, 2), idxCell(r)]);
 		}
 		const csv = '﻿' + lines.map((row) => row.map(csvEscape).join(',')).join('\r\n');

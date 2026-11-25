@@ -66,7 +66,7 @@ function skuPrefix(sku) {
 }
 
 // Company properties (the "customer level" data).
-const COMPANY_PROPS = ['name', 'country', 'customer_group', 'customer_color', 'hubspot_owner_id', 'notes_last_contacted'];
+const COMPANY_PROPS = ['name', 'country', 'customer_group', 'customer_color', 'hubspot_owner_id', 'notes_last_contacted', 'rackbeat_id'];
 
 /** HubSpot date/datetime → YYYY-MM-DD (handles ISO strings and epoch-ms). */
 function hsYmd(v) {
@@ -397,6 +397,7 @@ async function enrichDeals(env, deals) {
 			dealstage: p.dealstage || null,
 			company_id: companyId,
 			company_name: c.name || null,
+			company_rackbeat_id: String(c.rackbeat_id ?? '').trim() || null, // Rackbeat customer number
 			owner_email: owner?.email || null,
 			owner_name: owner?.name || null,
 			country: country || null,
@@ -1016,7 +1017,7 @@ async function hsRequest(env, url, init, attempt = 0) {
 
 const ROW_COLS = [
 	'deal_id', 'deal_name', 'close_date', 'amount_dkk', 'amount_raw', 'currency',
-	'pipeline', 'dealstage', 'company_id', 'company_name', 'owner_email', 'owner_name',
+	'pipeline', 'dealstage', 'company_id', 'company_name', 'company_rackbeat_id', 'owner_email', 'owner_name',
 	'country', 'market', 'customer_group', 'customer_level', 'last_contacted', 'rackbeat_id', 'updated_at',
 ];
 

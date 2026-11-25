@@ -661,7 +661,8 @@ export async function getCompanyUniverse(db, filters = {}) {
 		.prepare(
 			`SELECT COALESCE(company_id, 'none') AS cid,
 			        COALESCE(company_name, '(No company)') AS name,
-			        MAX(owner_name) AS owner_name
+			        MAX(owner_name) AS owner_name,
+			        MAX(company_rackbeat_id) AS rackbeat_id
 			 FROM sales_deals ${clause} GROUP BY cid`
 		)
 		.bind(...binds)
