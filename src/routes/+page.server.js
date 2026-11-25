@@ -100,7 +100,7 @@ export async function load({ platform, url, cookies, parent, setHeaders }) {
 					const rev1 = y1Map.get(u.cid) ?? 0;
 					const rev2 = y2Map.get(u.cid) ?? 0;
 					const index = rev1 > 0 ? Math.round((rev2 / rev1) * 100) : null;
-					return { cid: u.cid, name: u.name, owner: u.owner_name, rev0, rev1, rev2, index };
+					return { cid: u.cid, name: u.name, owner: u.owner_name, rackbeatId: u.rackbeat_id ?? null, rev0, rev1, rev2, index };
 				})
 				.sort((a, b) => b.rev2 - a.rev2);
 

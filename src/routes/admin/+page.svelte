@@ -11,6 +11,7 @@
 			blurb: 'Who can sign in, and what they can see.',
 			tools: [
 				{ title: 'Users', href: '/admin/users', desc: 'Manage who can sign in and their roles.', icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>' },
+				{ title: 'Profiles', href: '/admin/profiles', desc: 'Photos, titles and phone numbers for everyone.', icon: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2.5"/><path d="M5.5 16.5a3.5 3.5 0 0 1 7 0"/><path d="M15 9h3M15 13h3"/>' },
 				{ title: 'Permission Sets', href: '/admin/permissions', desc: 'Bundle section access and assign to users.', icon: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>' },
 				{ title: 'Departments', href: '/admin/departments', desc: 'Create and edit the teams users belong to.', icon: '<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01M9 12v.01M9 15v.01M9 18v.01"/>' },
 				{ title: 'Error Log', href: '/admin/errors', desc: 'Server and browser errors, grouped.', icon: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' },
