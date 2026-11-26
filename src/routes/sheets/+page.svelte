@@ -758,13 +758,18 @@
 	.btn-new.icon { padding: 0; width: 34px; height: 34px; justify-content: center; }
 	.btn-icon {
 		display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-		min-width: 34px; height: 34px; padding: 0 9px;
+		width: 34px; height: 34px; padding: 0;
 		background: #fff; color: #52525B; border: 1px solid var(--border, #E4E4E7);
 		border-radius: 100px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer;
 	}
 	.btn-icon:hover { border-color: #F57832; color: #B15A12; }
 	.btn-icon.on { background: #F57832; border-color: #F57832; color: #fff; }
-	.btn-icon .todo-n { background: rgba(255,255,255,0.3); border-radius: 100px; font-size: 11px; font-weight: 800; padding: 0 6px; }
+	.btn-icon { position: relative; }
+	.btn-icon .todo-n {
+		position: absolute; top: -5px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;
+		border-radius: 100px; background: #fff; color: #C2560F; box-shadow: 0 0 0 1.5px #F57832;
+		font-size: 10.5px; font-weight: 800; line-height: 16px; text-align: center; pointer-events: none;
+	}
 
 	/* Hide Barred on/off switch */
 	.switch {
