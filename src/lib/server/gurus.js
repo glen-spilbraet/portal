@@ -14,7 +14,9 @@ function token() {
 
 export async function listGurus(db) {
 	const rows = await db.prepare(
-		`SELECT g.*, (SELECT COUNT(*) FROM event_guru eg WHERE eg.guru_id = g.id AND eg.status IN ('accepted','confirmed')) AS event_count
+		`SELECT g.*, (SELECT COUNT(*) FROM event_guru eg WHERE eg.guru_id = g.id AND eg.status IN ('accepted','confirmed')) AS event_count,
+		        (SELECT AVG(eg.rating) FROM event_guru eg WHERE eg.guru_id = g.id AND eg.rating IS NOT NULL) AS rating_avg,
+		        (SELECT COUNT(*) FROM event_guru eg WHERE eg.guru_id = g.id AND eg.rating IS NOT NULL) AS rating_count
 		 FROM guru g ORDER BY g.name COLLATE NOCASE`
 	).all();
 	return rows.results ?? [];
@@ -40,7 +42,7 @@ export async function createGuru(db, patch) {
 }
 
 export async function updateGuru(db, id, patch) {
-	const cols = { name: 1, phone: 1, email: 1, zip: 1, city: 1, country: 1, image_key: 1, rating: 1, in_email_flow: 1, notes: 1, active: 1 };
+	const cols = { name: 1, phone: 1, email: 1, zip: 1, city: 1, country: 1, image_key: 1, in_email_flow: 1, notes: 1, active: 1 };
 	const boolCols = { in_email_flow: 1, active: 1 };
 	const fields = [], values = [];
 	for (const [k, v] of Object.entries(patch)) {
@@ -65,7 +67,7 @@ export async function deleteGuru(db, id) {
 /** Gurus attached to an event, with their details + proposal status + per-event flow. */
 export async function listEventGurus(db, eventId) {
 	const rows = await db.prepare(
-		`SELECT eg.status, eg.proposal_token, eg.responded_at, eg.in_email_flow AS event_flow, g.*
+		`SELECT g.*, eg.status, eg.proposal_token, eg.responded_at, eg.in_email_flow AS event_flow, eg.rating AS event_rating
 		 FROM event_guru eg JOIN guru g ON g.id = eg.guru_id
 		 WHERE eg.event_id = ? ORDER BY g.name COLLATE NOCASE`
 	).bind(eventId).all();
@@ -92,6 +94,12 @@ export async function removeEventGuru(db, eventId, guruId) {
 export async function setEventGuruStatus(db, eventId, guruId, status) {
 	await db.prepare('UPDATE event_guru SET status = ?, responded_at = datetime(\'now\') WHERE event_id = ? AND guru_id = ?')
 		.bind(status, eventId, guruId).run();
+}
+
+/** Per-event rating (1–5, or null to clear) for a guru. */
+export async function setEventGuruRating(db, eventId, guruId, rating) {
+	await db.prepare('UPDATE event_guru SET rating = ? WHERE event_id = ? AND guru_id = ?')
+		.bind(rating, eventId, guruId).run();
 }
 
 /** Per-event email-flow toggle for a guru. */

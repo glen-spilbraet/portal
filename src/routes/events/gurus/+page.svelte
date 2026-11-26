@@ -38,6 +38,8 @@
 			semi: rows.reduce((n, r) => n + r.media_semi, 0),
 			bad: rows.reduce((n, r) => n + r.media_bad, 0),
 			signups: tb.reduce((n, r) => n + r.tombola_entries, 0),
+			rated: rows.filter((r) => r.guru_rating != null).length,
+			ratingAvg: (() => { const x = rows.filter((r) => r.guru_rating != null); return x.length ? x.reduce((n, r) => n + r.guru_rating, 0) / x.length : null; })(),
 			tombolas: tb.length,
 		};
 	});
@@ -88,7 +90,6 @@
 		await fetch(`/api/events/gurus/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
 		await invalidateAll();
 	}
-	async function setRating(g, r) { await patchGuru(g.id, { rating: g.rating === r ? null : r }); }
 
 	async function deleteGuru(id) {
 		if (!confirm('Delete this guru?')) return;
@@ -118,7 +119,7 @@
 		<div class="page-header">
 			<div>
 				<h1 class="page-title">Game Gurus</h1>
-				<p class="page-sub">The people we hire to run events. Rate them (internal) and attach them to events.</p>
+				<p class="page-sub">The people we hire to run events. Attach them to events and rate them per event.</p>
 			</div>
 			<button class="btn primary" onclick={openCreate}>+ Add guru</button>
 		</div>
@@ -159,11 +160,14 @@
 						{/if}
 					</div>
 					<div class="guru-bottom">
-						<div class="stars" title="Internal rating">
-							{#each [1, 2, 3, 4, 5] as r}
-								<button class="star {g.rating >= r ? 'on' : ''}" onclick={() => setRating(g, r)}>★</button>
-							{/each}
-						</div>
+						{#if g.rating_count}
+							<div class="avg" title="Average of {g.rating_count} rated event{g.rating_count > 1 ? 's' : ''}">
+								<span class="stars-ro" style="--pct:{(g.rating_avg / 5) * 100}%" aria-hidden="true">★★★★★</span>
+								<b>{g.rating_avg.toFixed(1)}</b><span class="muted">· {g.rating_count}</span>
+							</div>
+						{:else}
+							<span class="muted">Not rated yet</span>
+						{/if}
 						<div class="row-actions">
 							<button class="chip chip-btn" onclick={() => openPerf(g)} disabled={!g.event_count} title={g.event_count ? "Events & performance" : undefined}>{g.event_count} {g.event_count === 1 ? 'event' : 'events'}</button>
 							<button class="btn sm" onclick={() => openEdit(g)}>Edit</button>
@@ -221,6 +225,10 @@
 			{:else}
 				{@const t = perfTotals}
 				<div class="tiles">
+					<div class="tile"><span class="t-label">Rating</span>
+						{#if t.ratingAvg != null}<span class="t-val">{t.ratingAvg.toFixed(1)}<span class="t-of">/5</span></span><span class="t-sub">{t.rated} of {t.events} rated</span>
+						{:else}<span class="t-val dim">—</span><span class="t-sub">Not rated yet</span>{/if}
+					</div>
 					<div class="tile"><span class="t-label">Events</span><span class="t-val">{t.events}</span><span class="t-sub">{t.past} held · {t.events - t.past} upcoming</span></div>
 					<div class="tile"><span class="t-label">Attendees</span><span class="t-val">{t.attendees}</span><span class="t-sub">{t.avg != null ? `Ø ${t.avg} per event` : 'None recorded'}</span></div>
 					<div class="tile"><span class="t-label">Photos &amp; video</span><span class="t-val">{t.media}</span>
@@ -231,8 +239,8 @@
 
 				<div class="perf-table-wrap">
 					<table class="perf-table">
-						<colgroup><col style="width:140px" /><col /><col style="width:110px" /><col style="width:150px" /><col style="width:130px" /></colgroup>
-						<thead><tr><th>Date</th><th>Event</th><th class="num">Attended</th><th>Photos</th><th class="num">Tombola</th></tr></thead>
+						<colgroup><col style="width:130px" /><col /><col style="width:96px" /><col style="width:96px" /><col style="width:130px" /><col style="width:120px" /></colgroup>
+						<thead><tr><th>Date</th><th>Event</th><th>Rating</th><th class="num">Attended</th><th>Photos</th><th class="num">Tombola</th></tr></thead>
 						<tbody>
 							{#each perfRows as r (r.id)}
 								{@const up = isUpcoming(r)}
@@ -243,6 +251,10 @@
 											<span class="ev-title" title={r.title}>{r.title || 'Untitled event'}</span>
 											<span class="ev-sub" title={[r.venue_name, r.type_name].filter(Boolean).join(' · ')}>{[r.venue_name, r.type_name].filter(Boolean).join(' · ') || '—'}</span>
 										</div>
+									</td>
+									<td>
+										{#if r.guru_rating != null}<span class="stars-ro sm" style="--pct:{(r.guru_rating / 5) * 100}%" title="{r.guru_rating} / 5">★★★★★</span>
+										{:else}<span class="dim">—</span>{/if}
 									</td>
 									<td class="num">
 										{#if r.participants_actual != null}<b>{r.participants_actual}</b>{#if r.participants_expected != null}<span class="dim"> / {r.participants_expected}</span>{/if}
@@ -300,9 +312,6 @@
 	.ci { display: inline-flex; align-items: center; gap: 6px; }
 	.ci svg { width: 14px; height: 14px; color: #A1A1AA; flex-shrink: 0; }
 	.guru-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
-	.stars { display: flex; gap: 2px; }
-	.star { background: none; border: none; cursor: pointer; font-size: 18px; color: #E4E4E7; line-height: 1; padding: 0; }
-	.star.on { color: #F5A623; }
 	.row-actions { display: flex; align-items: center; gap: 6px; }
 	.chip { font-size: 11px; font-weight: 600; color: #71717A; background: #F4F4F5; padding: 3px 9px; border-radius: 100px; }
 
@@ -323,12 +332,17 @@
 	.chip-btn { border: none; font-family: inherit; cursor: pointer; }
 	.chip-btn:hover:not(:disabled) { background: #FFF4ED; color: #c2551b; }
 	.chip-btn:disabled { cursor: default; }
-	.modal.perf { max-width: 880px; }
+	.modal.perf { max-width: 960px; }
+	.t-of { font-size: 13px; font-weight: 600; color: #A1A1AA; margin-left: 2px; }
+	/* read-only stars: gold fill clipped to --pct */
+	.stars-ro { display: inline-block; font-size: 17px; letter-spacing: 1px; line-height: 1; background: linear-gradient(90deg, #F5A623 var(--pct), #E4E4E7 var(--pct)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+	.stars-ro.sm { font-size: 14px; }
+	.avg { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #18181B; }
 	.perf-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding-right: 40px; }
 	.perf-head .modal-title { margin: 0; }
 	.perf-id { display: flex; flex-direction: column; min-width: 0; }
 	.avatar.sm { width: 44px; height: 44px; cursor: default; }
-	.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+	.tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
 	.tile { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border: 1px solid #F0F0F1; background: #FAFAFA; border-radius: 12px; min-width: 0; }
 	.t-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #A1A1AA; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.t-val { font-size: 22px; font-weight: 800; color: #18181B; line-height: 1.15; font-variant-numeric: tabular-nums; }
@@ -350,5 +364,5 @@
 	.ev-sub { font-size: 12px; color: #A1A1AA; overflow: hidden; text-overflow: ellipsis; }
 	.dim { color: #A1A1AA; }
 	.tag-up { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 100px; background: #DBEAFE; color: #1d4ed8; }
-	@media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+	@media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>

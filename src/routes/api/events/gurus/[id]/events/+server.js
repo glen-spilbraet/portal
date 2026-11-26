@@ -9,7 +9,7 @@ export async function GET(event) {
 	const { db } = await requireEvents(event);
 	const rows = await db.prepare(
 		`SELECT e.id, e.title, e.event_date, e.end_date, e.status, e.participants_expected, e.participants_actual,
-		        eg.status AS guru_status, v.name AS venue_name, t.name AS type_name,
+		        eg.status AS guru_status, eg.rating AS guru_rating, v.name AS venue_name, t.name AS type_name,
 		        (SELECT COUNT(*) FROM event_asset a WHERE a.event_id = e.id AND a.category = 'media' AND a.kind IN ('image','video')) AS media_count,
 		        (SELECT COUNT(*) FROM event_asset a WHERE a.event_id = e.id AND a.category = 'media' AND a.kind IN ('image','video') AND a.rating = 'good') AS media_good,
 		        (SELECT COUNT(*) FROM event_asset a WHERE a.event_id = e.id AND a.category = 'media' AND a.kind IN ('image','video') AND a.rating = 'semi') AS media_semi,

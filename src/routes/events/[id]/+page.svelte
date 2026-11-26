@@ -87,7 +87,7 @@
 		...data.eventGurus.map((g) => ({
 			kind: 'guru', id: g.id, name: g.name,
 			sub: [[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', '),
-			inFlow: !!g.event_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl,
+			inFlow: !!g.event_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl, rating: g.event_rating ?? null,
 		})),
 	]);
 
@@ -107,6 +107,19 @@
 	async function setGuruStatus(id, status) {
 		await fetch(`/api/events/${data.event.id}/gurus/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
 		await invalidateAll();
+	}
+	/** optimistic per-event guru ratings while saving: guruId → 1–5 | null */
+	let guruRateLocal = $state(/** @type {Record<string, number|null>} */ ({}));
+	async function rateGuru(row, r) {
+		const current = row.id in guruRateLocal ? guruRateLocal[row.id] : row.rating;
+		const next = current === r ? null : r; // click the current star again to clear
+		guruRateLocal = { ...guruRateLocal, [row.id]: next };
+		const res = await fetch(`/api/events/${data.event.id}/gurus/${row.id}`, {
+			method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rating: next })
+		});
+		if (!res.ok) alert('Failed to save rating');
+		await invalidateAll();
+		const { [row.id]: _, ...rest } = guruRateLocal; guruRateLocal = rest;
 	}
 	let copiedGuru = $state(null);
 	function copyProposal(row) { navigator.clipboard?.writeText(row.proposalUrl); copiedGuru = row.id; setTimeout(() => (copiedGuru = null), 1500); }
@@ -498,7 +511,7 @@
 						<p class="empty">No one added yet.</p>
 					{:else}
 						<table class="people-table">
-							<thead><tr><th>Name</th><th>Type</th><th>Emails</th><th>Status</th><th></th></tr></thead>
+							<thead><tr><th>Name</th><th>Type</th><th>Emails</th><th>Status</th><th>Rating</th><th></th></tr></thead>
 							<tbody>
 								{#each people as row (row.kind + row.id)}
 									<tr>
@@ -514,6 +527,16 @@
 										<td><span class="type-badge {row.kind}">{row.kind === 'guru' ? 'Guru' : 'Contact'}</span></td>
 										<td><button class="flow-pill {row.inFlow ? 'on' : 'off'}" onclick={() => toggleFlow(row)}>{row.inFlow ? 'Gets mail' : 'No mail'}</button></td>
 										<td>{#if row.kind === 'guru'}<span class="gstatus {row.status}">{row.status}</span>{:else}<span class="muted">—</span>{/if}</td>
+										<td>
+											{#if row.kind === 'guru'}
+												{@const rv = row.id in guruRateLocal ? guruRateLocal[row.id] : row.rating}
+												<div class="stars" role="radiogroup" aria-label="Rate {row.name} for this event">
+													{#each [1, 2, 3, 4, 5] as n}
+														<button class="star" class:on={(rv ?? 0) >= n} role="radio" aria-checked={rv === n} aria-label="{n} star{n > 1 ? 's' : ''}" title={rv === n ? 'Click again to clear' : `${n} / 5`} onclick={() => rateGuru(row, n)}>★</button>
+													{/each}
+												</div>
+											{/if}
+										</td>
 										<td class="actions-cell">
 											<div class="p-actions">
 												{#if row.kind === 'guru'}
@@ -1074,6 +1097,12 @@
 	.flow-pill.on { background: #E9F7EC; color: #16a34a; }
 	.flow-pill.off { background: #F4F4F5; color: #A1A1AA; }
 	.actions-cell { text-align: right; }
+	.stars { display: inline-flex; gap: 1px; }
+	.star { background: none; border: none; padding: 0 1px; font-size: 17px; line-height: 1; color: #E4E4E7; cursor: pointer; transition: transform .1s; }
+	.star.on { color: #F5A623; }
+	.stars:hover .star { color: #F5A623; }
+	.stars .star:hover ~ .star { color: #E4E4E7; }
+	.star:hover { transform: scale(1.15); }
 	.p-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 	/* Add-people modal */
