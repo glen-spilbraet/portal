@@ -1,25 +1,49 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
 	import { goto } from '$app/navigation';
+	import CountrySelect from '$lib/components/CountrySelect.svelte';
 
 	let { data } = $props();
+	// ── New-event modal ─────────────────────────────────────────────────────────
+	const NEW = '__new__';
+	let showNew = $state(false);
 	let busy = $state(false);
+	let nf = $state(blankNew());
+	function blankNew() {
+		return { title: '', venue_id: '', type_id: '', event_date: '', end_date: '', multi: false, start_time: '', end_time: '',
+			venue_name: '', venue_city: '', venue_country: 'Denmark', type_name: '' };
+	}
+	function openNew() { nf = blankNew(); showNew = true; }
+	function closeNew() { if (!busy) showNew = false; }
+	const canCreate = $derived(
+		!!nf.title.trim() && !!nf.event_date &&
+		(nf.venue_id !== NEW || !!nf.venue_name.trim()) &&
+		(nf.type_id !== NEW || !!nf.type_name.trim())
+	);
 
-	async function newEvent() {
-		if (busy) return;
+	async function post(url, body) {
+		const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+		const out = await res.json().catch(() => ({}));
+		if (!res.ok) throw new Error(out.message ?? 'Failed');
+		return out;
+	}
+
+	async function createEvent() {
+		if (busy || !canCreate) return;
 		busy = true;
 		try {
-			const res = await fetch('/api/events', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ title: 'Untitled event', status: 'planned' })
+			let venue_id = nf.venue_id || null;
+			if (venue_id === NEW) venue_id = (await post('/api/events/venues', { name: nf.venue_name.trim(), city: nf.venue_city.trim() || null, country: nf.venue_country || null })).id;
+			let type_id = nf.type_id || null;
+			if (type_id === NEW) type_id = (await post('/api/events/types', { name: nf.type_name.trim() })).id;
+			const { id } = await post('/api/events', {
+				title: nf.title.trim(), venue_id, type_id, status: 'planned',
+				event_date: nf.event_date, end_date: nf.multi && nf.end_date && nf.end_date !== nf.event_date ? nf.end_date : null,
+				start_time: nf.start_time || null, end_time: nf.end_time || null,
 			});
-			const body = await res.json();
-			if (!res.ok) throw new Error(body.message ?? 'Failed');
-			await goto(`/events/${body.id}`);
+			await goto(`/events/${id}`);
 		} catch (e) {
 			alert(e instanceof Error ? e.message : String(e));
-		} finally {
 			busy = false;
 		}
 	}
@@ -80,11 +104,11 @@
 				<h1 class="page-title">Events</h1>
 				<p class="page-sub">Track events, venues and participants — and share product info & material with venues.</p>
 			</div>
-			<button class="btn primary" onclick={newEvent} disabled={busy}>+ New event</button>
+			<button class="btn primary" onclick={openNew}>+ New event</button>
 		</div>
 
 		{#if data.events.length === 0}
-			<p class="empty">No events yet. Click “New event” to create one.</p>
+			<p class="empty">No events yet.</p>
 		{:else}
 			<div class="filters">
 				<div class="seg-ctrl" role="group" aria-label="Status filter">
@@ -146,6 +170,76 @@
 	</main>
 </div>
 
+{#if showNew}
+	<div class="modal-overlay" onclick={closeNew} role="presentation">
+		<form class="modal" onclick={(e) => e.stopPropagation()} onsubmit={(e) => { e.preventDefault(); createEvent(); }} role="dialog" aria-modal="true" aria-label="New event">
+			<button type="button" class="modal-x" onclick={closeNew} aria-label="Close">✕</button>
+			<h3 class="modal-title">New event</h3>
+
+			<div class="m-grid">
+				<label class="fld span2"><span>Title</span>
+					<!-- svelte-ignore a11y_autofocus -->
+					<input bind:value={nf.title} autofocus placeholder="e.g. Puslespilsturnering hos …" />
+				</label>
+
+				<label class="fld"><span>Venue</span>
+					<select bind:value={nf.venue_id}>
+						<option value="">—</option>
+						{#each data.venues as v (v.id)}<option value={v.id}>{v.name}{v.city ? ` · ${v.city}` : ''}</option>{/each}
+						<option value={NEW}>+ New venue…</option>
+					</select>
+				</label>
+				<label class="fld"><span>Type</span>
+					<select bind:value={nf.type_id}>
+						<option value="">—</option>
+						{#each data.types as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
+						<option value={NEW}>+ New type…</option>
+					</select>
+				</label>
+
+				{#if nf.venue_id === NEW}
+					<div class="new-box span2">
+						<div class="new-head">New venue</div>
+						<div class="new-grid">
+							<label class="fld"><span>Name</span><input bind:value={nf.venue_name} /></label>
+							<label class="fld"><span>City</span><input bind:value={nf.venue_city} /></label>
+							<label class="fld"><span>Country</span><CountrySelect bind:value={nf.venue_country} /></label>
+						</div>
+					</div>
+				{/if}
+				{#if nf.type_id === NEW}
+					<div class="new-box span2">
+						<div class="new-head">New type</div>
+						<label class="fld"><span>Name</span><input bind:value={nf.type_name} placeholder="e.g. Event - Tournament" /></label>
+					</div>
+				{/if}
+
+				<div class="fld span2">
+					<div class="when-head">
+						<span>When</span>
+						<label class="multi-chk"><input type="checkbox" bind:checked={nf.multi} /> Multi-day</label>
+					</div>
+					<div class="combo">
+						<div class="seg"><small>{nf.multi ? 'Start date' : 'Date'}</small><input type="date" bind:value={nf.event_date} /></div>
+						{#if nf.multi}
+							<div class="seg"><small>End date</small><input type="date" min={nf.event_date || undefined} bind:value={nf.end_date} /></div>
+						{/if}
+						<div class="seg"><small>Start</small><input type="time" bind:value={nf.start_time} /></div>
+						<div class="seg"><small>End</small><input type="time" bind:value={nf.end_time} /></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="modal-foot">
+				<button type="button" class="btn" onclick={closeNew} disabled={busy}>Cancel</button>
+				<button type="submit" class="btn primary" disabled={busy || !canCreate}>{busy ? 'Creating…' : 'Create event'}</button>
+			</div>
+		</form>
+	</div>
+{/if}
+
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') closeNew(); }} />
+
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
 	main { flex: 1; max-width: 1200px; margin: 0 auto; width: 100%; padding: 32px 28px 80px; }
@@ -201,4 +295,30 @@
 	.status.confirmed { background: #DBEAFE; color: #1d4ed8; }
 	.status.done { background: #F0FDF4; color: #16a34a; }
 	.status.cancelled { background: #FEF2F2; color: #dc2626; }
+	/* New-event modal */
+	.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
+	.modal { position: relative; background: white; border-radius: 16px; padding: 24px; max-width: 600px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.25); box-sizing: border-box; }
+	.modal-x { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: none; background: #F4F4F5; border-radius: 8px; font-size: 15px; color: #52525B; cursor: pointer; }
+	.modal-title { font-size: 18px; font-weight: 700; margin: 0 0 18px; }
+	.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+	.m-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+	.span2 { grid-column: 1 / -1; }
+	.fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+	.fld > span { font-size: 12px; font-weight: 600; color: #71717A; }
+	.modal input, .modal select { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; font-family: inherit; color: #18181B; background: white; outline: none; }
+	.modal input:focus, .modal select:focus { border-color: #F57832; }
+	.new-box { border: 1px dashed #F5B48C; background: #FFF8F3; border-radius: 10px; padding: 10px 12px 12px; }
+	.new-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #c2551b; margin-bottom: 8px; }
+	.new-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 8px; }
+	.when-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+	.when-head > span { font-size: 12px; font-weight: 600; color: #71717A; }
+	.multi-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #71717A; cursor: pointer; }
+	.modal .multi-chk input { width: 14px; height: 14px; padding: 0; accent-color: #F57832; }
+	.combo { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+	.combo .seg { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+	.combo .seg + .seg { border-left: 1px solid var(--border); }
+	.combo .seg small { font-size: 11px; font-weight: 600; color: #A1A1AA; padding: 6px 10px 0; }
+	.modal .combo .seg input { border: none; border-radius: 0; padding: 4px 10px 8px; }
+	.combo .seg:focus-within { background: #FAFAFA; }
+	@media (max-width: 560px) { .m-grid, .new-grid { grid-template-columns: 1fr; } }
 </style>
