@@ -36,6 +36,7 @@ export function parseFilter(p) {
 		preorder: tri('preorder'),
 		restock: tri('restock'),
 		featured: p.get('featured') === '1',
+		hideBarred: p.get('barred') === '0',
 	};
 }
 
@@ -59,13 +60,13 @@ export async function filterSheets(db, salesDb, f) {
 	// ── Sheets + texts (every language) + names, one aggregate pass ───────────
 	// Texts are checked in the languages of the sheet's published markets (sheetTexts.js).
 	const sheets = (await db.prepare(
-		`SELECT s.id, s.sku, COALESCE(NULLIF(s.box_image_key, ''), NULLIF(s.box_flat_image_key, '')) AS box_image_key, s.updated_at, s.featured_at, s.data_fields,
+		`SELECT s.id, s.sku, COALESCE(NULLIF(s.box_image_key, ''), NULLIF(s.box_flat_image_key, '')) AS box_image_key, s.updated_at, s.featured_at, s.rb_barred, s.data_fields,
 		        s.preorder_date, s.restock_date, COALESCE(s.usp_count, 3) AS usp_count, s.primary_language,
 		        ${LANGS.map((l) => `(SELECT value FROM translations WHERE sheet_id = s.id AND language = '${l}' AND key = 'product_name') AS name_${l}`).join(',\n\t\t        ')},
 		        ${TEXT_COLUMNS_SQL}
 		 FROM sales_sheets s
 		 LEFT JOIN translations tx ON tx.sheet_id = s.id AND ${TEXT_JOIN_SQL}
-		 WHERE trim(COALESCE(s.sku, '')) != ''
+		 WHERE trim(COALESCE(s.sku, '')) != ''${f.hideBarred ? ' AND COALESCE(s.rb_barred, 0) = 0' : ''}
 		 GROUP BY s.id`
 	).all()).results ?? [];
 
@@ -122,7 +123,7 @@ export async function filterSheets(db, salesDb, f) {
 		}
 
 		out.push({
-			id: s.id, sku, box_image_key: s.box_image_key, updated_at: s.updated_at, featured_at: s.featured_at,
+			id: s.id, sku, box_image_key: s.box_image_key, updated_at: s.updated_at, featured_at: s.featured_at, rb_barred: s.rb_barred,
 			...Object.fromEntries(LANGS.map((l) => [`name_${l}`, s[`name_${l}`]])),
 			publisher, markets, missing, preorder_date: s.preorder_date, restock_date: s.restock_date,
 		});

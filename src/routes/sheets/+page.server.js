@@ -8,8 +8,8 @@ export async function load({ platform }) {
 	const db = platform?.env?.DB;
 	if (!db) return { sheets: [], totalCount: 0 };
 	const [sheets, totalCount] = await Promise.all([
-		listSheets(db, { limit: PAGE_SIZE }),
-		countSheets(db),
+		listSheets(db, { limit: PAGE_SIZE, hideBarred: true }),
+		countSheets(db, { hideBarred: true }),
 	]);
 	return { sheets, totalCount };
 }

@@ -30,16 +30,19 @@ const SHEET_SELECT = `
 	LEFT JOIN allowed_users u ON u.email = s.created_by
 	${NAME_JOINS_SQL}`;
 
-export async function listSheets(db, { limit = 30, offset = 0 } = {}) {
+/** Sheets barred in Rackbeat are hidden from the overview unless asked for. */
+const NOT_BARRED_SQL = `COALESCE(s.rb_barred, 0) = 0`;
+
+export async function listSheets(db, { limit = 30, offset = 0, hideBarred = false } = {}) {
 	const rows = await db
-		.prepare(`${SHEET_SELECT} ORDER BY s.updated_at DESC LIMIT ? OFFSET ?`)
+		.prepare(`${SHEET_SELECT} ${hideBarred ? `WHERE ${NOT_BARRED_SQL}` : ''} ORDER BY s.updated_at DESC LIMIT ? OFFSET ?`)
 		.bind(limit, offset)
 		.all();
 	return rows.results;
 }
 
-export async function countSheets(db) {
-	const row = await db.prepare('SELECT COUNT(*) as n FROM sales_sheets').first();
+export async function countSheets(db, { hideBarred = false } = {}) {
+	const row = await db.prepare(`SELECT COUNT(*) as n FROM sales_sheets s ${hideBarred ? `WHERE ${NOT_BARRED_SQL}` : ''}`).first();
 	return row?.n ?? 0;
 }
 
@@ -52,7 +55,7 @@ export async function countSheets(db) {
  * same row shape as listSheets so the overview renders them identically.
  * @param {any} db app DB  @param {any} salesDb publisher mapping + webshop markets
  */
-export async function listIncompleteSheets(db, salesDb) {
+export async function listIncompleteSheets(db, salesDb, { hideBarred = false } = {}) {
 	const { TEXT_JOIN_SQL, TEXT_COLUMNS_SQL, loadMarketResolver, requiredLangs, missingTexts } = await import('$lib/server/sheetTexts.js');
 	const [rows, marketsOf] = await Promise.all([
 		db.prepare(`
@@ -66,6 +69,7 @@ export async function listIncompleteSheets(db, salesDb) {
 		LEFT JOIN allowed_users u ON u.email = s.created_by
 		${NAME_JOINS_SQL}
 		LEFT JOIN translations tx ON tx.sheet_id = s.id AND ${TEXT_JOIN_SQL}
+		${hideBarred ? `WHERE ${NOT_BARRED_SQL}` : ''}
 		GROUP BY s.id
 		ORDER BY s.updated_at DESC`).all(),
 		loadMarketResolver(salesDb),
@@ -126,16 +130,17 @@ export async function listSheetsNeedingAwardUpdate(db, today = new Date().toISOS
 	return rows.results ?? [];
 }
 
-export async function searchSheets(db, query) {
+export async function searchSheets(db, query, { hideBarred = false } = {}) {
 	const q = `%${query.toLowerCase()}%`;
 	const rows = await db
 		.prepare(`${SHEET_SELECT}
-		WHERE lower(s.sku) LIKE ?
+		WHERE (lower(s.sku) LIKE ?
 		   OR lower(COALESCE(t_en.value,'')) LIKE ?
 		   OR lower(COALESCE(t_da.value,'')) LIKE ?
 		   OR lower(COALESCE(t_sv.value,'')) LIKE ?
 		   OR lower(COALESCE(t_no.value,'')) LIKE ?
-		   OR lower(COALESCE((SELECT value FROM translations WHERE sheet_id=s.id AND key='ean' LIMIT 1),'')) LIKE ?
+		   OR lower(COALESCE((SELECT value FROM translations WHERE sheet_id=s.id AND key='ean' LIMIT 1),'')) LIKE ?)
+		   ${hideBarred ? `AND ${NOT_BARRED_SQL}` : ''}
 		ORDER BY s.updated_at DESC
 		LIMIT 100`)
 		.bind(q, q, q, q, q, q)
@@ -144,8 +149,8 @@ export async function searchSheets(db, query) {
 }
 
 /** All starred (featured) sheets, most recently starred first. */
-export async function listFeaturedSheets(db) {
-	const rows = await db.prepare(`${SHEET_SELECT} WHERE s.featured_at IS NOT NULL ORDER BY s.featured_at DESC`).all();
+export async function listFeaturedSheets(db, { hideBarred = false } = {}) {
+	const rows = await db.prepare(`${SHEET_SELECT} WHERE s.featured_at IS NOT NULL ${hideBarred ? `AND ${NOT_BARRED_SQL}` : ''} ORDER BY s.featured_at DESC`).all();
 	return rows.results ?? [];
 }
 
