@@ -1,6 +1,6 @@
 <script>
 	import { invalidateAll } from '$app/navigation';
-	let { eventId, tombola, entries = [], shoutouts = [] } = $props();
+	let { eventId, tombola, entries = [], shoutouts = [], bare = false } = $props();
 
 	let busy = $state(false);
 	let copied = $state(false);
@@ -59,13 +59,15 @@
 	}
 </script>
 
-<div class="card">
+<div class:card={!bare}>
+	{#if !bare}
 	<div class="head">
 		<h2 class="card-title">🎟️ Tombola <span class="muted">· QR sign-up, big screen &amp; prize draw</span></h2>
 		{#if tombola}
 			<span class="pill" class:open={tombola.status === 'open'}>{tombola.status === 'open' ? 'Open for sign-ups' : 'Closed'}</span>
 		{/if}
 	</div>
+	{/if}
 
 	{#if !tombola}
 		<p class="hint top">Show a QR code on a screen at the event: guests sign up on their phone (name, email, zip), pop up live on the screen and can send shoutouts. Then draw winners with a big animated reveal.</p>
@@ -148,7 +150,7 @@
 				</ul>
 			{/if}
 		{/if}
-		<p class="hint">Participants are kept permanently — re-opening the board later at the same event picks up everyone who already joined. The same person can only win once.</p>
+		{#if !bare}<p class="hint">Participants are kept permanently — re-opening the board later at the same event picks up everyone who already joined. The same person can only win once.</p>{/if}
 	{/if}
 </div>
 

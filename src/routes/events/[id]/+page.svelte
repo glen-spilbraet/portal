@@ -276,6 +276,55 @@
 		try { return new Date(ts.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
 		catch { return ts; }
 	}
+	// ── Header + section summaries ──────────────────────────────────────────────
+	const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+	function dparts(d) {
+		const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? '');
+		return m ? { y: +m[1], m: +m[2] - 1, d: +m[3] } : null;
+	}
+	function fmtWhen(e) {
+		const a = dparts(e.event_date);
+		if (!a) return '';
+		const b = e.end_date && e.end_date !== e.event_date ? dparts(e.end_date) : null;
+		let out;
+		if (!b) out = `${a.d} ${MON[a.m]} ${a.y}`;
+		else if (a.y !== b.y) out = `${a.d} ${MON[a.m]} ${a.y} – ${b.d} ${MON[b.m]} ${b.y}`;
+		else if (a.m !== b.m) out = `${a.d} ${MON[a.m]} – ${b.d} ${MON[b.m]} ${b.y}`;
+		else out = `${a.d}–${b.d} ${MON[a.m]} ${a.y}`;
+		const t = [e.start_time, e.end_time].filter(Boolean).join('–');
+		return t ? `${out}, ${t}` : out;
+	}
+	const venueName = $derived(data.venues.find((v) => v.id === form.venue_id)?.name ?? '');
+	const typeName = $derived(data.types.find((t) => t.id === form.type_id)?.name ?? '');
+	const badgeCount = $derived(data.products.filter((p) => data.badges[p.sku]?.length).length);
+	const peopleSummary = $derived.by(() => {
+		const c = people.filter((p) => p.kind === 'contact').length;
+		const g = people.filter((p) => p.kind === 'guru').length;
+		const mail = people.filter((p) => p.inFlow).length;
+		return [c && `${c} contact${c > 1 ? 's' : ''}`, g && `${g} guru${g > 1 ? 's' : ''}`, `${mail} get${mail === 1 ? 's' : ''} mail`].filter(Boolean).join(' · ');
+	});
+	const tombolaWinners = $derived(data.tombolaEntries.filter((e) => e.won_at).length);
+	function ratingCounts(list) {
+		const out = { good: 0, semi: 0, bad: 0 };
+		for (const a of list) if (a.rating && a.rating in out) out[a.rating]++;
+		return out;
+	}
+
+	// ── Collapsible sections (remembered per browser) ───────────────────────────
+	const SECTIONS = ['products', 'people', 'tombola', 'marketing', 'media', 'log'];
+	const LS_KEY = 'events.detail.collapsed';
+	let collapsed = $state(/** @type {Record<string, boolean>} */ ({ log: true }));
+	$effect(() => {
+		try { const v = JSON.parse(localStorage.getItem(LS_KEY) ?? 'null'); if (v && typeof v === 'object') collapsed = v; } catch {}
+	});
+	function persist() { try { localStorage.setItem(LS_KEY, JSON.stringify(collapsed)); } catch {} }
+	function toggleSec(key) { collapsed = { ...collapsed, [key]: !collapsed[key] }; persist(); }
+	const allOpen = $derived(SECTIONS.every((k) => !collapsed[k]));
+	function toggleAll() {
+		const close = allOpen;
+		collapsed = Object.fromEntries(SECTIONS.map((k) => [k, close]));
+		persist();
+	}
 </script>
 
 <svelte:head><title>{form.title || 'Event'} — Product Portal</title></svelte:head>
@@ -285,209 +334,292 @@
 
 	<main>
 		<div class="page-header">
-			<a class="back-link" href="/events">← Events</a>
+			<div class="head-main">
+				<a class="back-link" href="/events">← Events</a>
+				<div class="ev-title-row">
+					<h1 class="ev-title" title={form.title}>{form.title || 'Untitled event'}</h1>
+					<span class="status {form.status}">{form.status}</span>
+				</div>
+				<div class="ev-meta">
+					{#each [fmtWhen(form), venueName, typeName].filter(Boolean) as m, i}{#if i}<span class="dotsep">·</span>{/if}<span>{m}</span>{/each}
+				</div>
+			</div>
 			<div class="header-actions">
 				{#if savedFlash}<span class="flash">Saved ✓</span>{/if}
-				<button class="btn danger" onclick={removeEvent}>Delete event</button>
+				<button class="btn ghost" onclick={toggleAll}>{allOpen ? 'Collapse all' : 'Expand all'}</button>
+				<button class="btn danger" onclick={removeEvent}>Delete</button>
 				<button class="btn primary" onclick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
 			</div>
 		</div>
 
-		<!-- Details -->
-		<div class="card">
-			<h2 class="card-title">Details</h2>
-			<div class="form-grid">
-				<label class="fld span2"><span>Title</span><input bind:value={form.title} /></label>
-				<label class="fld"><span>Venue</span>
-					<select bind:value={form.venue_id}>
-						<option value={null}>—</option>
-						{#each data.venues as v}<option value={v.id}>{v.name}</option>{/each}
-					</select>
-				</label>
-				<label class="fld"><span>Type</span>
-					<select bind:value={form.type_id}>
-						<option value={null}>—</option>
-						{#each data.types as t}<option value={t.id}>{t.name}</option>{/each}
-					</select>
-				</label>
-				<div class="fld span2">
-					<div class="when-head">
-						<span>When</span>
-						<label class="multi-chk"><input type="checkbox" checked={!!form.end_date} onchange={(e) => { form.end_date = e.currentTarget.checked ? (form.end_date || form.event_date || '') : ''; }} /> Multi-day</label>
-					</div>
-					<div class="combo">
-						<div class="seg seg-grow"><small>{form.end_date ? 'Start date' : 'Date'}</small><input type="date" bind:value={form.event_date} /></div>
-						{#if !!form.end_date}
-							<div class="seg seg-grow"><small>End date</small><input type="date" min={form.event_date || undefined} bind:value={form.end_date} /></div>
-						{/if}
-						<div class="seg"><small>Start</small><input type="time" bind:value={form.start_time} /></div>
-						<div class="seg"><small>End</small><input type="time" bind:value={form.end_time} /></div>
-					</div>
-				</div>
-				<label class="fld"><span>Status</span>
-					<select bind:value={form.status}>
-						<option value="planned">Planned</option>
-						<option value="confirmed">Confirmed</option>
-						<option value="done">Done</option>
-						<option value="cancelled">Cancelled</option>
-					</select>
-				</label>
-				<label class="fld"><span>Entry fee</span>
-					<div class="fee">
-						<input type="number" step="0.01" bind:value={form.entry_fee} />
-						<select bind:value={form.entry_fee_currency}>
-							<option value="DKK">DKK</option>
-							<option value="SEK">SEK</option>
-							<option value="NOK">NOK</option>
-							<option value="EUR">EUR</option>
-							<option value="USD">USD</option>
-						</select>
-					</div>
-				</label>
-				<div class="fld span2"><span>Participants</span>
-					<div class="combo">
-						<div class="seg seg-grow"><small>Expected</small><input type="number" min="0" placeholder="—" bind:value={form.participants_expected} /></div>
-						<div class="seg seg-grow"><small>Attended</small><input type="number" min="0" placeholder="—" bind:value={form.participants_actual} /></div>
-					</div>
-				</div>
-				<label class="fld span2"><span>Notes</span><textarea rows="2" bind:value={form.notes}></textarea></label>
-			</div>
-		</div>
-
-		<!-- Products -->
-		<div class="card">
-			<h2 class="card-title">Products at this event</h2>
-			<div class="sku-search">
-				<input placeholder="Search SKU or product name…" bind:value={skuQuery} oninput={searchSku} />
-				{#if skuResults.length > 0}
-					<div class="sku-dropdown">
-						{#each skuResults as r}
-							<button class="sku-opt" onclick={() => addSku(r.sku)}><b>{r.sku}</b> {r.name}</button>
-						{/each}
-					</div>
-				{/if}
-			</div>
-
-			{#if data.products.length === 0}
-				<p class="empty">No products selected yet.</p>
-			{:else}
-				<div class="prod-grid">
-					{#each data.products as p (p.sku)}
-						<div class="prod">
-							<div class="prod-thumb">
-								{#if p.images?.box}<img src={p.images.box} alt={p.name} />{/if}
-								{#if data.badges[p.sku]?.length}
-									<div class="badge-row">
-										{#each data.badges[p.sku] as b}<img class="badge" src="/api/img/{b.image_key}" alt={b.kind} title="{b.kind}{b.media ? ' · ' + b.media : ''}" />{/each}
-									</div>
+		<div class="layout">
+			<!-- Left: details -->
+			<aside class="left">
+				<div class="card">
+					<h2 class="card-title">Details</h2>
+					<div class="form-grid">
+						<label class="fld span2"><span>Title</span><input bind:value={form.title} /></label>
+						<label class="fld span2"><span>Venue</span>
+							<select bind:value={form.venue_id}>
+								<option value={null}>—</option>
+								{#each data.venues as v}<option value={v.id}>{v.name}</option>{/each}
+							</select>
+						</label>
+						<label class="fld span2"><span>Type</span>
+							<select bind:value={form.type_id}>
+								<option value={null}>—</option>
+								{#each data.types as t}<option value={t.id}>{t.name}</option>{/each}
+							</select>
+						</label>
+						<div class="fld span2">
+							<div class="when-head">
+								<span>When</span>
+								<label class="multi-chk"><input type="checkbox" checked={!!form.end_date} onchange={(e) => { form.end_date = e.currentTarget.checked ? (form.end_date || form.event_date || '') : ''; }} /> Multi-day</label>
+							</div>
+							<div class="combo">
+								<div class="seg"><small>{form.end_date ? 'Start date' : 'Date'}</small><input type="date" bind:value={form.event_date} /></div>
+								{#if !!form.end_date}
+									<div class="seg"><small>End date</small><input type="date" min={form.event_date || undefined} bind:value={form.end_date} /></div>
 								{/if}
 							</div>
-							<div class="prod-info">
-								<span class="prod-name">{p.name}</span>
-								<span class="muted">{p.sku}</span>
+							<div class="combo">
+								<div class="seg"><small>Start</small><input type="time" bind:value={form.start_time} /></div>
+								<div class="seg"><small>End</small><input type="time" bind:value={form.end_time} /></div>
 							</div>
-							<button class="link-del" onclick={() => removeSku(p.sku)}>✕</button>
 						</div>
-					{/each}
+						<label class="fld"><span>Status</span>
+							<select bind:value={form.status}>
+								<option value="planned">Planned</option>
+								<option value="confirmed">Confirmed</option>
+								<option value="done">Done</option>
+								<option value="cancelled">Cancelled</option>
+							</select>
+						</label>
+						<label class="fld"><span>Entry fee</span>
+							<div class="fee">
+								<input type="number" step="0.01" bind:value={form.entry_fee} />
+								<select bind:value={form.entry_fee_currency}>
+									<option value="DKK">DKK</option>
+									<option value="SEK">SEK</option>
+									<option value="NOK">NOK</option>
+									<option value="EUR">EUR</option>
+									<option value="USD">USD</option>
+								</select>
+							</div>
+						</label>
+						<div class="fld span2"><span>Participants</span>
+							<div class="combo">
+								<div class="seg"><small>Expected</small><input type="number" min="0" placeholder="—" bind:value={form.participants_expected} /></div>
+								<div class="seg"><small>Attended</small><input type="number" min="0" placeholder="—" bind:value={form.participants_actual} /></div>
+							</div>
+						</div>
+						<label class="fld span2"><span>Notes</span><textarea rows="3" bind:value={form.notes}></textarea></label>
+					</div>
 				</div>
-			{/if}
-			<p class="hint">Selected products (and any award/nominee badges) are shown to the venue automatically on the share page.</p>
-		</div>
 
-		<!-- People (contacts + gurus) -->
-		<div class="card">
-			<div class="card-head">
-				<h2 class="card-title">People for this event <span class="muted">· contacts & gurus</span></h2>
-				<div class="head-btns">
-					<button class="btn sm" onclick={() => openAdd('contact')}>+ Add contact</button>
-					<button class="btn sm" onclick={() => openAdd('guru')}>+ Add guru</button>
+				<div class="card">
+					<h2 class="card-title">Venue share link <span class="info" title="Send this link to the venue — no login needed. They can view product info & material and upload their own photos/video.">ⓘ</span></h2>
+					<input class="share-input" readonly value={data.shareUrl} onfocus={(e) => e.currentTarget.select()} />
+					<div class="share-btns">
+						<button class="btn sm" onclick={copyLink}>{copied ? 'Copied ✓' : 'Copy link'}</button>
+						<a class="btn sm" href={data.shareUrl} target="_blank" rel="noopener">Open ↗</a>
+					</div>
 				</div>
-			</div>
+			</aside>
 
-			{#if people.length === 0}
-				<p class="empty">No one added yet. Use “Add contact” or “Add guru”.</p>
-			{:else}
-				<table class="people-table">
-					<thead><tr><th>Name</th><th>Type</th><th>Emails</th><th>Status</th><th></th></tr></thead>
-					<tbody>
-						{#each people as row (row.kind + row.id)}
-							<tr>
-								<td>
-									<div class="p-name">
-										<span class="p-avatar">
-											{#if row.kind === 'guru' && row.image_key}<img src="/api/img/{row.image_key}" alt={row.name} />
-											{:else}{row.name?.[0]?.toUpperCase() ?? '?'}{/if}
-										</span>
-										<span class="p-id"><span class="strong">{row.name}</span>{#if row.sub}<span class="muted">{row.sub}</span>{/if}</span>
-									</div>
-								</td>
-								<td><span class="type-badge {row.kind}">{row.kind === 'guru' ? 'Guru' : 'Contact'}</span></td>
-								<td><button class="flow-pill {row.inFlow ? 'on' : 'off'}" onclick={() => toggleFlow(row)}>{row.inFlow ? 'Gets mail' : 'No mail'}</button></td>
-								<td>{#if row.kind === 'guru'}<span class="gstatus {row.status}">{row.status}</span>{:else}<span class="muted">—</span>{/if}</td>
-								<td class="actions-cell">
-									<div class="p-actions">
-										{#if row.kind === 'guru'}
-											<button class="btn xs" onclick={() => copyProposal(row)}>{copiedGuru === row.id ? 'Copied ✓' : 'Invite'}</button>
-											{#if row.status !== 'confirmed'}<button class="btn xs" onclick={() => setGuruStatus(row.id, 'confirmed')}>Confirm</button>{/if}
+			<!-- Right: collapsible sections -->
+			<div class="right">
+				{#snippet productsSum()}
+					{#if data.products.length === 0}<span class="sum-empty">None yet</span>
+					{:else}
+						<span class="thumbs">
+							{#each data.products.slice(0, 8) as p (p.sku)}<span class="mini contain" title="{p.name} · {p.sku}">{#if p.images?.box}<img src={p.images.box} alt="" />{/if}</span>{/each}
+						</span>
+						{#if data.products.length > 8}<span class="sum-txt">+{data.products.length - 8}</span>{/if}
+						{#if badgeCount}<span class="sum-txt">· {badgeCount} with awards</span>{/if}
+					{/if}
+				{/snippet}
+				{#snippet productsActions()}
+					<div class="sku-search">
+						<input placeholder="Add product…" bind:value={skuQuery} oninput={searchSku} />
+						{#if skuResults.length > 0}
+							<div class="sku-dropdown">
+								{#each skuResults as r}
+									<button class="sku-opt" onclick={() => addSku(r.sku)}><b>{r.sku}</b> {r.name}</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/snippet}
+				{#snippet productsBody()}
+					{#if data.products.length === 0}
+						<p class="empty">No products selected yet.</p>
+					{:else}
+						<div class="prod-grid">
+							{#each data.products as p (p.sku)}
+								<div class="prod">
+									<div class="prod-thumb">
+										{#if p.images?.box}<img src={p.images.box} alt={p.name} />{/if}
+										{#if data.badges[p.sku]?.length}
+											<div class="badge-row">
+												{#each data.badges[p.sku] as b}<img class="badge" src="/api/img/{b.image_key}" alt={b.kind} title="{b.kind}{b.media ? ' · ' + b.media : ''}" />{/each}
+											</div>
 										{/if}
-										<button class="btn xs danger" onclick={() => removePerson(row)}>✕</button>
 									</div>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			{/if}
-		</div>
+									<div class="prod-info">
+										<span class="prod-name" title={p.name}>{p.name}</span>
+										<span class="muted">{p.sku}</span>
+									</div>
+									<button class="link-del" onclick={() => removeSku(p.sku)} aria-label="Remove {p.sku}">✕</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				{/snippet}
+				{@render section('products', 'Products', data.products.length, 'Selected products (and any award/nominee badges) are shown to the venue automatically on the share page.', productsSum, productsActions, productsBody)}
 
-		<!-- Venue share link -->
-		<div class="card">
-			<h2 class="card-title">Venue share link</h2>
-			<p class="hint">Send this link to the venue — no login needed. They can view product info & material and upload their own photos/video.</p>
-			<div class="share-row">
-				<input class="share-input" readonly value={data.shareUrl} />
-				<button class="btn share-btn" onclick={copyLink}>{copied ? 'Copied ✓' : 'Copy'}</button>
-				<a class="btn share-btn" href={data.shareUrl} target="_blank" rel="noopener">Open</a>
+				{#snippet peopleSum()}
+					{#if people.length === 0}<span class="sum-empty">No one added</span>
+					{:else}
+						<span class="avatars">
+							{#each people.slice(0, 6) as row (row.kind + row.id)}
+								<span class="av {row.kind}" title="{row.name} · {row.kind === 'guru' ? 'Guru' : 'Contact'}">{#if row.kind === 'guru' && row.image_key}<img src="/api/img/{row.image_key}" alt="" />{:else}{row.name?.[0]?.toUpperCase() ?? '?'}{/if}</span>
+							{/each}
+						</span>
+						<span class="sum-txt">{peopleSummary}</span>
+					{/if}
+				{/snippet}
+				{#snippet peopleActions()}
+					<button class="btn sm" onclick={() => openAdd('contact')}>+ Contact</button>
+					<button class="btn sm" onclick={() => openAdd('guru')}>+ Guru</button>
+				{/snippet}
+				{#snippet peopleBody()}
+					{#if people.length === 0}
+						<p class="empty">No one added yet.</p>
+					{:else}
+						<table class="people-table">
+							<thead><tr><th>Name</th><th>Type</th><th>Emails</th><th>Status</th><th></th></tr></thead>
+							<tbody>
+								{#each people as row (row.kind + row.id)}
+									<tr>
+										<td>
+											<div class="p-name">
+												<span class="p-avatar">
+													{#if row.kind === 'guru' && row.image_key}<img src="/api/img/{row.image_key}" alt={row.name} />
+													{:else}{row.name?.[0]?.toUpperCase() ?? '?'}{/if}
+												</span>
+												<span class="p-id"><span class="strong">{row.name}</span>{#if row.sub}<span class="muted">{row.sub}</span>{/if}</span>
+											</div>
+										</td>
+										<td><span class="type-badge {row.kind}">{row.kind === 'guru' ? 'Guru' : 'Contact'}</span></td>
+										<td><button class="flow-pill {row.inFlow ? 'on' : 'off'}" onclick={() => toggleFlow(row)}>{row.inFlow ? 'Gets mail' : 'No mail'}</button></td>
+										<td>{#if row.kind === 'guru'}<span class="gstatus {row.status}">{row.status}</span>{:else}<span class="muted">—</span>{/if}</td>
+										<td class="actions-cell">
+											<div class="p-actions">
+												{#if row.kind === 'guru'}
+													<button class="btn xs" onclick={() => copyProposal(row)}>{copiedGuru === row.id ? 'Copied ✓' : 'Invite'}</button>
+													{#if row.status !== 'confirmed'}<button class="btn xs" onclick={() => setGuruStatus(row.id, 'confirmed')}>Confirm</button>{/if}
+												{/if}
+												<button class="btn xs danger" onclick={() => removePerson(row)} aria-label="Remove {row.name}">✕</button>
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+				{/snippet}
+				{@render section('people', 'People', people.length, 'Contacts from the venue and gurus.', peopleSum, peopleActions, peopleBody)}
+
+				{#snippet tombolaSum()}
+					{#if !data.tombola}<span class="sum-empty">Not set up</span>
+					{:else}
+						<span class="pill-sm" class:open={data.tombola.status === 'open'}>{data.tombola.status === 'open' ? 'Open' : 'Closed'}</span>
+						<span class="sum-txt"><b>{data.tombolaEntries.length}</b> participants · <b>{tombolaWinners}</b> winners · <b>{data.tombolaShoutouts.length}</b> shoutouts</span>
+					{/if}
+				{/snippet}
+				{#snippet tombolaBody()}
+					<TombolaCard bare eventId={data.event.id} tombola={data.tombola} entries={data.tombolaEntries} shoutouts={data.tombolaShoutouts} />
+				{/snippet}
+				{@render section('tombola', 'Tombola', null, 'QR sign-up, big screen & prize draw. Participants are kept permanently — re-opening the board later picks up everyone who already joined. The same person can only win once.', tombolaSum, null, tombolaBody)}
+
+				{#snippet marketingSum()}{@render assetSum(marketing, false)}{/snippet}
+				{#snippet marketingActions()}
+					<label class="btn sm upload">{uploading ? 'Uploading…' : '+ Upload'}<input type="file" hidden multiple onchange={(e) => upload(e, 'marketing')} disabled={uploading} /></label>
+				{/snippet}
+				{#snippet marketingBody()}{@render assetList(marketing, false)}{/snippet}
+				{@render section('marketing', 'Marketing material', marketing.length, 'Shared with the venue on the share page.', marketingSum, marketingActions, marketingBody)}
+
+				{#snippet mediaSum()}{@render assetSum(media, true)}{/snippet}
+				{#snippet mediaActions()}
+					<label class="btn sm upload">{uploading ? 'Uploading…' : '+ Upload'}<input type="file" hidden multiple accept="image/*,video/*" onchange={(e) => upload(e, 'media')} disabled={uploading} /></label>
+				{/snippet}
+				{#snippet mediaBody()}{@render assetList(media, true)}{/snippet}
+				{@render section('media', 'Photos & video', media.length, 'Ours and the venue’s. Tag products and rate each photo.', mediaSum, mediaActions, mediaBody)}
+
+				{#if data.participantLog.length > 0}
+					{#snippet logSum()}
+						<span class="sum-txt">Last: {fmtLog(data.participantLog[0].created_at)} · {data.participantLog[0].field} {data.participantLog[0].old_value ?? '—'} → <b>{data.participantLog[0].new_value ?? '—'}</b></span>
+					{/snippet}
+					{#snippet logBody()}
+						<table class="log-table">
+							<thead><tr><th>When</th><th>Field</th><th>Change</th><th>By</th></tr></thead>
+							<tbody>
+								{#each data.participantLog as l (l.id)}
+									<tr>
+										<td>{fmtLog(l.created_at)}</td>
+										<td class="cap">{l.field}</td>
+										<td>{l.old_value ?? '—'} → <strong>{l.new_value ?? '—'}</strong></td>
+										<td>{l.source === 'venue' ? 'Venue' : (l.actor || 'Internal')}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/snippet}
+					{@render section('log', 'Participant change log', data.participantLog.length, null, logSum, null, logBody)}
+				{/if}
 			</div>
 		</div>
-
-		<TombolaCard eventId={data.event.id} tombola={data.tombola} entries={data.tombolaEntries} shoutouts={data.tombolaShoutouts} />
-
-		<!-- Marketing assets (we share TO the venue) -->
-		<div class="card">
-			<h2 class="card-title">Marketing material <span class="muted">· shared with the venue</span></h2>
-			{@render assetList(marketing, false)}
-			<label class="btn sm upload">{uploading ? 'Uploading…' : '+ Upload material'}<input type="file" hidden multiple onchange={(e) => upload(e, 'marketing')} disabled={uploading} /></label>
-		</div>
-
-		<!-- Event media (photos/video — ours + venue's) -->
-		<div class="card">
-			<h2 class="card-title">Event photos & video</h2>
-			{@render assetList(media, true)}
-			<label class="btn sm upload">{uploading ? 'Uploading…' : '+ Upload media'}<input type="file" hidden multiple accept="image/*,video/*" onchange={(e) => upload(e, 'media')} disabled={uploading} /></label>
-		</div>
-
-		<!-- Participant change log -->
-		{#if data.participantLog.length > 0}
-			<div class="card">
-				<h2 class="card-title">Participant change log</h2>
-				<table class="log-table">
-					<thead><tr><th>When</th><th>Field</th><th>Change</th><th>By</th></tr></thead>
-					<tbody>
-						{#each data.participantLog as l (l.id)}
-							<tr>
-								<td>{fmtLog(l.created_at)}</td>
-								<td class="cap">{l.field}</td>
-								<td>{l.old_value ?? '—'} → <strong>{l.new_value ?? '—'}</strong></td>
-								<td>{l.source === 'venue' ? 'Venue' : (l.actor || 'Internal')}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
 	</main>
 </div>
+
+{#snippet section(key, title, count, info, summary, actions, body)}
+	{@const open = !collapsed[key]}
+	<section class="sec" class:open>
+		<div class="sec-head">
+			<button class="sec-toggle" onclick={() => toggleSec(key)} aria-expanded={open}>
+				<svg class="chev" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+				<span class="sec-title">{title}</span>
+				{#if count != null}<span class="sec-count">{count}</span>{/if}
+			</button>
+			{#if info}<span class="info" title={info}>ⓘ</span>{/if}
+			{#if !open}<button class="sec-sum" onclick={() => toggleSec(key)} tabindex="-1">{@render summary()}</button>{:else}<span class="sec-spacer"></span>{/if}
+			{#if actions}<div class="sec-actions">{@render actions()}</div>{/if}
+		</div>
+		{#if open}<div class="sec-body">{@render body()}</div>{/if}
+	</section>
+{/snippet}
+
+{#snippet assetSum(assets, isMedia)}
+	{#if assets.length === 0}<span class="sum-empty">Nothing uploaded</span>
+	{:else}
+		{@const imgs = assets.filter((a) => a.kind === 'image')}
+		<span class="thumbs">
+			{#each assets.slice(0, 8) as a (a.id)}
+				<span class="mini" title={a.filename}>{#if a.kind === 'image'}<img src={cdn(a.r2_key, 300)} alt="" loading="lazy" />{:else if a.kind === 'video'}▶{:else}📄{/if}</span>
+			{/each}
+		</span>
+		{#if assets.length > 8}<span class="sum-txt">+{assets.length - 8}</span>{/if}
+		{#if isMedia}
+			{@const rc = ratingCounts(assets)}
+			{@const untagged = imgs.filter((a) => !(a.skus?.length)).length}
+			{#if rc.good}<span class="rc good" title="Good">{rc.good}</span>{/if}
+			{#if rc.semi}<span class="rc semi" title="Semi">{rc.semi}</span>{/if}
+			{#if rc.bad}<span class="rc bad" title="Bad">{rc.bad}</span>{/if}
+			{#if untagged}<span class="sum-txt">· {untagged} untagged</span>{/if}
+		{/if}
+	{/if}
+{/snippet}
 
 {#if addMode}
 	<div class="modal-overlay" onclick={closeAdd} role="presentation">
@@ -677,12 +809,67 @@
 
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
-	main { flex: 1; max-width: 1200px; margin: 0 auto; width: 100%; padding: 24px 28px 80px; }
-	.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
-	.back-link { font-size: 13px; font-weight: 600; color: #71717A; text-decoration: none; }
+	main { flex: 1; width: 100%; padding: 20px 28px 80px; box-sizing: border-box; }
+	.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+	.head-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+	.back-link { font-size: 12px; font-weight: 600; color: #71717A; text-decoration: none; }
 	.back-link:hover { color: #18181B; }
-	.header-actions { display: flex; align-items: center; gap: 10px; }
+	.ev-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+	.ev-title { font-size: 20px; font-weight: 700; color: #18181B; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.ev-meta { font-size: 13px; color: #71717A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.dotsep { margin: 0 6px; color: #D4D4D8; }
+	.header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 	.flash { font-size: 12px; color: #16a34a; font-weight: 600; }
+	.btn.ghost { border-color: transparent; background: transparent; color: #71717A; }
+	.btn.ghost:hover { color: #18181B; background: #F4F4F5; }
+
+	.status { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 100px; text-transform: capitalize; flex-shrink: 0; }
+	.status.planned { background: #FEF9C3; color: #a16207; }
+	.status.confirmed { background: #DBEAFE; color: #1d4ed8; }
+	.status.done { background: #F0FDF4; color: #16a34a; }
+	.status.cancelled { background: #FEF2F2; color: #dc2626; }
+
+	/* Two panes: sticky details on the left, collapsible sections on the right */
+	.layout { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 20px; align-items: start; }
+	.left { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+	.left .card { margin-bottom: 14px; }
+	.right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+	@media (max-width: 1000px) {
+		.layout { grid-template-columns: 1fr; }
+		.left { position: static; max-height: none; overflow: visible; }
+	}
+
+	.sec { background: white; border: 1px solid var(--border); border-radius: 14px; }
+	.sec-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 10px; min-height: 52px; box-sizing: border-box; }
+	.sec-toggle { display: inline-flex; align-items: center; gap: 8px; border: none; background: none; padding: 6px; border-radius: 8px; font-family: inherit; cursor: pointer; flex-shrink: 0; }
+	.sec-toggle:hover { background: #F4F4F5; }
+	.chev { color: #A1A1AA; transition: transform .15s ease; }
+	.sec.open .chev { transform: rotate(90deg); }
+	.sec-title { font-size: 14px; font-weight: 700; color: #18181B; white-space: nowrap; }
+	.sec-count { font-size: 11px; font-weight: 700; color: #71717A; background: #F4F4F5; border-radius: 100px; padding: 1px 8px; }
+	.sec-sum { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: none; background: none; padding: 0; font-family: inherit; cursor: pointer; text-align: left; overflow: hidden; white-space: nowrap; }
+	.sec-spacer { flex: 1; }
+	.sec-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+	.sec-body { padding: 4px 18px 18px; border-top: 1px solid #F4F4F5; padding-top: 16px; }
+	.info { font-size: 13px; color: #A1A1AA; cursor: help; font-weight: 500; }
+	.sum-empty { font-size: 12.5px; color: #A1A1AA; }
+	.sum-txt { font-size: 12.5px; color: #52525B; overflow: hidden; text-overflow: ellipsis; }
+	.sum-txt b { color: #18181B; }
+	.thumbs { display: inline-flex; gap: 4px; flex-shrink: 0; }
+	.mini { width: 30px; height: 30px; border-radius: 6px; overflow: hidden; background: #F4F4F5; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: #71717A; }
+	.mini img { width: 100%; height: 100%; object-fit: cover; }
+	.mini.contain img { object-fit: contain; }
+	.avatars { display: inline-flex; flex-shrink: 0; }
+	.av { width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; margin-left: -6px; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+	.av:first-child { margin-left: 0; }
+	.av.contact { background: #EEF2FF; color: #4338ca; }
+	.av.guru { background: #FCE7F3; color: #be185d; }
+	.av img { width: 100%; height: 100%; object-fit: cover; }
+	.pill-sm { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 100px; background: #F4F4F5; color: #71717A; flex-shrink: 0; }
+	.pill-sm.open { background: #DCFCE7; color: #15803D; }
+	.rc { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: #52525B; flex-shrink: 0; }
+	.rc::before { content: ''; width: 7px; height: 7px; border-radius: 50%; }
+	.rc.good::before { background: #16a34a; } .rc.semi::before { background: #f59e0b; } .rc.bad::before { background: #dc2626; }
 
 	.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 10px; background: white; font-size: 13px; font-weight: 600; font-family: inherit; color: #18181B; cursor: pointer; text-decoration: none; }
 	.btn:hover:not(:disabled) { background: #FAFAFA; }
@@ -691,10 +878,10 @@
 	.btn.primary:hover:not(:disabled) { background: #e26a26; }
 	.btn.sm { padding: 5px 10px; font-size: 12px; }
 	.btn.danger { color: #dc2626; }
-	.btn.upload { margin-top: 12px; }
+	.btn.upload { margin: 0; }
 
-	.card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
-	.card-title { font-size: 14px; font-weight: 700; color: #18181B; margin: 0 0 14px; }
+	.card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
+	.card-title { font-size: 14px; font-weight: 700; color: #18181B; margin: 0 0 14px; display: flex; align-items: center; gap: 6px; }
 	.muted { color: #A1A1AA; font-weight: 500; font-size: 12px; }
 	.empty { color: #A1A1AA; font-size: 13px; padding: 8px 0; }
 	.hint { font-size: 12px; color: #A1A1AA; margin: 10px 0 0; }
@@ -722,6 +909,7 @@
 	.when-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
 	.multi-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #71717A; cursor: pointer; text-transform: none; }
 	.multi-chk input { width: 14px; height: 14px; accent-color: #F57832; cursor: pointer; }
+	.combo + .combo { margin-top: 6px; }
 	.combo { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: white; }
 	.combo .seg { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 	.combo .seg-grow { flex: 1.4; }
@@ -731,27 +919,28 @@
 	.combo .seg input:focus { border: none; box-shadow: none; }
 	.combo .seg:focus-within { background: #FAFAFA; }
 
-	.sku-search { position: relative; max-width: 420px; }
-	.sku-dropdown { position: absolute; z-index: 5; left: 0; right: 0; background: white; border: 1px solid var(--border); border-radius: 8px; margin-top: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); overflow: hidden; }
+	.sku-search { position: relative; width: 240px; }
+	.sku-search input { padding: 5px 10px; font-size: 12px; }
+	.sku-dropdown { position: absolute; z-index: 5; right: 0; min-width: 360px; background: white; border: 1px solid var(--border); border-radius: 8px; margin-top: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); overflow: hidden; }
 	.sku-opt { display: block; width: 100%; text-align: left; padding: 8px 10px; border: none; background: white; font-size: 13px; cursor: pointer; }
 	.sku-opt:hover { background: #FAFAFA; }
 
-	.prod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
+	.prod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 	.prod { position: relative; border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
 	.prod-thumb { position: relative; aspect-ratio: 1; background: #FAFAFA; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 	.prod-thumb img { width: 100%; height: 100%; object-fit: contain; }
 	.badge-row { position: absolute; bottom: 4px; right: 4px; display: flex; gap: 3px; }
 	.badge { width: 30px; height: 30px; object-fit: contain; }
 	.prod-info { display: flex; flex-direction: column; margin-top: 8px; }
-	.prod-name { font-size: 12px; font-weight: 600; color: #18181B; line-height: 1.3; }
+	.prod-name { font-size: 12px; font-weight: 600; color: #18181B; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.link-del { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.9); border: 1px solid var(--border); border-radius: 6px; width: 22px; height: 22px; color: #71717A; cursor: pointer; }
 	.link-del:hover { color: #dc2626; }
 
-	.share-row { display: flex; gap: 8px; align-items: center; }
-	.share-input { font-family: monospace; font-size: 12px; }
-	.share-btn { flex-shrink: 0; min-width: 84px; justify-content: center; white-space: nowrap; }
+	.share-input { font-family: monospace; font-size: 11.5px; color: #52525B; background: #FAFAFA; }
+	.share-btns { display: flex; gap: 6px; margin-top: 8px; }
+	.share-btns .btn { flex: 1; justify-content: center; }
 
-	.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+	.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
 	.asset { position: relative; border-radius: 12px; overflow: hidden; background: #F4F4F5; aspect-ratio: 1; }
 	.asset .thumb { display: block; width: 100%; height: 100%; object-fit: cover; }
 	.asset img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s ease; }
