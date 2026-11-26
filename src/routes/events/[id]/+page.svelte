@@ -411,7 +411,7 @@
 	}
 	const venueName = $derived(data.venues.find((v) => v.id === form.venue_id)?.name ?? '');
 	const typeName = $derived(data.types.find((t) => t.id === form.type_id)?.name ?? '');
-	const badgeCount = $derived(data.products.filter((p) => data.badges[p.sku]?.length).length);
+	const boxImg = (p) => p.images?.box || p.images?.flat || null;
 	const peopleSummary = $derived.by(() => {
 		const c = people.filter((p) => p.kind === 'contact').length;
 		const g = people.filter((p) => p.kind === 'guru').length;
@@ -548,10 +548,9 @@
 					{#if data.products.length === 0}<span class="sum-empty">None yet</span>
 					{:else}
 						<span class="thumbs">
-							{#each data.products.slice(0, 8) as p (p.sku)}<span class="mini contain" title="{p.name} · {p.sku}">{#if p.images?.box}<img src={p.images.box} alt="" />{/if}</span>{/each}
+							{#each data.products.slice(0, 8) as p (p.sku)}<span class="mini contain" title="{p.name} · {p.sku}">{#if boxImg(p)}<img src={boxImg(p)} alt="" />{/if}</span>{/each}
 						</span>
 						{#if data.products.length > 8}<span class="sum-txt">+{data.products.length - 8}</span>{/if}
-						{#if badgeCount}<span class="sum-txt">· {badgeCount} with awards</span>{/if}
 					{/if}
 				{/snippet}
 				{#snippet productsActions()}
@@ -574,12 +573,7 @@
 							{#each data.products as p (p.sku)}
 								<div class="prod">
 									<div class="prod-thumb">
-										{#if p.images?.box}<img src={p.images.box} alt={p.name} />{/if}
-										{#if data.badges[p.sku]?.length}
-											<div class="badge-row">
-												{#each data.badges[p.sku] as b}<img class="badge" src="/api/img/{b.image_key}" alt={b.kind} title="{b.kind}{b.media ? ' · ' + b.media : ''}" />{/each}
-											</div>
-										{/if}
+										{#if boxImg(p)}<img src={boxImg(p)} alt={p.name} loading="lazy" />{/if}
 									</div>
 									<div class="prod-info">
 										<span class="prod-name" title={p.name}>{p.name}</span>
@@ -591,7 +585,7 @@
 						</div>
 					{/if}
 				{/snippet}
-				{@render section('products', 'Products', data.products.length, 'Selected products (and any award/nominee badges) are shown to the venue automatically on the share page.', productsSum, productsActions, productsBody)}
+				{@render section('products', 'Products', data.products.length, 'Selected products are shown to the venue automatically on the share page (with any award/nominee badges).', productsSum, productsActions, productsBody)}
 
 				{#snippet tenderSum()}
 					{#if data.openings.length === 0 && tenderStats.invited === 0}<span class="sum-empty">No openings</span>
@@ -1162,8 +1156,6 @@
 	.prod { position: relative; border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
 	.prod-thumb { position: relative; aspect-ratio: 1; background: #FAFAFA; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 	.prod-thumb img { width: 100%; height: 100%; object-fit: contain; }
-	.badge-row { position: absolute; bottom: 4px; right: 4px; display: flex; gap: 3px; }
-	.badge { width: 30px; height: 30px; object-fit: contain; }
 	.prod-info { display: flex; flex-direction: column; margin-top: 8px; }
 	.prod-name { font-size: 12px; font-weight: 600; color: #18181B; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.link-del { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.9); border: 1px solid var(--border); border-radius: 6px; width: 22px; height: 22px; color: #71717A; cursor: pointer; }

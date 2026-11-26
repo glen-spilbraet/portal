@@ -88,6 +88,7 @@ export async function getProductBySku(db, sku, lang, origin) {
 		},
 		images: {
 			box: imgUrl(row.box_image_key),
+			flat: imgUrl(row.box_flat_image_key),
 			gallery: (images ?? []).map((im) => imgUrl(im.r2_key)).filter(Boolean)
 		},
 		youtube_url: row.youtube_url ?? null,

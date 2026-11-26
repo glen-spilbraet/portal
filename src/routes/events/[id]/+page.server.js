@@ -3,7 +3,6 @@ import { getEvent, listVenues, listEventTypes, getVenue, listParticipantLog, lis
 import { listGurus, listEventGurus, listOpenings } from '$lib/server/gurus.js';
 import { tenderLang } from '$lib/guruTender.js';
 import { getProductBySku } from '$lib/server/mcpProducts.js';
-import { getBadgesForSkus } from '$lib/server/awards.js';
 import { getTombolaForEvent, listEntriesAdmin, listShoutoutsAdmin } from '$lib/server/tombola.js';
 
 export async function load({ params, parent, platform, url }) {
@@ -16,11 +15,9 @@ export async function load({ params, parent, platform, url }) {
 	const event = await getEvent(db, params.id);
 	if (!event) error(404, 'Event not found');
 
-	const today = new Date().toISOString().slice(0, 10);
-	const [venues, types, badges, products, venue, participantLog, gurus, eventGurus, eventContacts, openings] = await Promise.all([
+	const [venues, types, products, venue, participantLog, gurus, eventGurus, eventContacts, openings] = await Promise.all([
 		listVenues(db),
 		listEventTypes(db),
-		getBadgesForSkus(db, event.skus, today),
 		Promise.all(event.skus.map((s) => getProductBySku(db, s, undefined, url.origin).catch(() => null))),
 		event.venue_id ? getVenue(db, event.venue_id) : null,
 		listParticipantLog(db, event.id),
@@ -41,7 +38,6 @@ export async function load({ params, parent, platform, url }) {
 		event,
 		venues,
 		types,
-		badges,
 		products: products.filter(Boolean),
 		venueContacts: venue?.contacts ?? [],
 		eventContacts,
