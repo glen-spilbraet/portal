@@ -283,10 +283,9 @@ export async function buildPlan(db, salesDb, rows) {
 		const restock = parseDateCell(r['Restock dato']);
 		if (preorder || restock) { if (dateChanges < 1e9) dateChanges++; if (dateSamples.length < 15) dateSamples.push({ sku, preorder, restock }); }
 
-		// ── Texts (per published language; FILL ONLY WHERE PORTAL IS EMPTY) ──
+		// ── Texts (every language the CSV has text for, published or not; FILL ONLY WHERE PORTAL IS EMPTY) ──
 		const texts = {};
-		for (const [flag, L] of Object.entries(LANG_FROM_PUB)) {
-			if (!yes(r[`Publiseret ${flag}`])) continue;
+		for (const L of TEXT_LANGS) {
 			const ex = state.existingText[key]?.[L] ?? {};
 			const t = {};
 			const short = (r[`short_${L}`] ?? '').trim();
