@@ -47,7 +47,7 @@ export async function load({ params, parent, platform, url }) {
 		gurus,
 		eventGurus: eventGurus.map((g) => ({ ...g, proposalUrl: `${url.origin}/events/guru/${g.proposal_token}` })),
 		shareUrl: `${url.origin}/events/share/${event.share_token}`,
-		tombola: tombola ? { ...tombola, joinUrl: `${url.origin}/tombola/${tombola.code}` } : null,
+		tombola: tombola ? { ...tombola, joinUrl: `${url.origin}/tombola/${tombola.code}`, screenUrl: `${url.origin}/tombola/${tombola.code}/screen` } : null,
 		tombolaEntries,
 		tombolaShoutouts,
 	};

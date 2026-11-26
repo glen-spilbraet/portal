@@ -17,6 +17,11 @@ function makeDeviceToken() {
 	return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/** Random 4-digit PIN for the big screen. */
+export function makePin() {
+	return String(crypto.getRandomValues(new Uint32Array(1))[0] % 10000).padStart(4, '0');
+}
+
 export const LIMITS = { name: 40, email: 120, zip: 12, shout: 120 };
 /** Seconds between two shoutouts from the same phone. */
 export const SHOUT_COOLDOWN = 10;
@@ -44,8 +49,8 @@ export async function ensureTombola(db, eventId, email) {
 	if (existing) return existing;
 	for (let i = 0; i < 5; i++) {
 		try {
-			await db.prepare('INSERT INTO tombola (id, event_id, code, created_by) VALUES (?,?,?,?)')
-				.bind(uid(), eventId, makeCode(), email ?? null).run();
+			await db.prepare('INSERT INTO tombola (id, event_id, code, created_by, pin) VALUES (?,?,?,?,?)')
+				.bind(uid(), eventId, makeCode(), email ?? null, makePin()).run();
 			break;
 		} catch (e) {
 			// Code collision → retry; a parallel create for the same event → fall through.
@@ -209,4 +214,50 @@ export async function listShoutoutsAdmin(db, tombolaId) {
 
 export async function setShoutoutHidden(db, tombolaId, shoutId, hidden) {
 	await db.prepare('UPDATE tombola_shoutout SET hidden = ? WHERE id = ? AND tombola_id = ?').bind(hidden ? 1 : 0, shoutId, tombolaId).run();
+}
+
+// ── Screen PIN ───────────────────────────────────────────────────────────────
+
+export const PIN_RE = /^\d{4,8}$/;
+const PIN_MAX_FAILS = 5;
+const PIN_LOCK_MINUTES = 10;
+
+export async function setTombolaPin(db, tombolaId, pin) {
+	if (!PIN_RE.test(String(pin ?? ''))) throw new Error('PIN must be 4–8 digits');
+	await db.prepare('UPDATE tombola SET pin = ?, pin_fails = 0, pin_lock_until = NULL WHERE id = ?').bind(String(pin), tombolaId).run();
+}
+
+/** Same-length comparison that doesn't stop at the first differing digit. */
+function sameText(a, b) {
+	if (a.length !== b.length) return false;
+	let d = 0;
+	for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+	return d === 0;
+}
+
+/**
+ * Check a PIN typed on the screen. 5 wrong in a row lock PIN entry for this
+ * tombola for 10 minutes (signed-in staff are unaffected).
+ * @returns {Promise<{ ok: true } | { ok: false, locked?: number }>} locked = minutes left
+ */
+export async function checkTombolaPin(db, t, pin) {
+	const lock = await db.prepare(
+		`SELECT CAST((julianday(pin_lock_until) - julianday('now')) * 1440 AS INTEGER) + 1 AS mins
+		 FROM tombola WHERE id = ? AND pin_lock_until > datetime('now')`
+	).bind(t.id).first();
+	if (lock) return { ok: false, locked: Math.max(1, lock.mins ?? 1) };
+	if (t.pin && sameText(String(pin ?? '').trim(), String(t.pin))) {
+		await db.prepare('UPDATE tombola SET pin_fails = 0 WHERE id = ?').bind(t.id).run();
+		return { ok: true };
+	}
+	const r = await db.prepare(
+		`UPDATE tombola SET pin_fails = pin_fails + 1,
+		        pin_lock_until = CASE WHEN pin_fails + 1 >= ?2 THEN datetime('now', '+' || ?3 || ' minutes') ELSE pin_lock_until END
+		 WHERE id = ?1 RETURNING pin_fails`
+	).bind(t.id, PIN_MAX_FAILS, PIN_LOCK_MINUTES).first();
+	if ((r?.pin_fails ?? 0) >= PIN_MAX_FAILS) {
+		await db.prepare('UPDATE tombola SET pin_fails = 0 WHERE id = ?').bind(t.id).run();
+		return { ok: false, locked: PIN_LOCK_MINUTES };
+	}
+	return { ok: false };
 }

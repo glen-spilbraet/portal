@@ -32,6 +32,26 @@
 		navigator.clipboard?.writeText(tombola.joinUrl);
 		copied = true; setTimeout(() => (copied = false), 1500);
 	}
+	let copiedScreen = $state(false);
+	function copyScreen() {
+		navigator.clipboard?.writeText(tombola.screenUrl);
+		copiedScreen = true; setTimeout(() => (copiedScreen = false), 1500);
+	}
+
+	// Screen PIN (lets someone without a Portal login run the big screen)
+	let pinEdit = $state(false);
+	let pinValue = $state('');
+	let pinErr = $state('');
+	function startPin() { pinValue = tombola.pin ?? ''; pinErr = ''; pinEdit = true; }
+	async function savePin() {
+		if (!/^\d{4,8}$/.test(pinValue)) { pinErr = '4–8 digits'; return; }
+		busy = true;
+		const r = await fetch(`/api/event-tombola/${eventId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: pinValue }) });
+		busy = false;
+		if (!r.ok) { pinErr = 'Could not save'; return; }
+		pinEdit = false;
+		await invalidateAll();
+	}
 	function fmt(ts) {
 		if (!ts) return '';
 		try { return new Date(ts.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
@@ -63,13 +83,27 @@
 		</div>
 
 		<div class="actions">
-			<a class="btn primary" href="/events/{eventId}/tombola" target="_blank" rel="noopener">Open big screen ↗</a>
+			<a class="btn primary" href={tombola.screenUrl} target="_blank" rel="noopener">Open big screen ↗</a>
+			<button class="btn" onclick={copyScreen}>{copiedScreen ? 'Copied ✓' : 'Copy screen link'}</button>
 			{#if tombola.status === 'open'}
 				<button class="btn" onclick={() => setStatus('closed')} disabled={busy}>🔒 Close sign-ups</button>
 			{:else}
 				<button class="btn" onclick={() => setStatus('open')} disabled={busy}>🔓 Re-open sign-ups</button>
 			{/if}
 			<a class="btn" href="/api/event-tombola/{eventId}/export" download>⬇ Export CSV</a>
+		</div>
+
+		<div class="pin-row">
+			<span class="pin-label">Screen PIN</span>
+			{#if pinEdit}
+				<input class="pin-input" bind:value={pinValue} inputmode="numeric" maxlength="8" placeholder="4–8 digits" onkeydown={(e) => e.key === 'Enter' && savePin()} />
+				<button class="btn sm primary" onclick={savePin} disabled={busy}>Save</button>
+				<button class="btn sm" onclick={() => (pinEdit = false)}>Cancel</button>
+				{#if pinErr}<span class="pin-err">{pinErr}</span>{/if}
+			{:else}
+				<code class="pin">{tombola.pin ?? '—'}</code>
+				<button class="btn sm" onclick={startPin}>Change</button>
+			{/if}
 		</div>
 
 		{#if winners.length}
@@ -138,6 +172,11 @@
 	.btn.primary { background: #F57832; color: white; border-color: #F57832; }
 	.btn.primary:hover:not(:disabled) { background: #e26a26; }
 	.btn.sm { padding: 4px 10px; font-size: 12px; }
+	.pin-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; }
+	.pin-label { font-weight: 700; color: #52525B; }
+	.pin { font-size: 15px; font-weight: 800; letter-spacing: .15em; background: #FAFAFA; border: 1px solid var(--border); border-radius: 8px; padding: 3px 10px; }
+	.pin-input { width: 110px; font-family: monospace; font-size: 14px; letter-spacing: .1em; }
+	.pin-err { color: #dc2626; font-size: 12px; font-weight: 600; }
 	.winners { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 	.win { background: #FEF3C7; color: #92400E; font-weight: 700; font-size: 12px; padding: 4px 10px; border-radius: 99px; }
 	.toggle { display: block; margin-top: 14px; background: none; border: 0; padding: 0; font: inherit; font-size: 13px; font-weight: 700; color: #52525B; cursor: pointer; }
