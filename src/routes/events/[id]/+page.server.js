@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { getEvent, listVenues, listEventTypes, getVenue, listParticipantLog, listEventContacts } from '$lib/server/events.js';
-import { listGurus, listEventGurus } from '$lib/server/gurus.js';
+import { listGurus, listEventGurus, listOpenings } from '$lib/server/gurus.js';
+import { tenderLang } from '$lib/guruTender.js';
 import { getProductBySku } from '$lib/server/mcpProducts.js';
 import { getBadgesForSkus } from '$lib/server/awards.js';
 import { getTombolaForEvent, listEntriesAdmin, listShoutoutsAdmin } from '$lib/server/tombola.js';
@@ -16,7 +17,7 @@ export async function load({ params, parent, platform, url }) {
 	if (!event) error(404, 'Event not found');
 
 	const today = new Date().toISOString().slice(0, 10);
-	const [venues, types, badges, products, venue, participantLog, gurus, eventGurus, eventContacts] = await Promise.all([
+	const [venues, types, badges, products, venue, participantLog, gurus, eventGurus, eventContacts, openings] = await Promise.all([
 		listVenues(db),
 		listEventTypes(db),
 		getBadgesForSkus(db, event.skus, today),
@@ -26,6 +27,7 @@ export async function load({ params, parent, platform, url }) {
 		listGurus(db),
 		listEventGurus(db, event.id),
 		listEventContacts(db, event.id),
+		listOpenings(db, event.id),
 	]);
 
 	// Tombola tables may be missing on an environment without migration 0124 → treat as none.
@@ -45,6 +47,8 @@ export async function load({ params, parent, platform, url }) {
 		eventContacts,
 		participantLog,
 		gurus,
+		openings,
+		tenderLang: tenderLang(venue?.country),
 		eventGurus: eventGurus.map((g) => ({ ...g, proposalUrl: `${url.origin}/events/guru/${g.proposal_token}` })),
 		shareUrl: `${url.origin}/events/share/${event.share_token}`,
 		tombola: tombola ? { ...tombola, joinUrl: `${url.origin}/tombola/${tombola.code}`, screenUrl: `${url.origin}/tombola/${tombola.code}/screen` } : null,

@@ -2,6 +2,7 @@
 	import AppNav from '$lib/components/AppNav.svelte';
 	import TombolaCard from '$lib/components/events/TombolaCard.svelte';
 	import { invalidateAll, goto } from '$app/navigation';
+	import { TENDER_LANG_NAME } from '$lib/guruTender.js';
 
 	let { data } = $props();
 
@@ -87,7 +88,7 @@
 		...data.eventGurus.map((g) => ({
 			kind: 'guru', id: g.id, name: g.name,
 			sub: [[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', '),
-			inFlow: !!g.event_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl,
+			inFlow: !!g.event_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl, rating: g.event_rating ?? null, note: g.event_note ?? '', opening_id: g.opening_id, sent_at: g.sent_at,
 		})),
 	]);
 
@@ -107,6 +108,120 @@
 	async function setGuruStatus(id, status) {
 		await fetch(`/api/events/${data.event.id}/gurus/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
 		await invalidateAll();
+	}
+	/** optimistic per-event guru ratings while saving: guruId → 1–5 | null */
+	let guruRateLocal = $state(/** @type {Record<string, number|null>} */ ({}));
+	async function rateGuru(row, r) {
+		const current = row.id in guruRateLocal ? guruRateLocal[row.id] : row.rating;
+		const next = current === r ? null : r; // click the current star again to clear
+		guruRateLocal = { ...guruRateLocal, [row.id]: next };
+		const res = await fetch(`/api/events/${data.event.id}/gurus/${row.id}`, {
+			method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rating: next })
+		});
+		if (!res.ok) alert('Failed to save rating');
+		await invalidateAll();
+		const { [row.id]: _, ...rest } = guruRateLocal; guruRateLocal = rest;
+	}
+	// ── Guru tender: openings + send ────────────────────────────────────────────
+	const BOOKED = (st) => st === 'accepted' || st === 'confirmed';
+	const openingById = $derived(Object.fromEntries(data.openings.map((o) => [o.id, o])));
+	const bookedBy = $derived.by(() => {
+		/** @type {Record<string, any[]>} */
+		const m = {};
+		for (const g of data.eventGurus) if (g.opening_id && BOOKED(g.status)) (m[g.opening_id] ??= []).push(g);
+		return m;
+	});
+	const tenderStats = $derived.by(() => {
+		const slots = data.openings.reduce((n, o) => n + o.slots, 0);
+		const filled = data.openings.reduce((n, o) => n + Math.min(o.filled, o.slots), 0);
+		const gs = data.eventGurus;
+		return {
+			slots, filled,
+			invited: gs.length,
+			booked: gs.filter((g) => BOOKED(g.status)).length,
+			declined: gs.filter((g) => g.status === 'declined').length,
+			waiting: gs.filter((g) => g.status === 'invited').length,
+		};
+	});
+	let openingBusy = $state(false);
+	async function api(url, method, body) {
+		const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+		const out = await res.json().catch(() => ({}));
+		if (!res.ok) throw new Error(out.message ?? 'Failed');
+		return out;
+	}
+	async function addOpening() {
+		openingBusy = true;
+		try { await api(`/api/events/${data.event.id}/openings`, 'POST', { slots: 1 }); await invalidateAll(); }
+		catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { openingBusy = false; }
+	}
+	async function patchOpening(o, patch) {
+		try { await api(`/api/events/${data.event.id}/openings/${o.id}`, 'PUT', patch); await invalidateAll(); }
+		catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+	}
+	async function removeOpening(o) {
+		if ((bookedBy[o.id]?.length ?? 0) > 0 && !confirm('Gurus are booked on this opening. Remove it anyway? They stay on the event.')) return;
+		try { await api(`/api/events/${data.event.id}/openings/${o.id}`, 'DELETE'); await invalidateAll(); }
+		catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+	}
+
+	// Send-tender picker
+	let tenderOpen = $state(false);
+	let tenderPicks = $state(/** @type {string[]} */ ([]));
+	let tenderQuery = $state('');
+	let tenderSending = $state(false);
+	let tenderResult = $state('');
+	const eventGuruById = $derived(Object.fromEntries(data.eventGurus.map((g) => [g.id, g])));
+	const tenderCandidates = $derived.by(() => {
+		const q = tenderQuery.trim().toLowerCase();
+		return data.gurus
+			.filter((g) => g.active !== 0)
+			.filter((g) => !q || `${g.name} ${g.city ?? ''} ${g.zip ?? ''} ${g.country ?? ''}`.toLowerCase().includes(q));
+	});
+	const pickable = (g) => !!g.email && !BOOKED(eventGuruById[g.id]?.status);
+	function openTender() {
+		tenderQuery = ''; tenderResult = '';
+		tenderPicks = [];
+		tenderOpen = true;
+	}
+	function toggleTenderPick(id) { tenderPicks = tenderPicks.includes(id) ? tenderPicks.filter((x) => x !== id) : [...tenderPicks, id]; }
+	function pickAllNew() {
+		const ids = tenderCandidates.filter((g) => pickable(g) && !eventGuruById[g.id]).map((g) => g.id);
+		tenderPicks = [...new Set([...tenderPicks, ...ids])];
+	}
+	async function sendTender() {
+		if (!tenderPicks.length || tenderSending) return;
+		tenderSending = true;
+		try {
+			const out = await api(`/api/events/${data.event.id}/tender`, 'POST', { guruIds: tenderPicks });
+			await invalidateAll();
+			tenderOpen = false;
+			const skip = (out.skipped ?? []).map((x) => `${x.name ?? x.id} (${x.reason})`);
+			tenderResult = `Sent to ${out.sent} guru${out.sent === 1 ? '' : 's'}` + (skip.length ? ` · skipped: ${skip.join(', ')}` : '');
+			setTimeout(() => (tenderResult = ''), 8000);
+		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { tenderSending = false; }
+	}
+	function ago(ts) {
+		if (!ts) return '';
+		const d = (Date.now() - new Date(ts.replace(' ', 'T') + 'Z').getTime()) / 86400000;
+		return d < 1 ? 'today' : d < 2 ? 'yesterday' : `${Math.floor(d)} days ago`;
+	}
+
+	// Per-event internal note on a guru (icon next to the stars; popover to view/edit)
+	let noteOpen = $state(/** @type {string|null} */ (null));
+	let noteDraft = $state('');
+	let noteSaving = $state(false);
+	function openNote(row) { noteOpen = noteOpen === row.id ? null : row.id; noteDraft = row.note ?? ''; }
+	async function saveNote(row) {
+		noteSaving = true;
+		try {
+			const res = await fetch(`/api/events/${data.event.id}/gurus/${row.id}`, {
+				method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: noteDraft })
+			});
+			if (!res.ok) throw new Error('Failed to save note');
+			await invalidateAll();
+			noteOpen = null;
+		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { noteSaving = false; }
 	}
 	let copiedGuru = $state(null);
 	function copyProposal(row) { navigator.clipboard?.writeText(row.proposalUrl); copiedGuru = row.id; setTimeout(() => (copiedGuru = null), 1500); }
@@ -276,6 +391,55 @@
 		try { return new Date(ts.replace(' ', 'T') + 'Z').toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
 		catch { return ts; }
 	}
+	// ── Header + section summaries ──────────────────────────────────────────────
+	const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+	function dparts(d) {
+		const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? '');
+		return m ? { y: +m[1], m: +m[2] - 1, d: +m[3] } : null;
+	}
+	function fmtWhen(e) {
+		const a = dparts(e.event_date);
+		if (!a) return '';
+		const b = e.end_date && e.end_date !== e.event_date ? dparts(e.end_date) : null;
+		let out;
+		if (!b) out = `${a.d} ${MON[a.m]} ${a.y}`;
+		else if (a.y !== b.y) out = `${a.d} ${MON[a.m]} ${a.y} – ${b.d} ${MON[b.m]} ${b.y}`;
+		else if (a.m !== b.m) out = `${a.d} ${MON[a.m]} – ${b.d} ${MON[b.m]} ${b.y}`;
+		else out = `${a.d}–${b.d} ${MON[a.m]} ${a.y}`;
+		const t = [e.start_time, e.end_time].filter(Boolean).join('–');
+		return t ? `${out}, ${t}` : out;
+	}
+	const venueName = $derived(data.venues.find((v) => v.id === form.venue_id)?.name ?? '');
+	const typeName = $derived(data.types.find((t) => t.id === form.type_id)?.name ?? '');
+	const badgeCount = $derived(data.products.filter((p) => data.badges[p.sku]?.length).length);
+	const peopleSummary = $derived.by(() => {
+		const c = people.filter((p) => p.kind === 'contact').length;
+		const g = people.filter((p) => p.kind === 'guru').length;
+		const mail = people.filter((p) => p.inFlow).length;
+		return [c && `${c} contact${c > 1 ? 's' : ''}`, g && `${g} guru${g > 1 ? 's' : ''}`, `${mail} get${mail === 1 ? 's' : ''} mail`].filter(Boolean).join(' · ');
+	});
+	const tombolaWinners = $derived(data.tombolaEntries.filter((e) => e.won_at).length);
+	function ratingCounts(list) {
+		const out = { good: 0, semi: 0, bad: 0 };
+		for (const a of list) if (a.rating && a.rating in out) out[a.rating]++;
+		return out;
+	}
+
+	// ── Collapsible sections (remembered per browser) ───────────────────────────
+	const SECTIONS = ['products', 'tender', 'people', 'tombola', 'marketing', 'media', 'log'];
+	const LS_KEY = 'events.detail.collapsed';
+	let collapsed = $state(/** @type {Record<string, boolean>} */ ({ log: true }));
+	$effect(() => {
+		try { const v = JSON.parse(localStorage.getItem(LS_KEY) ?? 'null'); if (v && typeof v === 'object') collapsed = v; } catch {}
+	});
+	function persist() { try { localStorage.setItem(LS_KEY, JSON.stringify(collapsed)); } catch {} }
+	function toggleSec(key) { collapsed = { ...collapsed, [key]: !collapsed[key] }; persist(); }
+	const allOpen = $derived(SECTIONS.every((k) => !collapsed[k]));
+	function toggleAll() {
+		const close = allOpen;
+		collapsed = Object.fromEntries(SECTIONS.map((k) => [k, close]));
+		persist();
+	}
 </script>
 
 <svelte:head><title>{form.title || 'Event'} — Product Portal</title></svelte:head>
@@ -285,209 +449,368 @@
 
 	<main>
 		<div class="page-header">
-			<a class="back-link" href="/events">← Events</a>
+			<div class="head-main">
+				<a class="back-link" href="/events">← Events</a>
+				<div class="ev-title-row">
+					<h1 class="ev-title" title={form.title}>{form.title || 'Untitled event'}</h1>
+					<span class="status {form.status}">{form.status}</span>
+				</div>
+				<div class="ev-meta">
+					{#each [fmtWhen(form), venueName, typeName].filter(Boolean) as m, i}{#if i}<span class="dotsep">·</span>{/if}<span>{m}</span>{/each}
+				</div>
+			</div>
 			<div class="header-actions">
 				{#if savedFlash}<span class="flash">Saved ✓</span>{/if}
-				<button class="btn danger" onclick={removeEvent}>Delete event</button>
+				<button class="btn ghost" onclick={toggleAll}>{allOpen ? 'Collapse all' : 'Expand all'}</button>
+				<button class="btn danger" onclick={removeEvent}>Delete</button>
 				<button class="btn primary" onclick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
 			</div>
 		</div>
 
-		<!-- Details -->
-		<div class="card">
-			<h2 class="card-title">Details</h2>
-			<div class="form-grid">
-				<label class="fld span2"><span>Title</span><input bind:value={form.title} /></label>
-				<label class="fld"><span>Venue</span>
-					<select bind:value={form.venue_id}>
-						<option value={null}>—</option>
-						{#each data.venues as v}<option value={v.id}>{v.name}</option>{/each}
-					</select>
-				</label>
-				<label class="fld"><span>Type</span>
-					<select bind:value={form.type_id}>
-						<option value={null}>—</option>
-						{#each data.types as t}<option value={t.id}>{t.name}</option>{/each}
-					</select>
-				</label>
-				<div class="fld span2">
-					<div class="when-head">
-						<span>When</span>
-						<label class="multi-chk"><input type="checkbox" checked={!!form.end_date} onchange={(e) => { form.end_date = e.currentTarget.checked ? (form.end_date || form.event_date || '') : ''; }} /> Multi-day</label>
-					</div>
-					<div class="combo">
-						<div class="seg seg-grow"><small>{form.end_date ? 'Start date' : 'Date'}</small><input type="date" bind:value={form.event_date} /></div>
-						{#if !!form.end_date}
-							<div class="seg seg-grow"><small>End date</small><input type="date" min={form.event_date || undefined} bind:value={form.end_date} /></div>
-						{/if}
-						<div class="seg"><small>Start</small><input type="time" bind:value={form.start_time} /></div>
-						<div class="seg"><small>End</small><input type="time" bind:value={form.end_time} /></div>
-					</div>
-				</div>
-				<label class="fld"><span>Status</span>
-					<select bind:value={form.status}>
-						<option value="planned">Planned</option>
-						<option value="confirmed">Confirmed</option>
-						<option value="done">Done</option>
-						<option value="cancelled">Cancelled</option>
-					</select>
-				</label>
-				<label class="fld"><span>Entry fee</span>
-					<div class="fee">
-						<input type="number" step="0.01" bind:value={form.entry_fee} />
-						<select bind:value={form.entry_fee_currency}>
-							<option value="DKK">DKK</option>
-							<option value="SEK">SEK</option>
-							<option value="NOK">NOK</option>
-							<option value="EUR">EUR</option>
-							<option value="USD">USD</option>
-						</select>
-					</div>
-				</label>
-				<div class="fld span2"><span>Participants</span>
-					<div class="combo">
-						<div class="seg seg-grow"><small>Expected</small><input type="number" min="0" placeholder="—" bind:value={form.participants_expected} /></div>
-						<div class="seg seg-grow"><small>Attended</small><input type="number" min="0" placeholder="—" bind:value={form.participants_actual} /></div>
-					</div>
-				</div>
-				<label class="fld span2"><span>Notes</span><textarea rows="2" bind:value={form.notes}></textarea></label>
-			</div>
-		</div>
-
-		<!-- Products -->
-		<div class="card">
-			<h2 class="card-title">Products at this event</h2>
-			<div class="sku-search">
-				<input placeholder="Search SKU or product name…" bind:value={skuQuery} oninput={searchSku} />
-				{#if skuResults.length > 0}
-					<div class="sku-dropdown">
-						{#each skuResults as r}
-							<button class="sku-opt" onclick={() => addSku(r.sku)}><b>{r.sku}</b> {r.name}</button>
-						{/each}
-					</div>
-				{/if}
-			</div>
-
-			{#if data.products.length === 0}
-				<p class="empty">No products selected yet.</p>
-			{:else}
-				<div class="prod-grid">
-					{#each data.products as p (p.sku)}
-						<div class="prod">
-							<div class="prod-thumb">
-								{#if p.images?.box}<img src={p.images.box} alt={p.name} />{/if}
-								{#if data.badges[p.sku]?.length}
-									<div class="badge-row">
-										{#each data.badges[p.sku] as b}<img class="badge" src="/api/img/{b.image_key}" alt={b.kind} title="{b.kind}{b.media ? ' · ' + b.media : ''}" />{/each}
-									</div>
+		<div class="layout">
+			<!-- Left: details -->
+			<aside class="left">
+				<div class="card">
+					<h2 class="card-title">Details</h2>
+					<div class="form-grid">
+						<label class="fld span2"><span>Title</span><input bind:value={form.title} /></label>
+						<label class="fld span2"><span>Venue</span>
+							<select bind:value={form.venue_id}>
+								<option value={null}>—</option>
+								{#each data.venues as v}<option value={v.id}>{v.name}</option>{/each}
+							</select>
+						</label>
+						<label class="fld span2"><span>Type</span>
+							<select bind:value={form.type_id}>
+								<option value={null}>—</option>
+								{#each data.types as t}<option value={t.id}>{t.name}</option>{/each}
+							</select>
+						</label>
+						<div class="fld span2">
+							<div class="when-head">
+								<span>When</span>
+								<label class="multi-chk"><input type="checkbox" checked={!!form.end_date} onchange={(e) => { form.end_date = e.currentTarget.checked ? (form.end_date || form.event_date || '') : ''; }} /> Multi-day</label>
+							</div>
+							<div class="combo">
+								<div class="seg"><small>{form.end_date ? 'Start date' : 'Date'}</small><input type="date" bind:value={form.event_date} /></div>
+								{#if !!form.end_date}
+									<div class="seg"><small>End date</small><input type="date" min={form.event_date || undefined} bind:value={form.end_date} /></div>
 								{/if}
 							</div>
-							<div class="prod-info">
-								<span class="prod-name">{p.name}</span>
-								<span class="muted">{p.sku}</span>
+							<div class="combo">
+								<div class="seg"><small>Start</small><input type="time" bind:value={form.start_time} /></div>
+								<div class="seg"><small>End</small><input type="time" bind:value={form.end_time} /></div>
 							</div>
-							<button class="link-del" onclick={() => removeSku(p.sku)}>✕</button>
 						</div>
-					{/each}
+						<label class="fld"><span>Status</span>
+							<select bind:value={form.status}>
+								<option value="planned">Planned</option>
+								<option value="confirmed">Confirmed</option>
+								<option value="done">Done</option>
+								<option value="cancelled">Cancelled</option>
+							</select>
+						</label>
+						<label class="fld"><span>Entry fee</span>
+							<div class="fee">
+								<input type="number" step="0.01" bind:value={form.entry_fee} />
+								<select bind:value={form.entry_fee_currency}>
+									<option value="DKK">DKK</option>
+									<option value="SEK">SEK</option>
+									<option value="NOK">NOK</option>
+									<option value="EUR">EUR</option>
+									<option value="USD">USD</option>
+								</select>
+							</div>
+						</label>
+						<div class="fld span2"><span>Participants</span>
+							<div class="combo">
+								<div class="seg"><small>Expected</small><input type="number" min="0" placeholder="—" bind:value={form.participants_expected} /></div>
+								<div class="seg"><small>Attended</small><input type="number" min="0" placeholder="—" bind:value={form.participants_actual} /></div>
+							</div>
+						</div>
+						<label class="fld span2"><span>Notes</span><textarea rows="3" bind:value={form.notes}></textarea></label>
+					</div>
 				</div>
-			{/if}
-			<p class="hint">Selected products (and any award/nominee badges) are shown to the venue automatically on the share page.</p>
-		</div>
 
-		<!-- People (contacts + gurus) -->
-		<div class="card">
-			<div class="card-head">
-				<h2 class="card-title">People for this event <span class="muted">· contacts & gurus</span></h2>
-				<div class="head-btns">
-					<button class="btn sm" onclick={() => openAdd('contact')}>+ Add contact</button>
-					<button class="btn sm" onclick={() => openAdd('guru')}>+ Add guru</button>
+				<div class="card">
+					<h2 class="card-title">Venue share link <span class="info" title="Send this link to the venue — no login needed. They can view product info & material and upload their own photos/video.">ⓘ</span></h2>
+					<input class="share-input" readonly value={data.shareUrl} onfocus={(e) => e.currentTarget.select()} />
+					<div class="share-btns">
+						<button class="btn sm" onclick={copyLink}>{copied ? 'Copied ✓' : 'Copy link'}</button>
+						<a class="btn sm" href={data.shareUrl} target="_blank" rel="noopener">Open ↗</a>
+					</div>
 				</div>
-			</div>
+			</aside>
 
-			{#if people.length === 0}
-				<p class="empty">No one added yet. Use “Add contact” or “Add guru”.</p>
-			{:else}
-				<table class="people-table">
-					<thead><tr><th>Name</th><th>Type</th><th>Emails</th><th>Status</th><th></th></tr></thead>
-					<tbody>
-						{#each people as row (row.kind + row.id)}
-							<tr>
-								<td>
-									<div class="p-name">
-										<span class="p-avatar">
-											{#if row.kind === 'guru' && row.image_key}<img src="/api/img/{row.image_key}" alt={row.name} />
-											{:else}{row.name?.[0]?.toUpperCase() ?? '?'}{/if}
-										</span>
-										<span class="p-id"><span class="strong">{row.name}</span>{#if row.sub}<span class="muted">{row.sub}</span>{/if}</span>
-									</div>
-								</td>
-								<td><span class="type-badge {row.kind}">{row.kind === 'guru' ? 'Guru' : 'Contact'}</span></td>
-								<td><button class="flow-pill {row.inFlow ? 'on' : 'off'}" onclick={() => toggleFlow(row)}>{row.inFlow ? 'Gets mail' : 'No mail'}</button></td>
-								<td>{#if row.kind === 'guru'}<span class="gstatus {row.status}">{row.status}</span>{:else}<span class="muted">—</span>{/if}</td>
-								<td class="actions-cell">
-									<div class="p-actions">
-										{#if row.kind === 'guru'}
-											<button class="btn xs" onclick={() => copyProposal(row)}>{copiedGuru === row.id ? 'Copied ✓' : 'Invite'}</button>
-											{#if row.status !== 'confirmed'}<button class="btn xs" onclick={() => setGuruStatus(row.id, 'confirmed')}>Confirm</button>{/if}
+			<!-- Right: collapsible sections -->
+			<div class="right">
+				{#snippet productsSum()}
+					{#if data.products.length === 0}<span class="sum-empty">None yet</span>
+					{:else}
+						<span class="thumbs">
+							{#each data.products.slice(0, 8) as p (p.sku)}<span class="mini contain" title="{p.name} · {p.sku}">{#if p.images?.box}<img src={p.images.box} alt="" />{/if}</span>{/each}
+						</span>
+						{#if data.products.length > 8}<span class="sum-txt">+{data.products.length - 8}</span>{/if}
+						{#if badgeCount}<span class="sum-txt">· {badgeCount} with awards</span>{/if}
+					{/if}
+				{/snippet}
+				{#snippet productsActions()}
+					<div class="sku-search">
+						<input placeholder="Add product…" bind:value={skuQuery} oninput={searchSku} />
+						{#if skuResults.length > 0}
+							<div class="sku-dropdown">
+								{#each skuResults as r}
+									<button class="sku-opt" onclick={() => addSku(r.sku)}><b>{r.sku}</b> {r.name}</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/snippet}
+				{#snippet productsBody()}
+					{#if data.products.length === 0}
+						<p class="empty">No products selected yet.</p>
+					{:else}
+						<div class="prod-grid">
+							{#each data.products as p (p.sku)}
+								<div class="prod">
+									<div class="prod-thumb">
+										{#if p.images?.box}<img src={p.images.box} alt={p.name} />{/if}
+										{#if data.badges[p.sku]?.length}
+											<div class="badge-row">
+												{#each data.badges[p.sku] as b}<img class="badge" src="/api/img/{b.image_key}" alt={b.kind} title="{b.kind}{b.media ? ' · ' + b.media : ''}" />{/each}
+											</div>
 										{/if}
-										<button class="btn xs danger" onclick={() => removePerson(row)}>✕</button>
 									</div>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			{/if}
-		</div>
+									<div class="prod-info">
+										<span class="prod-name" title={p.name}>{p.name}</span>
+										<span class="muted">{p.sku}</span>
+									</div>
+									<button class="link-del" onclick={() => removeSku(p.sku)} aria-label="Remove {p.sku}">✕</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				{/snippet}
+				{@render section('products', 'Products', data.products.length, 'Selected products (and any award/nominee badges) are shown to the venue automatically on the share page.', productsSum, productsActions, productsBody)}
 
-		<!-- Venue share link -->
-		<div class="card">
-			<h2 class="card-title">Venue share link</h2>
-			<p class="hint">Send this link to the venue — no login needed. They can view product info & material and upload their own photos/video.</p>
-			<div class="share-row">
-				<input class="share-input" readonly value={data.shareUrl} />
-				<button class="btn share-btn" onclick={copyLink}>{copied ? 'Copied ✓' : 'Copy'}</button>
-				<a class="btn share-btn" href={data.shareUrl} target="_blank" rel="noopener">Open</a>
+				{#snippet tenderSum()}
+					{#if data.openings.length === 0 && tenderStats.invited === 0}<span class="sum-empty">No openings</span>
+					{:else}
+						{#if tenderStats.slots}
+							<span class="t-bar" title="{tenderStats.filled} of {tenderStats.slots} spots filled"><span style="width:{(tenderStats.filled / tenderStats.slots) * 100}%"></span></span>
+							<span class="sum-txt"><b>{tenderStats.filled}/{tenderStats.slots}</b> filled</span>
+						{/if}
+						{#if tenderStats.invited}<span class="sum-txt">· {tenderStats.invited} invited · {tenderStats.waiting} waiting · {tenderStats.declined} declined</span>{/if}
+					{/if}
+				{/snippet}
+				{#snippet tenderActions()}
+					<button class="btn sm primary" onclick={openTender}>Send tender…</button>
+				{/snippet}
+				{#snippet tenderBody()}
+					{#if tenderResult}<div class="t-flash">{tenderResult}</div>{/if}
+					{#if data.openings.length === 0}
+						<p class="empty">No openings — invited gurus just answer yes or no.</p>
+					{:else}
+						<div class="openings">
+							{#each data.openings as o (o.id)}
+								{@const booked = bookedBy[o.id] ?? []}
+								<div class="op-row">
+									<input class="op-label" value={o.label ?? ''} placeholder="Any game type (e.g. Strategi)" onchange={(e) => patchOpening(o, { label: e.currentTarget.value })} />
+									<div class="stepper" role="group" aria-label="Gurus needed">
+										<button onclick={() => patchOpening(o, { slots: o.slots - 1 })} disabled={o.slots <= 1} aria-label="Fewer">−</button>
+										<span>{o.slots}</span>
+										<button onclick={() => patchOpening(o, { slots: o.slots + 1 })} aria-label="More">+</button>
+									</div>
+									<div class="op-fill">
+										<span class="op-dots">{#each Array(o.slots) as _, i}<span class="op-dot" class:on={i < o.filled}></span>{/each}</span>
+										<span class="op-names" title={booked.map((g) => g.name).join(', ')}>{booked.length ? booked.map((g) => g.name.split(' ')[0]).join(', ') : 'Open'}</span>
+									</div>
+									<button class="op-del" onclick={() => removeOpening(o)} aria-label="Remove opening">✕</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					<div class="t-foot">
+						<button class="btn sm" onclick={addOpening} disabled={openingBusy}>+ Add opening</button>
+						{#if tenderStats.invited}
+							<span class="t-chips">
+								<span class="t-chip">{tenderStats.invited} invited</span>
+								<span class="t-chip ok">{tenderStats.booked} booked</span>
+								<span class="t-chip">{tenderStats.waiting} waiting</span>
+								<span class="t-chip no">{tenderStats.declined} declined</span>
+							</span>
+						{/if}
+					</div>
+				{/snippet}
+				{@render section('tender', 'Guru tender', data.openings.length ? `${tenderStats.filled}/${tenderStats.slots}` : null, 'Add openings (e.g. 2 × Strategi, 1 × Familie) and send the tender: each guru gets an e-mail with a personal link and takes a free spot — first come, first served. The language follows the venue country.', tenderSum, tenderActions, tenderBody)}
+
+				{#snippet peopleSum()}
+					{#if people.length === 0}<span class="sum-empty">No one added</span>
+					{:else}
+						<span class="avatars">
+							{#each people.slice(0, 6) as row (row.kind + row.id)}
+								<span class="av {row.kind}" title="{row.name} · {row.kind === 'guru' ? 'Guru' : 'Contact'}">{#if row.kind === 'guru' && row.image_key}<img src="/api/img/{row.image_key}" alt="" />{:else}{row.name?.[0]?.toUpperCase() ?? '?'}{/if}</span>
+							{/each}
+						</span>
+						<span class="sum-txt">{peopleSummary}</span>
+					{/if}
+				{/snippet}
+				{#snippet peopleActions()}
+					<button class="btn sm" onclick={() => openAdd('contact')}>+ Contact</button>
+					<button class="btn sm" onclick={() => openAdd('guru')}>+ Guru</button>
+				{/snippet}
+				{#snippet peopleBody()}
+					{#if people.length === 0}
+						<p class="empty">No one added yet.</p>
+					{:else}
+						<table class="people-table">
+							<thead><tr><th>Name</th><th>Type</th><th>Emails</th><th>Status</th><th>Rating</th><th></th></tr></thead>
+							<tbody>
+								{#each people as row (row.kind + row.id)}
+									<tr>
+										<td>
+											<div class="p-name">
+												<span class="p-avatar">
+													{#if row.kind === 'guru' && row.image_key}<img src="/api/img/{row.image_key}" alt={row.name} />
+													{:else}{row.name?.[0]?.toUpperCase() ?? '?'}{/if}
+												</span>
+												<span class="p-id"><span class="strong">{row.name}</span>{#if row.sub}<span class="muted">{row.sub}</span>{/if}</span>
+											</div>
+										</td>
+										<td><span class="type-badge {row.kind}">{row.kind === 'guru' ? 'Guru' : 'Contact'}</span></td>
+										<td><button class="flow-pill {row.inFlow ? 'on' : 'off'}" onclick={() => toggleFlow(row)}>{row.inFlow ? 'Gets mail' : 'No mail'}</button></td>
+										<td>{#if row.kind === 'guru'}<span class="gstatus {row.status}">{row.status}</span>{#if row.opening_id && openingById[row.opening_id]}<span class="muted op-lbl"> · {openingById[row.opening_id].label || 'Guru'}</span>{/if}{:else}<span class="muted">—</span>{/if}</td>
+										<td>
+											{#if row.kind === 'guru'}
+												{@const rv = row.id in guruRateLocal ? guruRateLocal[row.id] : row.rating}
+												<div class="stars" role="radiogroup" aria-label="Rate {row.name} for this event">
+													{#each [1, 2, 3, 4, 5] as n}
+														<button class="star" class:on={(rv ?? 0) >= n} role="radio" aria-checked={rv === n} aria-label="{n} star{n > 1 ? 's' : ''}" title={rv === n ? 'Click again to clear' : `${n} / 5`} onclick={() => rateGuru(row, n)}>★</button>
+													{/each}
+												</div>
+												<span class="note-wrap">
+													<button class="note-btn" class:has={!!row.note} onclick={(e) => { e.stopPropagation(); openNote(row); }} aria-label={row.note ? 'View/edit note' : 'Add note'} title={row.note ? 'View/edit note' : 'Add note'} aria-expanded={noteOpen === row.id}>
+														<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.5a1 1 0 0 1-1-1Z" fill={row.note ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+													</button>
+													{#if noteOpen === row.id}
+														<div class="note-pop" role="dialog" aria-label="Note on {row.name}" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') noteOpen = null; if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveNote(row); }}>
+															<!-- svelte-ignore a11y_autofocus -->
+															<textarea rows="4" bind:value={noteDraft} placeholder="Note on {row.name} at this event…" autofocus></textarea>
+															<div class="note-foot">
+																<button class="btn xs" onclick={() => (noteOpen = null)}>Cancel</button>
+																<button class="btn xs primary" onclick={() => saveNote(row)} disabled={noteSaving || noteDraft.trim() === (row.note ?? '').trim()}>{noteSaving ? 'Saving…' : 'Save'}</button>
+															</div>
+														</div>
+													{/if}
+												</span>
+											{/if}
+										</td>
+										<td class="actions-cell">
+											<div class="p-actions">
+												{#if row.kind === 'guru'}
+													<button class="btn xs" onclick={() => copyProposal(row)}>{copiedGuru === row.id ? 'Copied ✓' : 'Invite'}</button>
+													{#if row.status !== 'confirmed'}<button class="btn xs" onclick={() => setGuruStatus(row.id, 'confirmed')}>Confirm</button>{/if}
+												{/if}
+												<button class="btn xs danger" onclick={() => removePerson(row)} aria-label="Remove {row.name}">✕</button>
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+				{/snippet}
+				{@render section('people', 'People', people.length, 'Contacts from the venue and gurus.', peopleSum, peopleActions, peopleBody)}
+
+				{#snippet tombolaSum()}
+					{#if !data.tombola}<span class="sum-empty">Not set up</span>
+					{:else}
+						<span class="pill-sm" class:open={data.tombola.status === 'open'}>{data.tombola.status === 'open' ? 'Open' : 'Closed'}</span>
+						<span class="sum-txt"><b>{data.tombolaEntries.length}</b> participants · <b>{tombolaWinners}</b> winners · <b>{data.tombolaShoutouts.length}</b> shoutouts</span>
+					{/if}
+				{/snippet}
+				{#snippet tombolaBody()}
+					<TombolaCard bare eventId={data.event.id} tombola={data.tombola} entries={data.tombolaEntries} shoutouts={data.tombolaShoutouts} />
+				{/snippet}
+				{@render section('tombola', 'Tombola', null, 'QR sign-up, big screen & prize draw. Participants are kept permanently — re-opening the board later picks up everyone who already joined. The same person can only win once.', tombolaSum, null, tombolaBody)}
+
+				{#snippet marketingSum()}{@render assetSum(marketing, false)}{/snippet}
+				{#snippet marketingActions()}
+					<label class="btn sm upload">{uploading ? 'Uploading…' : '+ Upload'}<input type="file" hidden multiple onchange={(e) => upload(e, 'marketing')} disabled={uploading} /></label>
+				{/snippet}
+				{#snippet marketingBody()}{@render assetList(marketing, false)}{/snippet}
+				{@render section('marketing', 'Marketing material', marketing.length, 'Shared with the venue on the share page.', marketingSum, marketingActions, marketingBody)}
+
+				{#snippet mediaSum()}{@render assetSum(media, true)}{/snippet}
+				{#snippet mediaActions()}
+					<label class="btn sm upload">{uploading ? 'Uploading…' : '+ Upload'}<input type="file" hidden multiple accept="image/*,video/*" onchange={(e) => upload(e, 'media')} disabled={uploading} /></label>
+				{/snippet}
+				{#snippet mediaBody()}{@render assetList(media, true)}{/snippet}
+				{@render section('media', 'Photos & video', media.length, 'Ours and the venue’s. Tag products and rate each photo.', mediaSum, mediaActions, mediaBody)}
+
+				{#if data.participantLog.length > 0}
+					{#snippet logSum()}
+						<span class="sum-txt">Last: {fmtLog(data.participantLog[0].created_at)} · {data.participantLog[0].field} {data.participantLog[0].old_value ?? '—'} → <b>{data.participantLog[0].new_value ?? '—'}</b></span>
+					{/snippet}
+					{#snippet logBody()}
+						<table class="log-table">
+							<thead><tr><th>When</th><th>Field</th><th>Change</th><th>By</th></tr></thead>
+							<tbody>
+								{#each data.participantLog as l (l.id)}
+									<tr>
+										<td>{fmtLog(l.created_at)}</td>
+										<td class="cap">{l.field}</td>
+										<td>{l.old_value ?? '—'} → <strong>{l.new_value ?? '—'}</strong></td>
+										<td>{l.source === 'venue' ? 'Venue' : (l.actor || 'Internal')}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/snippet}
+					{@render section('log', 'Participant change log', data.participantLog.length, null, logSum, null, logBody)}
+				{/if}
 			</div>
 		</div>
-
-		<TombolaCard eventId={data.event.id} tombola={data.tombola} entries={data.tombolaEntries} shoutouts={data.tombolaShoutouts} />
-
-		<!-- Marketing assets (we share TO the venue) -->
-		<div class="card">
-			<h2 class="card-title">Marketing material <span class="muted">· shared with the venue</span></h2>
-			{@render assetList(marketing, false)}
-			<label class="btn sm upload">{uploading ? 'Uploading…' : '+ Upload material'}<input type="file" hidden multiple onchange={(e) => upload(e, 'marketing')} disabled={uploading} /></label>
-		</div>
-
-		<!-- Event media (photos/video — ours + venue's) -->
-		<div class="card">
-			<h2 class="card-title">Event photos & video</h2>
-			{@render assetList(media, true)}
-			<label class="btn sm upload">{uploading ? 'Uploading…' : '+ Upload media'}<input type="file" hidden multiple accept="image/*,video/*" onchange={(e) => upload(e, 'media')} disabled={uploading} /></label>
-		</div>
-
-		<!-- Participant change log -->
-		{#if data.participantLog.length > 0}
-			<div class="card">
-				<h2 class="card-title">Participant change log</h2>
-				<table class="log-table">
-					<thead><tr><th>When</th><th>Field</th><th>Change</th><th>By</th></tr></thead>
-					<tbody>
-						{#each data.participantLog as l (l.id)}
-							<tr>
-								<td>{fmtLog(l.created_at)}</td>
-								<td class="cap">{l.field}</td>
-								<td>{l.old_value ?? '—'} → <strong>{l.new_value ?? '—'}</strong></td>
-								<td>{l.source === 'venue' ? 'Venue' : (l.actor || 'Internal')}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
 	</main>
 </div>
+
+{#snippet section(key, title, count, info, summary, actions, body)}
+	{@const open = !collapsed[key]}
+	<section class="sec" class:open>
+		<div class="sec-head">
+			<button class="sec-toggle" onclick={() => toggleSec(key)} aria-expanded={open}>
+				<svg class="chev" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+				<span class="sec-title">{title}</span>
+				{#if count != null}<span class="sec-count">{count}</span>{/if}
+			</button>
+			{#if info}<span class="info" title={info}>ⓘ</span>{/if}
+			{#if !open}<button class="sec-sum" onclick={() => toggleSec(key)} tabindex="-1">{@render summary()}</button>{:else}<span class="sec-spacer"></span>{/if}
+			{#if actions}<div class="sec-actions">{@render actions()}</div>{/if}
+		</div>
+		{#if open}<div class="sec-body">{@render body()}</div>{/if}
+	</section>
+{/snippet}
+
+{#snippet assetSum(assets, isMedia)}
+	{#if assets.length === 0}<span class="sum-empty">Nothing uploaded</span>
+	{:else}
+		{@const imgs = assets.filter((a) => a.kind === 'image')}
+		<span class="thumbs">
+			{#each assets.slice(0, 8) as a (a.id)}
+				<span class="mini" title={a.filename}>{#if a.kind === 'image'}<img src={cdn(a.r2_key, 300)} alt="" loading="lazy" />{:else if a.kind === 'video'}▶{:else}📄{/if}</span>
+			{/each}
+		</span>
+		{#if assets.length > 8}<span class="sum-txt">+{assets.length - 8}</span>{/if}
+		{#if isMedia}
+			{@const rc = ratingCounts(assets)}
+			{@const untagged = imgs.filter((a) => !(a.skus?.length)).length}
+			{#if rc.good}<span class="rc good" title="Good">{rc.good}</span>{/if}
+			{#if rc.semi}<span class="rc semi" title="Semi">{rc.semi}</span>{/if}
+			{#if rc.bad}<span class="rc bad" title="Bad">{rc.bad}</span>{/if}
+			{#if untagged}<span class="sum-txt">· {untagged} untagged</span>{/if}
+		{/if}
+	{/if}
+{/snippet}
 
 {#if addMode}
 	<div class="modal-overlay" onclick={closeAdd} role="presentation">
@@ -525,7 +848,49 @@
 	</div>
 {/if}
 
-<svelte:window onkeydown={(e) => { viewerKeys(e); if (e.key === 'Escape') { closeAdd(); rateOpen = null; } }} onclick={() => (rateOpen = null)} />
+{#if tenderOpen}
+	<div class="modal-overlay" onclick={() => (tenderOpen = false)} role="presentation">
+		<div class="modal tender-modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Send tender">
+			<button class="modal-x" onclick={() => (tenderOpen = false)} aria-label="Close">✕</button>
+			<h3 class="modal-title">Send tender</h3>
+			<div class="tm-bar">
+				<input class="tm-search" placeholder="Filter by name, city or zip…" bind:value={tenderQuery} />
+				<button class="btn sm" onclick={pickAllNew}>Select all not invited</button>
+			</div>
+			<div class="tm-list">
+				{#each tenderCandidates as g (g.id)}
+					{@const eg = eventGuruById[g.id]}
+					{@const ok = pickable(g)}
+					<label class="tm-row" class:off={!ok} class:on={tenderPicks.includes(g.id)}>
+						<input type="checkbox" checked={tenderPicks.includes(g.id)} disabled={!ok} onchange={() => toggleTenderPick(g.id)} />
+						<span class="p-avatar">{#if g.image_key}<img src="/api/img/{g.image_key}" alt="" />{:else}{g.name?.[0]?.toUpperCase() ?? '?'}{/if}</span>
+						<span class="tm-id">
+							<span class="strong">{g.name}</span>
+							<span class="muted">{[[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', ') || '—'}</span>
+						</span>
+						<span class="tm-rate">{#if g.rating_count}★ {g.rating_avg.toFixed(1)}{/if}</span>
+						<span class="tm-state">
+							{#if !g.email}<span class="t-chip no">No e-mail</span>
+							{:else if eg && BOOKED(eg.status)}<span class="t-chip ok">Booked{eg.opening_id && openingById[eg.opening_id] ? ` · ${openingById[eg.opening_id].label || 'Guru'}` : ''}</span>
+							{:else if eg?.status === 'declined'}<span class="t-chip no">Declined</span>
+							{:else if eg?.sent_at}<span class="t-chip">Sent {ago(eg.sent_at)}</span>
+							{:else if eg}<span class="t-chip">On event</span>{/if}
+						</span>
+					</label>
+				{:else}
+					<p class="empty">No gurus match.</p>
+				{/each}
+			</div>
+			<div class="modal-foot tm-foot">
+				<span class="muted">E-mail in {TENDER_LANG_NAME[data.tenderLang]} · from you</span>
+				<button class="btn" onclick={() => (tenderOpen = false)}>Cancel</button>
+				<button class="btn primary" onclick={sendTender} disabled={tenderSending || tenderPicks.length === 0}>{tenderSending ? 'Sending…' : `Send to ${tenderPicks.length || ''}`}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<svelte:window onkeydown={(e) => { viewerKeys(e); if (e.key === 'Escape') { closeAdd(); rateOpen = null; tenderOpen = false; } }} onclick={() => { rateOpen = null; noteOpen = null; }} />
 
 {#if tagAsset}
 	{@const r = tagAsset.id in rateLocal ? rateLocal[tagAsset.id] : tagAsset.rating}
@@ -677,12 +1042,67 @@
 
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
-	main { flex: 1; max-width: 1200px; margin: 0 auto; width: 100%; padding: 24px 28px 80px; }
-	.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
-	.back-link { font-size: 13px; font-weight: 600; color: #71717A; text-decoration: none; }
+	main { flex: 1; width: 100%; padding: 20px 28px 80px; box-sizing: border-box; }
+	.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+	.head-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+	.back-link { font-size: 12px; font-weight: 600; color: #71717A; text-decoration: none; }
 	.back-link:hover { color: #18181B; }
-	.header-actions { display: flex; align-items: center; gap: 10px; }
+	.ev-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+	.ev-title { font-size: 20px; font-weight: 700; color: #18181B; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.ev-meta { font-size: 13px; color: #71717A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.dotsep { margin: 0 6px; color: #D4D4D8; }
+	.header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 	.flash { font-size: 12px; color: #16a34a; font-weight: 600; }
+	.btn.ghost { border-color: transparent; background: transparent; color: #71717A; }
+	.btn.ghost:hover { color: #18181B; background: #F4F4F5; }
+
+	.status { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 100px; text-transform: capitalize; flex-shrink: 0; }
+	.status.planned { background: #FEF9C3; color: #a16207; }
+	.status.confirmed { background: #DBEAFE; color: #1d4ed8; }
+	.status.done { background: #F0FDF4; color: #16a34a; }
+	.status.cancelled { background: #FEF2F2; color: #dc2626; }
+
+	/* Two panes: sticky details on the left, collapsible sections on the right */
+	.layout { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 20px; align-items: start; }
+	.left { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+	.left .card { margin-bottom: 14px; }
+	.right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+	@media (max-width: 1000px) {
+		.layout { grid-template-columns: 1fr; }
+		.left { position: static; max-height: none; overflow: visible; }
+	}
+
+	.sec { background: white; border: 1px solid var(--border); border-radius: 14px; }
+	.sec-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 10px; min-height: 52px; box-sizing: border-box; }
+	.sec-toggle { display: inline-flex; align-items: center; gap: 8px; border: none; background: none; padding: 6px; border-radius: 8px; font-family: inherit; cursor: pointer; flex-shrink: 0; }
+	.sec-toggle:hover { background: #F4F4F5; }
+	.chev { color: #A1A1AA; transition: transform .15s ease; }
+	.sec.open .chev { transform: rotate(90deg); }
+	.sec-title { font-size: 14px; font-weight: 700; color: #18181B; white-space: nowrap; }
+	.sec-count { font-size: 11px; font-weight: 700; color: #71717A; background: #F4F4F5; border-radius: 100px; padding: 1px 8px; }
+	.sec-sum { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: none; background: none; padding: 0; font-family: inherit; cursor: pointer; text-align: left; overflow: hidden; white-space: nowrap; }
+	.sec-spacer { flex: 1; }
+	.sec-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+	.sec-body { padding: 4px 18px 18px; border-top: 1px solid #F4F4F5; padding-top: 16px; }
+	.info { font-size: 13px; color: #A1A1AA; cursor: help; font-weight: 500; }
+	.sum-empty { font-size: 12.5px; color: #A1A1AA; }
+	.sum-txt { font-size: 12.5px; color: #52525B; overflow: hidden; text-overflow: ellipsis; }
+	.sum-txt b { color: #18181B; }
+	.thumbs { display: inline-flex; gap: 4px; flex-shrink: 0; }
+	.mini { width: 30px; height: 30px; border-radius: 6px; overflow: hidden; background: #F4F4F5; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; color: #71717A; }
+	.mini img { width: 100%; height: 100%; object-fit: cover; }
+	.mini.contain img { object-fit: contain; }
+	.avatars { display: inline-flex; flex-shrink: 0; }
+	.av { width: 26px; height: 26px; border-radius: 50%; border: 2px solid white; margin-left: -6px; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+	.av:first-child { margin-left: 0; }
+	.av.contact { background: #EEF2FF; color: #4338ca; }
+	.av.guru { background: #FCE7F3; color: #be185d; }
+	.av img { width: 100%; height: 100%; object-fit: cover; }
+	.pill-sm { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 100px; background: #F4F4F5; color: #71717A; flex-shrink: 0; }
+	.pill-sm.open { background: #DCFCE7; color: #15803D; }
+	.rc { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: #52525B; flex-shrink: 0; }
+	.rc::before { content: ''; width: 7px; height: 7px; border-radius: 50%; }
+	.rc.good::before { background: #16a34a; } .rc.semi::before { background: #f59e0b; } .rc.bad::before { background: #dc2626; }
 
 	.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 10px; background: white; font-size: 13px; font-weight: 600; font-family: inherit; color: #18181B; cursor: pointer; text-decoration: none; }
 	.btn:hover:not(:disabled) { background: #FAFAFA; }
@@ -691,10 +1111,10 @@
 	.btn.primary:hover:not(:disabled) { background: #e26a26; }
 	.btn.sm { padding: 5px 10px; font-size: 12px; }
 	.btn.danger { color: #dc2626; }
-	.btn.upload { margin-top: 12px; }
+	.btn.upload { margin: 0; }
 
-	.card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
-	.card-title { font-size: 14px; font-weight: 700; color: #18181B; margin: 0 0 14px; }
+	.card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
+	.card-title { font-size: 14px; font-weight: 700; color: #18181B; margin: 0 0 14px; display: flex; align-items: center; gap: 6px; }
 	.muted { color: #A1A1AA; font-weight: 500; font-size: 12px; }
 	.empty { color: #A1A1AA; font-size: 13px; padding: 8px 0; }
 	.hint { font-size: 12px; color: #A1A1AA; margin: 10px 0 0; }
@@ -722,6 +1142,7 @@
 	.when-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
 	.multi-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #71717A; cursor: pointer; text-transform: none; }
 	.multi-chk input { width: 14px; height: 14px; accent-color: #F57832; cursor: pointer; }
+	.combo + .combo { margin-top: 6px; }
 	.combo { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: white; }
 	.combo .seg { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 	.combo .seg-grow { flex: 1.4; }
@@ -731,27 +1152,28 @@
 	.combo .seg input:focus { border: none; box-shadow: none; }
 	.combo .seg:focus-within { background: #FAFAFA; }
 
-	.sku-search { position: relative; max-width: 420px; }
-	.sku-dropdown { position: absolute; z-index: 5; left: 0; right: 0; background: white; border: 1px solid var(--border); border-radius: 8px; margin-top: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); overflow: hidden; }
+	.sku-search { position: relative; width: 240px; }
+	.sku-search input { padding: 5px 10px; font-size: 12px; }
+	.sku-dropdown { position: absolute; z-index: 5; right: 0; min-width: 360px; background: white; border: 1px solid var(--border); border-radius: 8px; margin-top: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); overflow: hidden; }
 	.sku-opt { display: block; width: 100%; text-align: left; padding: 8px 10px; border: none; background: white; font-size: 13px; cursor: pointer; }
 	.sku-opt:hover { background: #FAFAFA; }
 
-	.prod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
+	.prod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 	.prod { position: relative; border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
 	.prod-thumb { position: relative; aspect-ratio: 1; background: #FAFAFA; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
 	.prod-thumb img { width: 100%; height: 100%; object-fit: contain; }
 	.badge-row { position: absolute; bottom: 4px; right: 4px; display: flex; gap: 3px; }
 	.badge { width: 30px; height: 30px; object-fit: contain; }
 	.prod-info { display: flex; flex-direction: column; margin-top: 8px; }
-	.prod-name { font-size: 12px; font-weight: 600; color: #18181B; line-height: 1.3; }
+	.prod-name { font-size: 12px; font-weight: 600; color: #18181B; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.link-del { position: absolute; top: 6px; right: 6px; background: rgba(255,255,255,0.9); border: 1px solid var(--border); border-radius: 6px; width: 22px; height: 22px; color: #71717A; cursor: pointer; }
 	.link-del:hover { color: #dc2626; }
 
-	.share-row { display: flex; gap: 8px; align-items: center; }
-	.share-input { font-family: monospace; font-size: 12px; }
-	.share-btn { flex-shrink: 0; min-width: 84px; justify-content: center; white-space: nowrap; }
+	.share-input { font-family: monospace; font-size: 11.5px; color: #52525B; background: #FAFAFA; }
+	.share-btns { display: flex; gap: 6px; margin-top: 8px; }
+	.share-btns .btn { flex: 1; justify-content: center; }
 
-	.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+	.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
 	.asset { position: relative; border-radius: 12px; overflow: hidden; background: #F4F4F5; aspect-ratio: 1; }
 	.asset .thumb { display: block; width: 100%; height: 100%; object-fit: cover; }
 	.asset img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s ease; }
@@ -885,6 +1307,19 @@
 	.flow-pill.on { background: #E9F7EC; color: #16a34a; }
 	.flow-pill.off { background: #F4F4F5; color: #A1A1AA; }
 	.actions-cell { text-align: right; }
+	.stars { display: inline-flex; gap: 1px; vertical-align: middle; }
+	.note-wrap { position: relative; display: inline-flex; vertical-align: middle; margin-left: 6px; }
+	.note-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: none; border-radius: 6px; background: none; color: #D4D4D8; cursor: pointer; padding: 0; }
+	.note-btn:hover { background: #F4F4F5; color: #71717A; }
+	.note-btn.has { color: #F57832; }
+	.note-pop { position: absolute; top: calc(100% + 6px); right: -8px; z-index: 20; width: 280px; padding: 10px; background: white; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); }
+	.note-pop textarea { font-size: 13px; }
+	.note-foot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+	.star { background: none; border: none; padding: 0 1px; font-size: 17px; line-height: 1; color: #E4E4E7; cursor: pointer; transition: transform .1s; }
+	.star.on { color: #F5A623; }
+	.stars:hover .star { color: #F5A623; }
+	.stars .star:hover ~ .star { color: #E4E4E7; }
+	.star:hover { transform: scale(1.15); }
 	.p-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 	/* Add-people modal */
@@ -896,4 +1331,43 @@
 	.pick { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
 	.pick input { width: auto; }
 	.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+	/* Guru tender */
+	.t-bar { display: inline-block; width: 70px; height: 6px; border-radius: 99px; background: #F4F4F5; overflow: hidden; flex-shrink: 0; }
+	.t-bar span { display: block; height: 100%; background: #16a34a; border-radius: 99px; }
+	.t-flash { margin-bottom: 12px; padding: 8px 12px; border-radius: 10px; background: #F0FDF4; color: #15803d; font-size: 13px; font-weight: 600; }
+	.openings { display: flex; flex-direction: column; gap: 8px; }
+	.op-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr) 28px; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid #F0F0F1; border-radius: 12px; background: #FAFAFA; }
+	.op-label { background: white; font-weight: 600; }
+	.stepper { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 9px; background: white; overflow: hidden; }
+	.stepper button { width: 30px; height: 32px; border: none; background: none; font-size: 16px; color: #52525B; cursor: pointer; font-family: inherit; }
+	.stepper button:hover:not(:disabled) { background: #F4F4F5; }
+	.stepper button:disabled { color: #D4D4D8; cursor: default; }
+	.stepper span { min-width: 24px; text-align: center; font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+	.op-fill { display: flex; align-items: center; gap: 10px; min-width: 0; }
+	.op-dots { display: inline-flex; gap: 4px; flex-shrink: 0; }
+	.op-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #D4D4D8; box-sizing: border-box; }
+	.op-dot.on { background: #16a34a; border-color: #16a34a; }
+	.op-names { font-size: 12.5px; color: #52525B; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.op-del { width: 28px; height: 28px; border: none; border-radius: 8px; background: none; color: #A1A1AA; cursor: pointer; }
+	.op-del:hover { background: #FEF2F2; color: #dc2626; }
+	.op-lbl { font-size: 12px; }
+	.t-foot { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+	.t-chips { display: inline-flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+	.t-chip { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: #F4F4F5; color: #52525B; white-space: nowrap; }
+	.t-chip.ok { background: #DCFCE7; color: #15803D; }
+	.t-chip.no { background: #FEF2F2; color: #b91c1c; }
+	.modal.tender-modal { max-width: 640px; display: flex; flex-direction: column; }
+	.tm-bar { display: flex; gap: 8px; margin-bottom: 10px; }
+	.tm-search { flex: 1; }
+	.tm-list { display: flex; flex-direction: column; gap: 4px; max-height: 52vh; overflow-y: auto; }
+	.tm-row { display: grid; grid-template-columns: 18px 30px minmax(0, 1fr) 48px auto; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+	.tm-row input { width: 16px; height: 16px; accent-color: #F57832; padding: 0; }
+	.tm-row.on { border-color: #F57832; background: #FFF8F3; }
+	.tm-row.off { opacity: .55; cursor: default; }
+	.tm-id { display: flex; flex-direction: column; min-width: 0; }
+	.tm-id > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.tm-rate { font-size: 12px; font-weight: 700; color: #F5A623; }
+	.tm-foot { align-items: center; }
+	.tm-foot .muted { margin-right: auto; }
+	@media (max-width: 700px) { .op-row { grid-template-columns: 1fr auto 28px; } .op-fill { grid-column: 1 / -1; } }
 </style>

@@ -198,6 +198,8 @@ export async function deleteEvent(db, id) {
 		db.prepare('DELETE FROM event_sku WHERE event_id = ?').bind(id),
 		db.prepare('DELETE FROM event_asset_sku WHERE asset_id IN (SELECT id FROM event_asset WHERE event_id = ?)').bind(id),
 		db.prepare('DELETE FROM event_asset WHERE event_id = ?').bind(id),
+		db.prepare('DELETE FROM event_guru_opening WHERE event_id = ?').bind(id),
+		db.prepare('DELETE FROM event_guru WHERE event_id = ?').bind(id),
 		db.prepare('DELETE FROM event WHERE id = ?').bind(id),
 	]);
 }
