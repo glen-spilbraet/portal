@@ -1,10 +1,56 @@
 <script>
 	import AppNav from '$lib/components/AppNav.svelte';
 	import CountrySelect from '$lib/components/CountrySelect.svelte';
-	import { invalidateAll } from '$app/navigation';
+	import { invalidateAll, goto } from '$app/navigation';
 
 	let { data } = $props();
 	let busy = $state(false);
+
+	// ── Events & performance modal ───────────────────────────────────────────────
+	/** @type {any} */
+	let perfGuru = $state(null);
+	/** @type {any[] | null} */
+	let perfRows = $state(null);
+	let perfErr = $state('');
+	async function openPerf(g) {
+		perfGuru = g; perfRows = null; perfErr = '';
+		try {
+			const res = await fetch(`/api/events/gurus/${g.id}/events`);
+			if (!res.ok) throw new Error('Could not load events');
+			const rows = await res.json();
+			if (perfGuru?.id === g.id) perfRows = rows;
+		} catch (e) { perfErr = e instanceof Error ? e.message : String(e); }
+	}
+	function closePerf() { perfGuru = null; }
+	const today = new Date().toISOString().slice(0, 10);
+	const isUpcoming = (r) => (r.end_date || r.event_date || '') >= today && r.status !== 'done';
+	const perfTotals = $derived.by(() => {
+		const rows = perfRows ?? [];
+		const att = rows.filter((r) => r.participants_actual != null);
+		const attendees = att.reduce((n, r) => n + r.participants_actual, 0);
+		const tb = rows.filter((r) => r.tombola_id);
+		return {
+			events: rows.length,
+			past: rows.filter((r) => !isUpcoming(r)).length,
+			attendees, avg: att.length ? Math.round(attendees / att.length) : null,
+			media: rows.reduce((n, r) => n + r.media_count, 0),
+			good: rows.reduce((n, r) => n + r.media_good, 0),
+			semi: rows.reduce((n, r) => n + r.media_semi, 0),
+			bad: rows.reduce((n, r) => n + r.media_bad, 0),
+			signups: tb.reduce((n, r) => n + r.tombola_entries, 0),
+			tombolas: tb.length,
+		};
+	});
+	const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+	function dp(d) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? ''); return m ? { y: +m[1], m: +m[2] - 1, d: +m[3] } : null; }
+	function fmtWhen(r) {
+		const a = dp(r.event_date); if (!a) return '—';
+		const b = r.end_date && r.end_date !== r.event_date ? dp(r.end_date) : null;
+		if (!b) return `${a.d} ${MON[a.m]} ${a.y}`;
+		if (a.y !== b.y) return `${a.d} ${MON[a.m]} ${a.y} – ${b.d} ${MON[b.m]} ${b.y}`;
+		if (a.m !== b.m) return `${a.d} ${MON[a.m]} – ${b.d} ${MON[b.m]} ${b.y}`;
+		return `${a.d}–${b.d} ${MON[a.m]} ${a.y}`;
+	}
 
 	// ── Create / edit modal ──────────────────────────────────────────────────────
 	const blank = () => ({ name: '', phone: '', email: '', zip: '', city: '', country: '', notes: '' });
@@ -119,7 +165,7 @@
 							{/each}
 						</div>
 						<div class="row-actions">
-							<span class="chip">{g.event_count} events</span>
+							<button class="chip chip-btn" onclick={() => openPerf(g)} disabled={!g.event_count} title={g.event_count ? "Events & performance" : undefined}>{g.event_count} {g.event_count === 1 ? 'event' : 'events'}</button>
 							<button class="btn sm" onclick={() => openEdit(g)}>Edit</button>
 							<button class="btn sm danger" onclick={() => deleteGuru(g.id)}>Delete</button>
 						</div>
@@ -152,7 +198,75 @@
 	</div>
 {/if}
 
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape') closeModal(); }} />
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') { closeModal(); closePerf(); } }} />
+
+{#if perfGuru}
+	<div class="modal-overlay" onclick={closePerf} role="presentation">
+		<div class="modal perf" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Events for {perfGuru.name}">
+			<button class="modal-x" onclick={closePerf} aria-label="Close">✕</button>
+			<div class="perf-head">
+				<div class="avatar sm">{#if perfGuru.image_key}<img src="/api/img/{perfGuru.image_key}" alt="" />{:else}<span class="avatar-ph">{perfGuru.name?.[0]?.toUpperCase() ?? '?'}</span>{/if}</div>
+				<div class="perf-id">
+					<h3 class="modal-title">{perfGuru.name}</h3>
+					<span class="muted">Events &amp; performance</span>
+				</div>
+			</div>
+
+			{#if perfErr}
+				<p class="empty">{perfErr}</p>
+			{:else if perfRows === null}
+				<p class="empty">Loading…</p>
+			{:else if perfRows.length === 0}
+				<p class="empty">No events yet.</p>
+			{:else}
+				{@const t = perfTotals}
+				<div class="tiles">
+					<div class="tile"><span class="t-label">Events</span><span class="t-val">{t.events}</span><span class="t-sub">{t.past} held · {t.events - t.past} upcoming</span></div>
+					<div class="tile"><span class="t-label">Attendees</span><span class="t-val">{t.attendees}</span><span class="t-sub">{t.avg != null ? `Ø ${t.avg} per event` : 'None recorded'}</span></div>
+					<div class="tile"><span class="t-label">Photos &amp; video</span><span class="t-val">{t.media}</span>
+						<span class="t-sub rcs">{#if t.good}<span class="rc good" title="Good">{t.good}</span>{/if}{#if t.semi}<span class="rc semi" title="Semi">{t.semi}</span>{/if}{#if t.bad}<span class="rc bad" title="Bad">{t.bad}</span>{/if}{#if !t.good && !t.semi && !t.bad}Not rated{/if}</span>
+					</div>
+					<div class="tile"><span class="t-label">Tombola sign-ups</span><span class="t-val">{t.signups}</span><span class="t-sub">{t.tombolas} of {t.events} events</span></div>
+				</div>
+
+				<div class="perf-table-wrap">
+					<table class="perf-table">
+						<colgroup><col style="width:140px" /><col /><col style="width:110px" /><col style="width:150px" /><col style="width:130px" /></colgroup>
+						<thead><tr><th>Date</th><th>Event</th><th class="num">Attended</th><th>Photos</th><th class="num">Tombola</th></tr></thead>
+						<tbody>
+							{#each perfRows as r (r.id)}
+								{@const up = isUpcoming(r)}
+								<tr class="clickable" class:upcoming={up} onclick={() => goto(`/events/${r.id}`)}>
+									<td class="dim" title={fmtWhen(r)}>{fmtWhen(r)}</td>
+									<td>
+										<div class="ev-cell">
+											<span class="ev-title" title={r.title}>{r.title || 'Untitled event'}</span>
+											<span class="ev-sub" title={[r.venue_name, r.type_name].filter(Boolean).join(' · ')}>{[r.venue_name, r.type_name].filter(Boolean).join(' · ') || '—'}</span>
+										</div>
+									</td>
+									<td class="num">
+										{#if r.participants_actual != null}<b>{r.participants_actual}</b>{#if r.participants_expected != null}<span class="dim"> / {r.participants_expected}</span>{/if}
+										{:else if up}<span class="tag-up">Upcoming</span>
+										{:else}<span class="dim">—</span>{/if}
+									</td>
+									<td>
+										{#if r.media_count}
+											<span class="rcs"><b>{r.media_count}</b>{#if r.media_good}<span class="rc good" title="Good">{r.media_good}</span>{/if}{#if r.media_semi}<span class="rc semi" title="Semi">{r.media_semi}</span>{/if}{#if r.media_bad}<span class="rc bad" title="Bad">{r.media_bad}</span>{/if}</span>
+										{:else}<span class="dim">None</span>{/if}
+									</td>
+									<td class="num">
+										{#if r.tombola_id}<b>{r.tombola_entries}</b> <span class="dim">sign-ups</span>
+										{:else}<span class="dim">No tombola</span>{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</div>
+	</div>
+{/if}
 
 <style>
 	.page { min-height: 100vh; display: flex; flex-direction: column; }
@@ -205,4 +319,36 @@
 	input:focus, textarea:focus { border-color: #A1A1AA; }
 	textarea { resize: vertical; }
 	.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+	/* Events & performance modal */
+	.chip-btn { border: none; font-family: inherit; cursor: pointer; }
+	.chip-btn:hover:not(:disabled) { background: #FFF4ED; color: #c2551b; }
+	.chip-btn:disabled { cursor: default; }
+	.modal.perf { max-width: 880px; }
+	.perf-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding-right: 40px; }
+	.perf-head .modal-title { margin: 0; }
+	.perf-id { display: flex; flex-direction: column; min-width: 0; }
+	.avatar.sm { width: 44px; height: 44px; cursor: default; }
+	.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+	.tile { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border: 1px solid #F0F0F1; background: #FAFAFA; border-radius: 12px; min-width: 0; }
+	.t-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #A1A1AA; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.t-val { font-size: 22px; font-weight: 800; color: #18181B; line-height: 1.15; font-variant-numeric: tabular-nums; }
+	.t-sub { font-size: 12px; color: #71717A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.rcs { display: inline-flex; align-items: center; gap: 8px; }
+	.rc { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: #52525B; }
+	.rc::before { content: ''; width: 7px; height: 7px; border-radius: 50%; }
+	.rc.good::before { background: #16a34a; } .rc.semi::before { background: #f59e0b; } .rc.bad::before { background: #dc2626; }
+	.perf-table-wrap { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+	.perf-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+	.perf-table th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #A1A1AA; padding: 9px 12px; background: #FAFAFA; border-bottom: 1px solid var(--border); white-space: nowrap; }
+	.perf-table td { padding: 10px 12px; border-bottom: 1px solid #F4F4F5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #18181B; }
+	.perf-table tbody tr:last-child td { border-bottom: none; }
+	.perf-table .num { text-align: right; }
+	.perf-table tr.clickable { cursor: pointer; }
+	.perf-table tr.clickable:hover td { background: #FAFAFA; }
+	.ev-cell { display: flex; flex-direction: column; min-width: 0; }
+	.ev-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+	.ev-sub { font-size: 12px; color: #A1A1AA; overflow: hidden; text-overflow: ellipsis; }
+	.dim { color: #A1A1AA; }
+	.tag-up { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 100px; background: #DBEAFE; color: #1d4ed8; }
+	@media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>
