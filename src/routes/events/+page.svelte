@@ -24,15 +24,20 @@
 		}
 	}
 
-	function fmtDate(d) {
-		if (!d) return '—';
-		try { return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
-		catch { return d; }
+	const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+	function parts(d) {
+		const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d ?? '');
+		return m ? { y: +m[1], m: +m[2] - 1, d: +m[3] } : null;
 	}
+	// Compact range: "20 Nov 2026", "20–22 Nov 2026", "30 Nov – 1 Dec 2026", "30 Dec 2026 – 2 Jan 2027"
 	function fmtWhen(e) {
-		if (!e.event_date) return '—';
-		if (e.end_date && e.end_date !== e.event_date) return `${fmtDate(e.event_date)} – ${fmtDate(e.end_date)}`;
-		return fmtDate(e.event_date);
+		const a = parts(e.event_date);
+		if (!a) return e.event_date || '—';
+		const b = e.end_date && e.end_date !== e.event_date ? parts(e.end_date) : null;
+		if (!b) return `${a.d} ${MON[a.m]} ${a.y}`;
+		if (a.y !== b.y) return `${a.d} ${MON[a.m]} ${a.y} – ${b.d} ${MON[b.m]} ${b.y}`;
+		if (a.m !== b.m) return `${a.d} ${MON[a.m]} – ${b.d} ${MON[b.m]} ${b.y}`;
+		return `${a.d}–${b.d} ${MON[a.m]} ${a.y}`;
 	}
 
 	// ── Filters ────────────────────────────────────────────────────────────────
@@ -116,22 +121,22 @@
 					<col class="c-status" />
 					<col class="c-part" />
 					<col class="c-skus" />
-					<col class="c-assets" />
 				</colgroup>
 				<thead>
-					<tr><th>Date</th><th>Event</th><th>Venue</th><th>Type</th><th>Status</th><th class="num">Participants</th><th class="num">SKUs</th><th class="num">Assets</th></tr>
+					<tr><th>Date</th><th>Event</th><th>Venue</th><th>Type</th><th>Status</th><th class="num">Participants</th><th class="num">SKUs</th></tr>
 				</thead>
 				<tbody>
 					{#each filtered as e (e.id)}
+						{@const when = fmtWhen(e)}
+						{@const title = e.title || 'Untitled event'}
 						<tr class="clickable" onclick={() => goto(`/events/${e.id}`)}>
-							<td class="date-cell">{fmtWhen(e)}</td>
-							<td class="strong">{e.title || 'Untitled event'}</td>
-							<td>{e.venue_name ?? '—'}</td>
-							<td>{e.type_name ?? '—'}</td>
+							<td class="date-cell" title={when}>{when}</td>
+							<td class="strong" title={title}>{title}</td>
+							<td title={e.venue_name ?? ''}>{e.venue_name ?? '—'}</td>
+							<td title={e.type_name ?? ''}>{e.type_name ?? '—'}</td>
 							<td><span class="status {e.status}">{e.status}</span></td>
 							<td class="num">{e.participants_actual ?? e.participants_expected ?? '—'}</td>
 							<td class="num">{e.sku_count}</td>
-							<td class="num">{e.asset_count}</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -156,18 +161,17 @@
 
 	.tbl { width: 100%; table-layout: fixed; border-collapse: collapse; background: white; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; font-size: 13px; }
 	/* Fixed column widths so they never shift between filtered views; the Event
-	   column takes the remaining space and wraps to multiple lines. */
-	.c-date { width: 116px; }
-	.date-cell { white-space: normal; word-break: normal; color: #52525B; }
+	   column takes the remaining space. Every cell stays on one line and long
+	   values get an ellipsis (full text in the title tooltip). */
+	.c-date { width: 150px; }
+	.date-cell { color: #52525B; }
 	.c-event { width: auto; }
-	.c-venue { width: 140px; }
-	.c-type { width: 118px; }
-	.c-status { width: 108px; }
-	.c-part { width: 104px; }
-	.c-skus { width: 66px; }
-	.c-assets { width: 78px; }
-	.tbl td, .tbl th { overflow: hidden; text-overflow: ellipsis; }
-	.tbl td.strong { white-space: normal; word-break: break-word; }
+	.c-venue { width: 180px; }
+	.c-type { width: 170px; }
+	.c-status { width: 104px; }
+	.c-part { width: 118px; }
+	.c-skus { width: 64px; }
+	.tbl td, .tbl th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.tbl th { text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #A1A1AA; padding: 10px 14px; border-bottom: 1px solid var(--border); background: #FAFAFA; }
 	.tbl td { padding: 12px 14px; border-bottom: 1px solid var(--border); color: #18181B; }
 	.tbl tbody tr:last-child td { border-bottom: none; }
