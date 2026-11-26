@@ -1,41 +1,52 @@
 <script>
+	import { tt, tenderWhen } from '$lib/guruTender.js';
+
 	let { data } = $props();
+	const lang = data.lang;
+	const t = (k, v) => tt(lang, k, v);
 
 	let status = $state(data.proposal.status);
+	let myOpening = $state(data.proposal.opening_id);
+	let openings = $state(data.openings);
 	let saving = $state(false);
+	let notice = $state('');
 
-	async function respond(choice) {
+	const p = data.proposal;
+	const when = tenderWhen(lang, p);
+	const place = [p.venue_name, [p.venue_zip, p.venue_city].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
+	const closed = p.event_status === 'cancelled' || p.event_status === 'done';
+
+	const tender = $derived(openings.length > 0);
+	const booked = $derived(status === 'accepted' || status === 'confirmed');
+	const mine = $derived(openings.find((o) => o.id === myOpening) ?? null);
+	const anyFree = $derived(openings.some((o) => o.slots - o.filled > 0));
+
+	async function respond(choice, openingId = null) {
 		if (saving) return;
-		saving = true;
+		if (choice === 'declined' && booked && !confirm(t('cancelConfirm'))) return;
+		saving = true; notice = '';
 		try {
 			const res = await fetch(`/api/events/guru/${data.token}/respond`, {
 				method: 'POST', headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ status: choice })
+				body: JSON.stringify({ status: choice, opening_id: openingId })
 			});
-			const body = await res.json();
-			if (res.ok) status = body.status;
-			else alert('Something went wrong — please try again.');
-		} catch { alert('Something went wrong — please try again.'); }
+			const body = await res.json().catch(() => ({}));
+			if (body.openings) openings = body.openings;
+			if (res.status === 409) { notice = t('gone'); return; }
+			if (!res.ok) { notice = t('error'); return; }
+			status = body.status; myOpening = body.opening_id;
+		} catch { notice = t('error'); }
 		finally { saving = false; }
 	}
-
-	const p = data.proposal;
-	function fmtDate(d) {
-		if (!d) return '';
-		try { return new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
-		catch { return d; }
-	}
-	const when = [fmtDate(p.event_date), [p.start_time, p.end_time].filter(Boolean).join('–')].filter(Boolean).join(' · ');
-	const place = [p.venue_name, [p.venue_zip, p.venue_city].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
 </script>
 
-<svelte:head><title>Guru invitation — Spilbræt</title></svelte:head>
+<svelte:head><title>{t('tag')} — Spilbræt</title></svelte:head>
 
 <div class="wrap">
 	<div class="card">
-		<span class="tag">Game Guru invitation</span>
-		<h1>Hi {p.guru_name} 👋</h1>
-		<p class="lead">Would you like to be a Game Guru for this event?</p>
+		<span class="tag">{t('tag')}</span>
+		<h1>{t('hi', { name: p.guru_name?.split(' ')[0] ?? '' })}</h1>
+		<p class="lead">{tender ? t('lead') : t('leadSingle')}</p>
 
 		<div class="event">
 			<div class="event-title">{p.event_title || 'Event'}</div>
@@ -44,17 +55,57 @@
 			{#if p.venue_address}<div class="event-line muted">{p.venue_address}</div>{/if}
 		</div>
 
-		{#if status === 'accepted'}
-			<div class="result yes">You're in — thanks! We'll be in touch. 🎉<br /><small>Changed your mind? You can still decline below.</small></div>
-			<div class="actions"><button class="btn ghost" onclick={() => respond('declined')} disabled={saving}>Actually, I can't make it</button></div>
-		{:else if status === 'declined'}
-			<div class="result no">Thanks for letting us know — maybe next time.<br /><small>Changed your mind?</small></div>
-			<div class="actions"><button class="btn yes" onclick={() => respond('accepted')} disabled={saving}>Yes, I'll be a guru</button></div>
+		{#if closed}
+			<div class="result no">{t('allFull')}</div>
+		{:else if tender}
+			{#if booked}
+				<div class="result yes">{mine ? t('booked', { label: ` — ${mine.label || t('general')}` }) : t('bookedSingle')}</div>
+			{:else if status === 'declined'}
+				<div class="result neutral">{t('declined')}{#if anyFree}<br /><small>{t('changed')}</small>{/if}</div>
+			{:else if !anyFree}
+				<div class="result neutral">{t('allFull')}</div>
+			{/if}
+
+			{#if notice}<div class="notice">{notice}</div>{/if}
+
+			<ul class="openings">
+				{#each openings as o (o.id)}
+					{@const free = o.slots - o.filled}
+					{@const isMine = booked && o.id === myOpening}
+					<li class="opening" class:mine={isMine} class:full={free <= 0 && !isMine}>
+						<div class="o-main">
+							<span class="o-label">{o.label || t('general')}</span>
+							<span class="o-dots" aria-hidden="true">{#each Array(o.slots) as _, i}<span class="dot" class:taken={i < o.filled}></span>{/each}</span>
+							<span class="o-sub">{t('spotsLeft', { n: Math.max(free, 0), total: o.slots })}</span>
+						</div>
+						{#if isMine}
+							<span class="o-check" aria-label="✓">✓</span>
+						{:else if !booked}
+							<button class="btn yes sm" onclick={() => respond('accepted', o.id)} disabled={saving || free <= 0}>{free > 0 ? t('take') : t('full')}</button>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+
+			{#if booked}
+				<div class="actions"><button class="btn ghost" onclick={() => respond('declined')} disabled={saving}>{t('cancel')}</button></div>
+			{:else if status !== 'declined' && anyFree}
+				<div class="actions"><button class="btn ghost" onclick={() => respond('declined')} disabled={saving}>{t('decline')}</button></div>
+			{/if}
 		{:else}
-			<div class="actions two">
-				<button class="btn yes" onclick={() => respond('accepted')} disabled={saving}>Yes, I'll be a guru</button>
-				<button class="btn ghost" onclick={() => respond('declined')} disabled={saving}>Can't make it</button>
-			</div>
+			{#if booked}
+				<div class="result yes">{t('bookedSingle')}</div>
+				<div class="actions"><button class="btn ghost" onclick={() => respond('declined')} disabled={saving}>{t('cancel')}</button></div>
+			{:else if status === 'declined'}
+				<div class="result neutral">{t('declined')}</div>
+				<div class="actions"><button class="btn yes" onclick={() => respond('accepted')} disabled={saving}>{t('yesSingle')}</button></div>
+			{:else}
+				<div class="actions two">
+					<button class="btn yes" onclick={() => respond('accepted')} disabled={saving}>{t('yesSingle')}</button>
+					<button class="btn ghost" onclick={() => respond('declined')} disabled={saving}>{t('noSingle')}</button>
+				</div>
+			{/if}
+			{#if notice}<div class="notice">{notice}</div>{/if}
 		{/if}
 	</div>
 	<footer>Spilbræt</footer>
@@ -82,6 +133,7 @@
 	.actions.two { flex-direction: row; }
 	.btn { flex: 1; padding: 14px 20px; border-radius: 12px; border: none; font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer; }
 	.btn:disabled { opacity: 0.6; cursor: default; }
+	.opening.full .btn:disabled { background: #E4E4E7; color: #71717A; }
 	.btn.yes { background: #F57832; color: white; }
 	.btn.yes:hover:not(:disabled) { background: #e26a26; }
 	.btn.ghost { background: white; color: #52525B; border: 1px solid #E7E7E4; }
@@ -90,5 +142,19 @@
 	.result small { font-weight: 400; color: #71717A; }
 	.result.yes { background: #F0FDF4; color: #16a34a; }
 	.result.no { background: #FEF2F2; color: #b91c1c; }
+	.result.neutral { background: rgba(255,255,255,0.8); color: #52525B; }
+	.notice { margin-top: 14px; padding: 10px 14px; border-radius: 12px; background: #FEF3C7; color: #92400E; font-size: 14px; font-weight: 600; }
+	.openings { list-style: none; padding: 0; margin: 20px 0 0; display: flex; flex-direction: column; gap: 10px; text-align: left; }
+	.opening { display: flex; align-items: center; gap: 12px; background: white; border: 2px solid transparent; border-radius: 16px; padding: 14px 16px; box-shadow: 0 14px 30px -24px rgba(150,108,20,0.5); }
+	.opening.mine { border-color: #16a34a; background: #F0FDF4; }
+	.opening.full { opacity: .55; }
+	.o-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+	.o-label { font-size: 16px; font-weight: 700; color: #241E12; }
+	.o-dots { display: flex; gap: 4px; }
+	.o-dots .dot { width: 10px; height: 10px; border-radius: 50%; background: #FDE7D6; border: 1.5px solid #F57832; box-sizing: border-box; }
+	.o-dots .dot.taken { background: #D4D4D8; border-color: #D4D4D8; }
+	.o-sub { font-size: 13px; color: #71717A; }
+	.o-check { width: 32px; height: 32px; border-radius: 50%; background: #16a34a; color: white; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+	.btn.sm { flex: none; padding: 10px 16px; font-size: 14px; }
 	footer { text-align: center; color: #8A7B58; font-size: 12px; margin-top: 32px; }
 </style>

@@ -2,6 +2,7 @@
 	import AppNav from '$lib/components/AppNav.svelte';
 	import TombolaCard from '$lib/components/events/TombolaCard.svelte';
 	import { invalidateAll, goto } from '$app/navigation';
+	import { TENDER_LANG_NAME } from '$lib/guruTender.js';
 
 	let { data } = $props();
 
@@ -87,7 +88,7 @@
 		...data.eventGurus.map((g) => ({
 			kind: 'guru', id: g.id, name: g.name,
 			sub: [[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', '),
-			inFlow: !!g.event_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl, rating: g.event_rating ?? null, note: g.event_note ?? '',
+			inFlow: !!g.event_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl, rating: g.event_rating ?? null, note: g.event_note ?? '', opening_id: g.opening_id, sent_at: g.sent_at,
 		})),
 	]);
 
@@ -121,6 +122,91 @@
 		await invalidateAll();
 		const { [row.id]: _, ...rest } = guruRateLocal; guruRateLocal = rest;
 	}
+	// ── Guru tender: openings + send ────────────────────────────────────────────
+	const BOOKED = (st) => st === 'accepted' || st === 'confirmed';
+	const openingById = $derived(Object.fromEntries(data.openings.map((o) => [o.id, o])));
+	const bookedBy = $derived.by(() => {
+		/** @type {Record<string, any[]>} */
+		const m = {};
+		for (const g of data.eventGurus) if (g.opening_id && BOOKED(g.status)) (m[g.opening_id] ??= []).push(g);
+		return m;
+	});
+	const tenderStats = $derived.by(() => {
+		const slots = data.openings.reduce((n, o) => n + o.slots, 0);
+		const filled = data.openings.reduce((n, o) => n + Math.min(o.filled, o.slots), 0);
+		const gs = data.eventGurus;
+		return {
+			slots, filled,
+			invited: gs.length,
+			booked: gs.filter((g) => BOOKED(g.status)).length,
+			declined: gs.filter((g) => g.status === 'declined').length,
+			waiting: gs.filter((g) => g.status === 'invited').length,
+		};
+	});
+	let openingBusy = $state(false);
+	async function api(url, method, body) {
+		const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+		const out = await res.json().catch(() => ({}));
+		if (!res.ok) throw new Error(out.message ?? 'Failed');
+		return out;
+	}
+	async function addOpening() {
+		openingBusy = true;
+		try { await api(`/api/events/${data.event.id}/openings`, 'POST', { slots: 1 }); await invalidateAll(); }
+		catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { openingBusy = false; }
+	}
+	async function patchOpening(o, patch) {
+		try { await api(`/api/events/${data.event.id}/openings/${o.id}`, 'PUT', patch); await invalidateAll(); }
+		catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+	}
+	async function removeOpening(o) {
+		if ((bookedBy[o.id]?.length ?? 0) > 0 && !confirm('Gurus are booked on this opening. Remove it anyway? They stay on the event.')) return;
+		try { await api(`/api/events/${data.event.id}/openings/${o.id}`, 'DELETE'); await invalidateAll(); }
+		catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+	}
+
+	// Send-tender picker
+	let tenderOpen = $state(false);
+	let tenderPicks = $state(/** @type {string[]} */ ([]));
+	let tenderQuery = $state('');
+	let tenderSending = $state(false);
+	let tenderResult = $state('');
+	const eventGuruById = $derived(Object.fromEntries(data.eventGurus.map((g) => [g.id, g])));
+	const tenderCandidates = $derived.by(() => {
+		const q = tenderQuery.trim().toLowerCase();
+		return data.gurus
+			.filter((g) => g.active !== 0)
+			.filter((g) => !q || `${g.name} ${g.city ?? ''} ${g.zip ?? ''} ${g.country ?? ''}`.toLowerCase().includes(q));
+	});
+	const pickable = (g) => !!g.email && !BOOKED(eventGuruById[g.id]?.status);
+	function openTender() {
+		tenderQuery = ''; tenderResult = '';
+		tenderPicks = [];
+		tenderOpen = true;
+	}
+	function toggleTenderPick(id) { tenderPicks = tenderPicks.includes(id) ? tenderPicks.filter((x) => x !== id) : [...tenderPicks, id]; }
+	function pickAllNew() {
+		const ids = tenderCandidates.filter((g) => pickable(g) && !eventGuruById[g.id]).map((g) => g.id);
+		tenderPicks = [...new Set([...tenderPicks, ...ids])];
+	}
+	async function sendTender() {
+		if (!tenderPicks.length || tenderSending) return;
+		tenderSending = true;
+		try {
+			const out = await api(`/api/events/${data.event.id}/tender`, 'POST', { guruIds: tenderPicks });
+			await invalidateAll();
+			tenderOpen = false;
+			const skip = (out.skipped ?? []).map((x) => `${x.name ?? x.id} (${x.reason})`);
+			tenderResult = `Sent to ${out.sent} guru${out.sent === 1 ? '' : 's'}` + (skip.length ? ` · skipped: ${skip.join(', ')}` : '');
+			setTimeout(() => (tenderResult = ''), 8000);
+		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { tenderSending = false; }
+	}
+	function ago(ts) {
+		if (!ts) return '';
+		const d = (Date.now() - new Date(ts.replace(' ', 'T') + 'Z').getTime()) / 86400000;
+		return d < 1 ? 'today' : d < 2 ? 'yesterday' : `${Math.floor(d)} days ago`;
+	}
+
 	// Per-event internal note on a guru (icon next to the stars; popover to view/edit)
 	let noteOpen = $state(/** @type {string|null} */ (null));
 	let noteDraft = $state('');
@@ -340,7 +426,7 @@
 	}
 
 	// ── Collapsible sections (remembered per browser) ───────────────────────────
-	const SECTIONS = ['products', 'people', 'tombola', 'marketing', 'media', 'log'];
+	const SECTIONS = ['products', 'tender', 'people', 'tombola', 'marketing', 'media', 'log'];
 	const LS_KEY = 'events.detail.collapsed';
 	let collapsed = $state(/** @type {Record<string, boolean>} */ ({ log: true }));
 	$effect(() => {
@@ -507,6 +593,57 @@
 				{/snippet}
 				{@render section('products', 'Products', data.products.length, 'Selected products (and any award/nominee badges) are shown to the venue automatically on the share page.', productsSum, productsActions, productsBody)}
 
+				{#snippet tenderSum()}
+					{#if data.openings.length === 0 && tenderStats.invited === 0}<span class="sum-empty">No openings</span>
+					{:else}
+						{#if tenderStats.slots}
+							<span class="t-bar" title="{tenderStats.filled} of {tenderStats.slots} spots filled"><span style="width:{(tenderStats.filled / tenderStats.slots) * 100}%"></span></span>
+							<span class="sum-txt"><b>{tenderStats.filled}/{tenderStats.slots}</b> filled</span>
+						{/if}
+						{#if tenderStats.invited}<span class="sum-txt">· {tenderStats.invited} invited · {tenderStats.waiting} waiting · {tenderStats.declined} declined</span>{/if}
+					{/if}
+				{/snippet}
+				{#snippet tenderActions()}
+					<button class="btn sm primary" onclick={openTender}>Send tender…</button>
+				{/snippet}
+				{#snippet tenderBody()}
+					{#if tenderResult}<div class="t-flash">{tenderResult}</div>{/if}
+					{#if data.openings.length === 0}
+						<p class="empty">No openings — invited gurus just answer yes or no.</p>
+					{:else}
+						<div class="openings">
+							{#each data.openings as o (o.id)}
+								{@const booked = bookedBy[o.id] ?? []}
+								<div class="op-row">
+									<input class="op-label" value={o.label ?? ''} placeholder="Any game type (e.g. Strategi)" onchange={(e) => patchOpening(o, { label: e.currentTarget.value })} />
+									<div class="stepper" role="group" aria-label="Gurus needed">
+										<button onclick={() => patchOpening(o, { slots: o.slots - 1 })} disabled={o.slots <= 1} aria-label="Fewer">−</button>
+										<span>{o.slots}</span>
+										<button onclick={() => patchOpening(o, { slots: o.slots + 1 })} aria-label="More">+</button>
+									</div>
+									<div class="op-fill">
+										<span class="op-dots">{#each Array(o.slots) as _, i}<span class="op-dot" class:on={i < o.filled}></span>{/each}</span>
+										<span class="op-names" title={booked.map((g) => g.name).join(', ')}>{booked.length ? booked.map((g) => g.name.split(' ')[0]).join(', ') : 'Open'}</span>
+									</div>
+									<button class="op-del" onclick={() => removeOpening(o)} aria-label="Remove opening">✕</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					<div class="t-foot">
+						<button class="btn sm" onclick={addOpening} disabled={openingBusy}>+ Add opening</button>
+						{#if tenderStats.invited}
+							<span class="t-chips">
+								<span class="t-chip">{tenderStats.invited} invited</span>
+								<span class="t-chip ok">{tenderStats.booked} booked</span>
+								<span class="t-chip">{tenderStats.waiting} waiting</span>
+								<span class="t-chip no">{tenderStats.declined} declined</span>
+							</span>
+						{/if}
+					</div>
+				{/snippet}
+				{@render section('tender', 'Guru tender', data.openings.length ? `${tenderStats.filled}/${tenderStats.slots}` : null, 'Add openings (e.g. 2 × Strategi, 1 × Familie) and send the tender: each guru gets an e-mail with a personal link and takes a free spot — first come, first served. The language follows the venue country.', tenderSum, tenderActions, tenderBody)}
+
 				{#snippet peopleSum()}
 					{#if people.length === 0}<span class="sum-empty">No one added</span>
 					{:else}
@@ -542,7 +679,7 @@
 										</td>
 										<td><span class="type-badge {row.kind}">{row.kind === 'guru' ? 'Guru' : 'Contact'}</span></td>
 										<td><button class="flow-pill {row.inFlow ? 'on' : 'off'}" onclick={() => toggleFlow(row)}>{row.inFlow ? 'Gets mail' : 'No mail'}</button></td>
-										<td>{#if row.kind === 'guru'}<span class="gstatus {row.status}">{row.status}</span>{:else}<span class="muted">—</span>{/if}</td>
+										<td>{#if row.kind === 'guru'}<span class="gstatus {row.status}">{row.status}</span>{#if row.opening_id && openingById[row.opening_id]}<span class="muted op-lbl"> · {openingById[row.opening_id].label || 'Guru'}</span>{/if}{:else}<span class="muted">—</span>{/if}</td>
 										<td>
 											{#if row.kind === 'guru'}
 												{@const rv = row.id in guruRateLocal ? guruRateLocal[row.id] : row.rating}
@@ -711,7 +848,49 @@
 	</div>
 {/if}
 
-<svelte:window onkeydown={(e) => { viewerKeys(e); if (e.key === 'Escape') { closeAdd(); rateOpen = null; } }} onclick={() => { rateOpen = null; noteOpen = null; }} />
+{#if tenderOpen}
+	<div class="modal-overlay" onclick={() => (tenderOpen = false)} role="presentation">
+		<div class="modal tender-modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Send tender">
+			<button class="modal-x" onclick={() => (tenderOpen = false)} aria-label="Close">✕</button>
+			<h3 class="modal-title">Send tender</h3>
+			<div class="tm-bar">
+				<input class="tm-search" placeholder="Filter by name, city or zip…" bind:value={tenderQuery} />
+				<button class="btn sm" onclick={pickAllNew}>Select all not invited</button>
+			</div>
+			<div class="tm-list">
+				{#each tenderCandidates as g (g.id)}
+					{@const eg = eventGuruById[g.id]}
+					{@const ok = pickable(g)}
+					<label class="tm-row" class:off={!ok} class:on={tenderPicks.includes(g.id)}>
+						<input type="checkbox" checked={tenderPicks.includes(g.id)} disabled={!ok} onchange={() => toggleTenderPick(g.id)} />
+						<span class="p-avatar">{#if g.image_key}<img src="/api/img/{g.image_key}" alt="" />{:else}{g.name?.[0]?.toUpperCase() ?? '?'}{/if}</span>
+						<span class="tm-id">
+							<span class="strong">{g.name}</span>
+							<span class="muted">{[[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', ') || '—'}</span>
+						</span>
+						<span class="tm-rate">{#if g.rating_count}★ {g.rating_avg.toFixed(1)}{/if}</span>
+						<span class="tm-state">
+							{#if !g.email}<span class="t-chip no">No e-mail</span>
+							{:else if eg && BOOKED(eg.status)}<span class="t-chip ok">Booked{eg.opening_id && openingById[eg.opening_id] ? ` · ${openingById[eg.opening_id].label || 'Guru'}` : ''}</span>
+							{:else if eg?.status === 'declined'}<span class="t-chip no">Declined</span>
+							{:else if eg?.sent_at}<span class="t-chip">Sent {ago(eg.sent_at)}</span>
+							{:else if eg}<span class="t-chip">On event</span>{/if}
+						</span>
+					</label>
+				{:else}
+					<p class="empty">No gurus match.</p>
+				{/each}
+			</div>
+			<div class="modal-foot tm-foot">
+				<span class="muted">E-mail in {TENDER_LANG_NAME[data.tenderLang]} · from you</span>
+				<button class="btn" onclick={() => (tenderOpen = false)}>Cancel</button>
+				<button class="btn primary" onclick={sendTender} disabled={tenderSending || tenderPicks.length === 0}>{tenderSending ? 'Sending…' : `Send to ${tenderPicks.length || ''}`}</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<svelte:window onkeydown={(e) => { viewerKeys(e); if (e.key === 'Escape') { closeAdd(); rateOpen = null; tenderOpen = false; } }} onclick={() => { rateOpen = null; noteOpen = null; }} />
 
 {#if tagAsset}
 	{@const r = tagAsset.id in rateLocal ? rateLocal[tagAsset.id] : tagAsset.rating}
@@ -1152,4 +1331,43 @@
 	.pick { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
 	.pick input { width: auto; }
 	.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+	/* Guru tender */
+	.t-bar { display: inline-block; width: 70px; height: 6px; border-radius: 99px; background: #F4F4F5; overflow: hidden; flex-shrink: 0; }
+	.t-bar span { display: block; height: 100%; background: #16a34a; border-radius: 99px; }
+	.t-flash { margin-bottom: 12px; padding: 8px 12px; border-radius: 10px; background: #F0FDF4; color: #15803d; font-size: 13px; font-weight: 600; }
+	.openings { display: flex; flex-direction: column; gap: 8px; }
+	.op-row { display: grid; grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr) 28px; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid #F0F0F1; border-radius: 12px; background: #FAFAFA; }
+	.op-label { background: white; font-weight: 600; }
+	.stepper { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 9px; background: white; overflow: hidden; }
+	.stepper button { width: 30px; height: 32px; border: none; background: none; font-size: 16px; color: #52525B; cursor: pointer; font-family: inherit; }
+	.stepper button:hover:not(:disabled) { background: #F4F4F5; }
+	.stepper button:disabled { color: #D4D4D8; cursor: default; }
+	.stepper span { min-width: 24px; text-align: center; font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+	.op-fill { display: flex; align-items: center; gap: 10px; min-width: 0; }
+	.op-dots { display: inline-flex; gap: 4px; flex-shrink: 0; }
+	.op-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #D4D4D8; box-sizing: border-box; }
+	.op-dot.on { background: #16a34a; border-color: #16a34a; }
+	.op-names { font-size: 12.5px; color: #52525B; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.op-del { width: 28px; height: 28px; border: none; border-radius: 8px; background: none; color: #A1A1AA; cursor: pointer; }
+	.op-del:hover { background: #FEF2F2; color: #dc2626; }
+	.op-lbl { font-size: 12px; }
+	.t-foot { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+	.t-chips { display: inline-flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+	.t-chip { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: #F4F4F5; color: #52525B; white-space: nowrap; }
+	.t-chip.ok { background: #DCFCE7; color: #15803D; }
+	.t-chip.no { background: #FEF2F2; color: #b91c1c; }
+	.modal.tender-modal { max-width: 640px; display: flex; flex-direction: column; }
+	.tm-bar { display: flex; gap: 8px; margin-bottom: 10px; }
+	.tm-search { flex: 1; }
+	.tm-list { display: flex; flex-direction: column; gap: 4px; max-height: 52vh; overflow-y: auto; }
+	.tm-row { display: grid; grid-template-columns: 18px 30px minmax(0, 1fr) 48px auto; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+	.tm-row input { width: 16px; height: 16px; accent-color: #F57832; padding: 0; }
+	.tm-row.on { border-color: #F57832; background: #FFF8F3; }
+	.tm-row.off { opacity: .55; cursor: default; }
+	.tm-id { display: flex; flex-direction: column; min-width: 0; }
+	.tm-id > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.tm-rate { font-size: 12px; font-weight: 700; color: #F5A623; }
+	.tm-foot { align-items: center; }
+	.tm-foot .muted { margin-right: auto; }
+	@media (max-width: 700px) { .op-row { grid-template-columns: 1fr auto 28px; } .op-fill { grid-column: 1 / -1; } }
 </style>

@@ -67,7 +67,7 @@ export async function deleteGuru(db, id) {
 /** Gurus attached to an event, with their details + proposal status + per-event flow. */
 export async function listEventGurus(db, eventId) {
 	const rows = await db.prepare(
-		`SELECT g.*, eg.status, eg.proposal_token, eg.responded_at, eg.in_email_flow AS event_flow, eg.rating AS event_rating, eg.rating_note AS event_note
+		`SELECT g.*, eg.status, eg.proposal_token, eg.responded_at, eg.in_email_flow AS event_flow, eg.rating AS event_rating, eg.rating_note AS event_note, eg.opening_id, eg.sent_at
 		 FROM event_guru eg JOIN guru g ON g.id = eg.guru_id
 		 WHERE eg.event_id = ? ORDER BY g.name COLLATE NOCASE`
 	).bind(eventId).all();
@@ -115,14 +115,64 @@ export async function setEventGuruFlow(db, eventId, guruId, val) {
 		.bind(val ? 1 : 0, eventId, guruId).run();
 }
 
-// ── Public proposal (accept / decline via token) ──────────────────────────────
+// ── Tender openings (e.g. 2 × Strategi, 1 × Familie) ──────────────────────────
+
+const BOOKED = "('accepted','confirmed')";
+
+/** Openings for an event with how many spots are taken. */
+export async function listOpenings(db, eventId) {
+	const rows = await db.prepare(
+		`SELECT o.*, (SELECT COUNT(*) FROM event_guru eg WHERE eg.opening_id = o.id AND eg.status IN ${BOOKED}) AS filled
+		 FROM event_guru_opening o WHERE o.event_id = ? ORDER BY o.position, o.created_at`
+	).bind(eventId).all();
+	return rows.results ?? [];
+}
+
+export async function createOpening(db, eventId, { label, slots }) {
+	const id = uid();
+	await db.prepare(
+		`INSERT INTO event_guru_opening (id, event_id, label, slots, position)
+		 VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM event_guru_opening WHERE event_id = ?))`
+	).bind(id, eventId, cleanLabel(label), clampSlots(slots), eventId).run();
+	return id;
+}
+
+export async function updateOpening(db, eventId, id, patch) {
+	const fields = [], values = [];
+	if ('label' in patch) { fields.push('label = ?'); values.push(cleanLabel(patch.label)); }
+	if ('slots' in patch) { fields.push('slots = ?'); values.push(clampSlots(patch.slots)); }
+	if (!fields.length) return;
+	values.push(id, eventId);
+	await db.prepare(`UPDATE event_guru_opening SET ${fields.join(', ')} WHERE id = ? AND event_id = ?`).bind(...values).run();
+}
+
+/** Delete an opening; gurus booked on it stay on the event but lose the opening link. */
+export async function deleteOpening(db, eventId, id) {
+	await db.batch([
+		db.prepare('UPDATE event_guru SET opening_id = NULL WHERE opening_id = ? AND event_id = ?').bind(id, eventId),
+		db.prepare('DELETE FROM event_guru_opening WHERE id = ? AND event_id = ?').bind(id, eventId),
+	]);
+}
+
+function cleanLabel(l) { return typeof l === 'string' && l.trim() ? l.trim().slice(0, 80) : null; }
+function clampSlots(n) { const v = Math.round(Number(n)); return Number.isFinite(v) ? Math.min(Math.max(v, 1), 50) : 1; }
+
+/** Mark gurus as sent now (tender e-mail went out). */
+export async function markSent(db, eventId, guruIds) {
+	if (!guruIds.length) return;
+	await db.batch(guruIds.map((gid) =>
+		db.prepare("UPDATE event_guru SET sent_at = datetime('now') WHERE event_id = ? AND guru_id = ?").bind(eventId, gid)
+	));
+}
+
+// ── Public proposal / tender (via the guru's personal token) ───────────────────
 
 export async function getProposalByToken(db, tok) {
 	return db.prepare(
-		`SELECT eg.status, eg.event_id, eg.guru_id, eg.responded_at,
+		`SELECT eg.status, eg.event_id, eg.guru_id, eg.responded_at, eg.opening_id,
 		        g.name AS guru_name,
-		        e.title AS event_title, e.event_date, e.start_time, e.end_time,
-		        v.name AS venue_name, v.address AS venue_address, v.zip AS venue_zip, v.city AS venue_city
+		        e.title AS event_title, e.event_date, e.end_date, e.start_time, e.end_time, e.status AS event_status,
+		        v.name AS venue_name, v.address AS venue_address, v.zip AS venue_zip, v.city AS venue_city, v.country AS venue_country
 		 FROM event_guru eg
 		 JOIN guru g ON g.id = eg.guru_id
 		 JOIN event e ON e.id = eg.event_id
@@ -131,10 +181,33 @@ export async function getProposalByToken(db, tok) {
 	).bind(tok).first();
 }
 
-/** Guru responds to a proposal: 'accepted' | 'declined'. */
-export async function respondProposal(db, tok, status) {
-	const s = status === 'accepted' ? 'accepted' : 'declined';
-	await db.prepare("UPDATE event_guru SET status = ?, responded_at = datetime('now') WHERE proposal_token = ?")
-		.bind(s, tok).run();
-	return s;
+/**
+ * Guru responds via their token.
+ *  - 'declined': frees any spot they held.
+ *  - 'accepted' + openingId: takes that spot if one is still free (atomic —
+ *    first come first served). Returns { status: 'full' } when it was taken.
+ *  - 'accepted' without openingId: only for events without openings (old flow).
+ */
+export async function respondProposal(db, tok, status, openingId = null) {
+	if (status !== 'accepted') {
+		await db.prepare("UPDATE event_guru SET status = 'declined', opening_id = NULL, responded_at = datetime('now') WHERE proposal_token = ?")
+			.bind(tok).run();
+		return { status: 'declined', opening_id: null };
+	}
+	if (!openingId) {
+		await db.prepare("UPDATE event_guru SET status = 'accepted', responded_at = datetime('now') WHERE proposal_token = ?").bind(tok).run();
+		return { status: 'accepted', opening_id: null };
+	}
+	// One statement = atomic in D1: only succeeds while the opening (on this
+	// guru's event) still has a free spot. A guru switching spots frees the old one.
+	const r = await db.prepare(
+		`UPDATE event_guru SET status = 'accepted', opening_id = ?1, responded_at = datetime('now')
+		 WHERE proposal_token = ?2
+		   AND EXISTS (SELECT 1 FROM event_guru_opening o WHERE o.id = ?1 AND o.event_id = event_guru.event_id)
+		   AND (SELECT COUNT(*) FROM event_guru x
+		        WHERE x.opening_id = ?1 AND x.status IN ${BOOKED} AND x.proposal_token <> ?2)
+		       < (SELECT slots FROM event_guru_opening WHERE id = ?1)`
+	).bind(openingId, tok).run();
+	if (!r.meta?.changes) return { status: 'full', opening_id: null };
+	return { status: 'accepted', opening_id: openingId };
 }
