@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { verifySession } from '$lib/auth.js';
-import { getAllowedUser, listSheets, searchSheets, listIncompleteSheets, listFeaturedSheets, getUserPermissions } from '$lib/db.js';
+import { getAllowedUser, listSheets, searchSheets, listIncompleteSheets, listFeaturedSheets, countSheets, getUserPermissions } from '$lib/db.js';
 
 const PAGE_SIZE = 30;
 
@@ -26,27 +26,33 @@ export async function GET({ url, cookies, platform }) {
 		return json({ sheet: sheet ?? null });
 	}
 
+	// ?barred=0 hides sheets barred in Rackbeat (the Sheets overview's default).
+	const hideBarred = url.searchParams.get('barred') === '0';
+
 	// ── Todo: sheets missing required info (edit access only) ───────────────
 	if (url.searchParams.get('todo')) {
 		const perms = await getUserPermissions(db, user);
 		if (!perms.sheetsEdit) error(403, 'Edit access required');
-		return json({ sheets: await listIncompleteSheets(db, platform?.env?.SALES_DB ?? db) });
+		return json({ sheets: await listIncompleteSheets(db, platform?.env?.SALES_DB ?? db, { hideBarred }) });
 	}
 
 	// ── Featured (starred for the webshop) ────────────────────────────────
-	if (url.searchParams.get('featured')) return json({ sheets: await listFeaturedSheets(db) });
+	if (url.searchParams.get('featured')) return json({ sheets: await listFeaturedSheets(db, { hideBarred }) });
 
 	// ── Search ─────────────────────────────────────────────────────────────
 	// A pasted spreadsheet row (tabs/newlines, hundreds of chars) made SQLite reject
 	// the LIKE pattern as "too complex" → 500. Search on the first cell, max 100 chars.
 	const q = url.searchParams.get('q')?.split(/[\t\r\n]/).map((x) => x.trim()).find(Boolean)?.slice(0, 100);
 	if (q) {
-		const sheets = await searchSheets(db, q);
+		const sheets = await searchSheets(db, q, { hideBarred });
 		return json({ sheets });
 	}
 
 	// ── Paginated list ─────────────────────────────────────────────────────
 	const offset = Math.max(0, parseInt(url.searchParams.get('offset') ?? '0', 10));
-	const sheets = await listSheets(db, { limit: PAGE_SIZE, offset });
-	return json({ sheets });
+	const [sheets, totalCount] = await Promise.all([
+		listSheets(db, { limit: PAGE_SIZE, offset, hideBarred }),
+		offset === 0 ? countSheets(db, { hideBarred }) : null,
+	]);
+	return json(totalCount === null ? { sheets } : { sheets, totalCount });
 }

@@ -83,7 +83,7 @@
 		if (loadingMore) return;
 		loadingMore = true;
 		try {
-			const res = await fetch(`/api/sheets?offset=${loadedSheets.length}`);
+			const res = await fetch(`/api/sheets?offset=${loadedSheets.length}&${barredQ()}`);
 			if (res.ok) {
 				const { sheets } = await res.json();
 				loadedSheets = [...loadedSheets, ...sheets.map(decorate)];
@@ -93,6 +93,28 @@
 		}
 	}
 
+	// ── Hide Barred (on by default): sheets barred in Rackbeat are left out of
+	// every view. Switching it off counts as a filter (Reset all turns it back on).
+	let hideBarred = $state(true);
+	const barredQ = () => `barred=${hideBarred ? 0 : 1}`;
+	let barredShown = true; // what the server-rendered first page was loaded with
+	$effect(() => {
+		const hb = hideBarred;
+		if (hb === barredShown) return;
+		barredShown = hb;
+		(async () => {
+			const res = await fetch(`/api/sheets?offset=0&barred=${hb ? 0 : 1}`);
+			if (res.ok && hideBarred === hb) {
+				const body = await res.json();
+				loadedSheets = body.sheets.map(decorate);
+				if (typeof body.totalCount === 'number') totalCount = body.totalCount;
+			}
+		})();
+		todoSheets = null;
+		if (todo) loadTodo();
+		if (featuredOnly) loadFeatured();
+	});
+
 	// ── Search (server-side so it spans ALL sheets) ───────────────────────
 	let query        = $state('');
 	let searchResults = $state(/** @type {any[]|null} */ (null));
@@ -101,6 +123,7 @@
 
 	$effect(() => {
 		const q = query.trim();
+		const bq = barredQ();
 		clearTimeout(searchTimer ?? undefined);
 		if (!q) {
 			searchResults = null;
@@ -109,7 +132,7 @@
 		searching = true;
 		searchTimer = setTimeout(async () => {
 			try {
-				const res = await fetch(`/api/sheets?q=${encodeURIComponent(q)}`);
+				const res = await fetch(`/api/sheets?q=${encodeURIComponent(q)}&${bq}`);
 				if (res.ok) {
 					const { sheets } = await res.json();
 					searchResults = sheets.map(decorate);
@@ -128,7 +151,7 @@
 		if (todoSheets !== null) return;
 		todoLoading = true;
 		try {
-			const res = await fetch('/api/sheets?todo=1');
+			const res = await fetch(`/api/sheets?todo=1&${barredQ()}`);
 			if (res.ok) { const { sheets } = await res.json(); todoSheets = sheets.map(decorate); }
 		} finally { todoLoading = false; }
 	}
@@ -146,7 +169,7 @@
 	let featuredOnly = $state(false);
 	let featuredSheets = $state(/** @type {any[]|null} */ (null));
 	async function loadFeatured() {
-		const res = await fetch('/api/sheets?featured=1');
+		const res = await fetch(`/api/sheets?featured=1&${barredQ()}`);
 		if (res.ok) featuredSheets = (await res.json()).sheets.map(decorate);
 	}
 	async function toggleFeaturedOnly() {
@@ -198,6 +221,7 @@
 		const snap = JSON.stringify(f);
 		const q = query.trim();
 		const feat = featuredOnly;
+		const hb = hideBarred;
 		clearTimeout(advTimer ?? undefined);
 		if (!advActive) { advResults = null; return; }
 		if (todo) setTodo(false); // filters replace the Todo view
@@ -212,6 +236,7 @@
 			if (f.preorder) p.set('preorder', f.preorder);
 			if (f.restock) p.set('restock', f.restock);
 			if (feat) p.set('featured', '1');
+			p.set('barred', hb ? '0' : '1');
 			try {
 				const res = await fetch(`/api/sheets/filter?${p}`);
 				if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -236,6 +261,7 @@
 			}
 			if (saved && typeof saved === 'object') {
 				if (typeof saved.q === 'string') query = saved.q;
+				if (saved.showBarred === true) hideBarred = false;
 				if (canEdit && saved.f && typeof saved.f === 'object') {
 					const nf = { ...blankFilter(), ...saved.f };
 					// 'category' was split into 'gametype' + 'type'.
@@ -250,17 +276,18 @@
 		restored = true;
 	});
 	$effect(() => {
-		const state = JSON.stringify({ q: query, featured: featuredOnly, todo, f, open: filterOpen });
+		const state = JSON.stringify({ q: query, featured: featuredOnly, todo, f, open: filterOpen, showBarred: !hideBarred });
 		if (!restored) return;
 		try { localStorage.setItem(STATE_KEY, state); } catch { /* ignore */ }
 	});
 
-	const anyActive = $derived(!!query.trim() || featuredOnly || todo || advActive);
+	const anyActive = $derived(!!query.trim() || featuredOnly || todo || advActive || !hideBarred);
 	function resetAll() {
 		query = '';
 		featuredOnly = false;
 		todo = false;
 		f = blankFilter();
+		hideBarred = true;
 	}
 
 	const displayed = $derived.by(() => {
@@ -295,7 +322,7 @@
 			</div>
 			<div class="header-right">
 				{#if anyActive}
-					<button class="btn-reset" onclick={resetAll} title="Clear search, Featured, Todo and all filters">
+					<button class="btn-reset" onclick={resetAll} title="Clear search, Featured, Todo, Hide Barred and all filters">
 						<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
 						Reset all filters
 					</button>
@@ -321,29 +348,29 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
 						Filters{#if advCount}<span class="todo-n">{advCount}</span>{/if}
 					</button>
-					<button class="btn-todo" class:on={todo} onclick={toggleTodo} title="Only sheets missing short description, long description, bullets, or a box image (3D or flat front) — or whose 3D box photo is a legacy crop">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				{/if}
+				<label class="switch" title="Hide products barred in Rackbeat">
+					<input type="checkbox" bind:checked={hideBarred} />
+					<span class="track" aria-hidden="true"><span class="knob"></span></span>
+					Hide Barred
+				</label>
+				{#if canEdit}
+					<button class="btn-icon" class:on={todo} onclick={toggleTodo} title="Todo — only sheets missing short description, long description, bullets, or a box image (3D or flat front) — or whose 3D box photo is a legacy crop" aria-label="Todo" aria-pressed={todo}>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 							<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
 						</svg>
-						Todo{#if todo && todoSheets}<span class="todo-n">{displayed.length}</span>{/if}
+						{#if todo && todoSheets}<span class="todo-n">{displayed.length}</span>{/if}
 					</button>
 				{/if}
-				<button class="btn-todo" class:on={featuredOnly} onclick={toggleFeaturedOnly} title="Only products starred as Featured for the webshop">
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
-					Featured{#if featuredOnly && featuredSheets}<span class="todo-n">{displayed.length}</span>{/if}
+				<button class="btn-icon" class:on={featuredOnly} onclick={toggleFeaturedOnly} title="Featured — only products starred for the webshop" aria-label="Featured" aria-pressed={featuredOnly}>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.4 6.8 19.1l1-5.8L3.5 9.2l5.9-.9z"/></svg>
+					{#if featuredOnly && featuredSheets}<span class="todo-n">{displayed.length}</span>{/if}
 				</button>
-				<a href="/sheets/awards" class="btn-award-view" title="Products with new press or awards to push to the webshop">
-					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/>
-					</svg>
-					Award view
-				</a>
 				{#if canEdit}
-					<a href="/sheet/new" class="btn-new">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+					<a href="/sheet/new" class="btn-new icon" title="New Sheet" aria-label="New Sheet">
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
 							<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
 						</svg>
-						New Sheet
 					</a>
 				{/if}
 			</div>
@@ -727,6 +754,37 @@
 	.btn-todo.on { background: #F57832; border-color: #F57832; color: #fff; }
 	.btn-todo.open:not(.on) { border-color: #F57832; color: #B15A12; }
 
+	/* Icon-only toolbar buttons (Todo, Featured, New) */
+	.btn-new.icon { padding: 0; width: 34px; height: 34px; justify-content: center; }
+	.btn-icon {
+		display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+		width: 34px; height: 34px; padding: 0;
+		background: #fff; color: #52525B; border: 1px solid var(--border, #E4E4E7);
+		border-radius: 100px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer;
+	}
+	.btn-icon:hover { border-color: #F57832; color: #B15A12; }
+	.btn-icon.on { background: #F57832; border-color: #F57832; color: #fff; }
+	.btn-icon { position: relative; }
+	.btn-icon .todo-n {
+		position: absolute; top: -5px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;
+		border-radius: 100px; background: #fff; color: #C2560F; box-shadow: 0 0 0 1.5px #F57832;
+		font-size: 10.5px; font-weight: 800; line-height: 16px; text-align: center; pointer-events: none;
+	}
+
+	/* Hide Barred on/off switch */
+	.switch {
+		display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px 7px 10px;
+		background: #fff; border: 1px solid var(--border, #E4E4E7); border-radius: 100px;
+		font-size: 13px; font-weight: 700; color: #52525B; cursor: pointer; white-space: nowrap; user-select: none; letter-spacing: -0.1px;
+	}
+	.switch:hover { border-color: #F57832; color: #B15A12; }
+	.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+	.switch .track { position: relative; width: 32px; height: 18px; border-radius: 100px; background: #D4D4D8; transition: background 0.15s; flex-shrink: 0; }
+	.switch .knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.2); transition: transform 0.15s; }
+	.switch input:checked + .track { background: #F57832; }
+	.switch input:checked + .track .knob { transform: translateX(14px); }
+	.switch input:focus-visible + .track { outline: 2px solid #F57832; outline-offset: 2px; }
+
 	.filters { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px 10px; margin: 0 0 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow); }
 	.f-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; }
 	.f-grp { display: flex; align-items: center; gap: 8px; }
@@ -759,22 +817,6 @@
 	}
 	.btn-reset:hover { background: #FBD9D4; border-color: #E89A8E; }
 	.btn-todo .todo-n { background: rgba(255,255,255,0.3); border-radius: 100px; font-size: 11px; font-weight: 800; padding: 0 7px; }
-	.btn-award-view {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 7px 14px;
-		background: white;
-		color: #6D5BD0;
-		border: 1px solid #ddd9f0;
-		border-radius: 100px;
-		font-size: 13px;
-		font-weight: 600;
-		text-decoration: none;
-		transition: background 0.15s, border-color 0.15s;
-		letter-spacing: -0.1px;
-	}
-	.btn-award-view:hover { background: #faf9ff; border-color: #c9c2ec; }
 
 	/* ── Empty state ─────────────────────────────────────────────────────── */
 	.empty {

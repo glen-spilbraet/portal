@@ -28,6 +28,8 @@ database_id = "57e39bf4-7c9e-4f12-a109-48c5cd8dd2e3"
 # Oldest close-date year to sync. Older closed-won deals are ignored.
 [vars]
 START_YEAR = "2024"
+# B2B shops told about barred flips (hourly Rackbeat sync), both shop environments.
+SHOP_WEBHOOK_URLS = "https://shop-9c9.pages.dev/api/portal/webhook,https://dev.shop-9c9.pages.dev/api/portal/webhook"
 
 # Secrets (set with `wrangler secret put <NAME>`), NOT stored here:
 #   HUBSPOT_TOKEN  - HubSpot private-app token (deals/companies/owners read scopes)
