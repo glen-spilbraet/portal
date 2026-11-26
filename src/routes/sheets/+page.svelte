@@ -767,7 +767,12 @@
 	.btn-icon .todo-n { background: rgba(255,255,255,0.3); border-radius: 100px; font-size: 11px; font-weight: 800; padding: 0 6px; }
 
 	/* Hide Barred on/off switch */
-	.switch { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; color: #52525B; cursor: pointer; white-space: nowrap; user-select: none; }
+	.switch {
+		display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px 7px 10px;
+		background: #fff; border: 1px solid var(--border, #E4E4E7); border-radius: 100px;
+		font-size: 13px; font-weight: 700; color: #52525B; cursor: pointer; white-space: nowrap; user-select: none; letter-spacing: -0.1px;
+	}
+	.switch:hover { border-color: #F57832; color: #B15A12; }
 	.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 	.switch .track { position: relative; width: 32px; height: 18px; border-radius: 100px; background: #D4D4D8; transition: background 0.15s; flex-shrink: 0; }
 	.switch .knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.2); transition: transform 0.15s; }
