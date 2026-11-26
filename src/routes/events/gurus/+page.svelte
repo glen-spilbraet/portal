@@ -239,7 +239,7 @@
 
 				<div class="perf-table-wrap">
 					<table class="perf-table">
-						<colgroup><col style="width:130px" /><col /><col style="width:96px" /><col style="width:96px" /><col style="width:130px" /><col style="width:120px" /></colgroup>
+						<colgroup><col style="width:130px" /><col /><col style="width:112px" /><col style="width:96px" /><col style="width:130px" /><col style="width:120px" /></colgroup>
 						<thead><tr><th>Date</th><th>Event</th><th>Rating</th><th class="num">Attended</th><th>Photos</th><th class="num">Tombola</th></tr></thead>
 						<tbody>
 							{#each perfRows as r (r.id)}
@@ -255,6 +255,7 @@
 									<td>
 										{#if r.guru_rating != null}<span class="stars-ro sm" style="--pct:{(r.guru_rating / 5) * 100}%" title="{r.guru_rating} / 5">★★★★★</span>
 										{:else}<span class="dim">—</span>{/if}
+										{#if r.guru_note}<span class="note-ic" title={r.guru_note} aria-label="Note: {r.guru_note}"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.5a1 1 0 0 1-1-1Z" fill="currentColor"/></svg></span>{/if}
 									</td>
 									<td class="num">
 										{#if r.participants_actual != null}<b>{r.participants_actual}</b>{#if r.participants_expected != null}<span class="dim"> / {r.participants_expected}</span>{/if}
@@ -336,7 +337,8 @@
 	.t-of { font-size: 13px; font-weight: 600; color: #A1A1AA; margin-left: 2px; }
 	/* read-only stars: gold fill clipped to --pct */
 	.stars-ro { display: inline-block; font-size: 17px; letter-spacing: 1px; line-height: 1; background: linear-gradient(90deg, #F5A623 var(--pct), #E4E4E7 var(--pct)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-	.stars-ro.sm { font-size: 14px; }
+	.stars-ro.sm { font-size: 14px; vertical-align: middle; }
+	.note-ic { display: inline-flex; vertical-align: middle; margin-left: 5px; color: #F57832; cursor: help; }
 	.avg { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #18181B; }
 	.perf-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding-right: 40px; }
 	.perf-head .modal-title { margin: 0; }

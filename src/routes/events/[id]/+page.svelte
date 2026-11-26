@@ -87,7 +87,7 @@
 		...data.eventGurus.map((g) => ({
 			kind: 'guru', id: g.id, name: g.name,
 			sub: [[g.zip, g.city].filter(Boolean).join(' '), g.country].filter(Boolean).join(', '),
-			inFlow: !!g.event_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl, rating: g.event_rating ?? null,
+			inFlow: !!g.event_flow, status: g.status, image_key: g.image_key, proposalUrl: g.proposalUrl, rating: g.event_rating ?? null, note: g.event_note ?? '',
 		})),
 	]);
 
@@ -120,6 +120,22 @@
 		if (!res.ok) alert('Failed to save rating');
 		await invalidateAll();
 		const { [row.id]: _, ...rest } = guruRateLocal; guruRateLocal = rest;
+	}
+	// Per-event internal note on a guru (icon next to the stars; popover to view/edit)
+	let noteOpen = $state(/** @type {string|null} */ (null));
+	let noteDraft = $state('');
+	let noteSaving = $state(false);
+	function openNote(row) { noteOpen = noteOpen === row.id ? null : row.id; noteDraft = row.note ?? ''; }
+	async function saveNote(row) {
+		noteSaving = true;
+		try {
+			const res = await fetch(`/api/events/${data.event.id}/gurus/${row.id}`, {
+				method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: noteDraft })
+			});
+			if (!res.ok) throw new Error('Failed to save note');
+			await invalidateAll();
+			noteOpen = null;
+		} catch (e) { alert(e instanceof Error ? e.message : String(e)); } finally { noteSaving = false; }
 	}
 	let copiedGuru = $state(null);
 	function copyProposal(row) { navigator.clipboard?.writeText(row.proposalUrl); copiedGuru = row.id; setTimeout(() => (copiedGuru = null), 1500); }
@@ -535,6 +551,21 @@
 														<button class="star" class:on={(rv ?? 0) >= n} role="radio" aria-checked={rv === n} aria-label="{n} star{n > 1 ? 's' : ''}" title={rv === n ? 'Click again to clear' : `${n} / 5`} onclick={() => rateGuru(row, n)}>★</button>
 													{/each}
 												</div>
+												<span class="note-wrap">
+													<button class="note-btn" class:has={!!row.note} onclick={(e) => { e.stopPropagation(); openNote(row); }} aria-label={row.note ? 'View/edit note' : 'Add note'} title={row.note ? 'View/edit note' : 'Add note'} aria-expanded={noteOpen === row.id}>
+														<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.5a1 1 0 0 1-1-1Z" fill={row.note ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+													</button>
+													{#if noteOpen === row.id}
+														<div class="note-pop" role="dialog" aria-label="Note on {row.name}" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') noteOpen = null; if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveNote(row); }}>
+															<!-- svelte-ignore a11y_autofocus -->
+															<textarea rows="4" bind:value={noteDraft} placeholder="Note on {row.name} at this event…" autofocus></textarea>
+															<div class="note-foot">
+																<button class="btn xs" onclick={() => (noteOpen = null)}>Cancel</button>
+																<button class="btn xs primary" onclick={() => saveNote(row)} disabled={noteSaving || noteDraft.trim() === (row.note ?? '').trim()}>{noteSaving ? 'Saving…' : 'Save'}</button>
+															</div>
+														</div>
+													{/if}
+												</span>
 											{/if}
 										</td>
 										<td class="actions-cell">
@@ -680,7 +711,7 @@
 	</div>
 {/if}
 
-<svelte:window onkeydown={(e) => { viewerKeys(e); if (e.key === 'Escape') { closeAdd(); rateOpen = null; } }} onclick={() => (rateOpen = null)} />
+<svelte:window onkeydown={(e) => { viewerKeys(e); if (e.key === 'Escape') { closeAdd(); rateOpen = null; } }} onclick={() => { rateOpen = null; noteOpen = null; }} />
 
 {#if tagAsset}
 	{@const r = tagAsset.id in rateLocal ? rateLocal[tagAsset.id] : tagAsset.rating}
@@ -1097,7 +1128,14 @@
 	.flow-pill.on { background: #E9F7EC; color: #16a34a; }
 	.flow-pill.off { background: #F4F4F5; color: #A1A1AA; }
 	.actions-cell { text-align: right; }
-	.stars { display: inline-flex; gap: 1px; }
+	.stars { display: inline-flex; gap: 1px; vertical-align: middle; }
+	.note-wrap { position: relative; display: inline-flex; vertical-align: middle; margin-left: 6px; }
+	.note-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: none; border-radius: 6px; background: none; color: #D4D4D8; cursor: pointer; padding: 0; }
+	.note-btn:hover { background: #F4F4F5; color: #71717A; }
+	.note-btn.has { color: #F57832; }
+	.note-pop { position: absolute; top: calc(100% + 6px); right: -8px; z-index: 20; width: 280px; padding: 10px; background: white; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); }
+	.note-pop textarea { font-size: 13px; }
+	.note-foot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 	.star { background: none; border: none; padding: 0 1px; font-size: 17px; line-height: 1; color: #E4E4E7; cursor: pointer; transition: transform .1s; }
 	.star.on { color: #F5A623; }
 	.stars:hover .star { color: #F5A623; }

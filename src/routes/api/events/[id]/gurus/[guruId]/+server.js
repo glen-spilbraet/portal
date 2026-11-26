@@ -1,12 +1,17 @@
 import { json } from '@sveltejs/kit';
 import { requireEvents } from '$lib/server/eventsAuth.js';
-import { removeEventGuru, setEventGuruStatus, setEventGuruFlow, setEventGuruRating } from '$lib/server/gurus.js';
+import { removeEventGuru, setEventGuruStatus, setEventGuruFlow, setEventGuruRating, setEventGuruNote } from '$lib/server/gurus.js';
 
 export async function PUT(event) {
 	const { db } = await requireEvents(event);
 	const body = await event.request.json().catch(() => ({}));
 	if (typeof body?.in_email_flow === 'boolean') {
 		await setEventGuruFlow(db, event.params.id, event.params.guruId, body.in_email_flow);
+		return json({ ok: true });
+	}
+	if ('note' in (body ?? {})) {
+		if (body.note != null && typeof body.note !== 'string') return json({ message: 'Invalid note' }, { status: 400 });
+		await setEventGuruNote(db, event.params.id, event.params.guruId, body.note);
 		return json({ ok: true });
 	}
 	if ('rating' in (body ?? {})) {

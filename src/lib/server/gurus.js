@@ -67,7 +67,7 @@ export async function deleteGuru(db, id) {
 /** Gurus attached to an event, with their details + proposal status + per-event flow. */
 export async function listEventGurus(db, eventId) {
 	const rows = await db.prepare(
-		`SELECT g.*, eg.status, eg.proposal_token, eg.responded_at, eg.in_email_flow AS event_flow, eg.rating AS event_rating
+		`SELECT g.*, eg.status, eg.proposal_token, eg.responded_at, eg.in_email_flow AS event_flow, eg.rating AS event_rating, eg.rating_note AS event_note
 		 FROM event_guru eg JOIN guru g ON g.id = eg.guru_id
 		 WHERE eg.event_id = ? ORDER BY g.name COLLATE NOCASE`
 	).bind(eventId).all();
@@ -100,6 +100,13 @@ export async function setEventGuruStatus(db, eventId, guruId, status) {
 export async function setEventGuruRating(db, eventId, guruId, rating) {
 	await db.prepare('UPDATE event_guru SET rating = ? WHERE event_id = ? AND guru_id = ?')
 		.bind(rating, eventId, guruId).run();
+}
+
+/** Per-event internal note on a guru (null/blank clears it). */
+export async function setEventGuruNote(db, eventId, guruId, note) {
+	const v = typeof note === 'string' && note.trim() ? note.trim() : null;
+	await db.prepare('UPDATE event_guru SET rating_note = ? WHERE event_id = ? AND guru_id = ?')
+		.bind(v, eventId, guruId).run();
 }
 
 /** Per-event email-flow toggle for a guru. */
