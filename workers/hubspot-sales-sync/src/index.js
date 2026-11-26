@@ -1952,7 +1952,9 @@ async function syncRackbeatStock(env, { dry = false, chunk = FIELD_CHUNK } = {})
 		const out = { products: list.size, game_checked: slice.length, game_ok: game.size };
 		for (const [name, db] of dbs) {
 			try {
-				out[name] = await applyRackbeat(db, sheets[name], list, game, started, dry);
+				const { flipped, ...res } = await applyRackbeat(db, sheets[name], list, game, started, dry);
+				out[name] = res;
+				if (name === 'prod' && flipped?.length) out.shop_notify = await notifyShopsBarred(env, flipped);
 			} catch (e) {
 				out[name] = { error: e?.message ?? String(e) };
 				if (!dry) await setRbMeta(db, 1, { last_run: started, status: 'error', message: out[name].error }).catch(() => {});
@@ -1974,6 +1976,7 @@ async function applyRackbeat(db, rows, list, game, now, dry) {
 	const same = (a, b) => (a == null ? null : Number(a)) === (b == null ? null : Number(b));
 	const stmts = [];
 	let matched = 0, stockChanged = 0, fieldsChanged = 0, namesChanged = 0, barredChanged = 0;
+	const barredSkus = [];
 	const nameSamples = [];
 	const byKey = {};
 	const samples = [];
@@ -1996,7 +1999,7 @@ async function applyRackbeat(db, rows, list, game, now, dry) {
 		const barred = rb ? rb.barred : null;
 		if ((r.rb_barred ?? null) !== barred) {
 			const flip = (r.rb_barred ? 1 : 0) !== (barred ? 1 : 0);
-			if (flip) barredChanged++;
+			if (flip) { barredChanged++; barredSkus.push(String(r.sku).trim()); }
 			stmts.push(db.prepare(
 				`UPDATE sales_sheets SET rb_barred = ?${flip ? ', updated_at = unixepoch()' : ''} WHERE id = ?`
 			).bind(barred, r.id));
@@ -2028,11 +2031,45 @@ async function applyRackbeat(db, rows, list, game, now, dry) {
 		if (samples.length < 25) samples.push({ sku: r.sku, changes });
 		stmts.push(db.prepare(`UPDATE sales_sheets SET data_fields = ?, updated_at = unixepoch() WHERE id = ?`).bind(JSON.stringify(next), r.id));
 	}
-	const res = { sheets: rows.length, matched, changed: stockChanged, fields_changed: fieldsChanged, fields_by_key: byKey, names_changed: namesChanged, barred_changed: barredChanged };
+	const res = { sheets: rows.length, matched, changed: stockChanged, fields_changed: fieldsChanged, fields_by_key: byKey, names_changed: namesChanged, barred_changed: barredChanged, barred_skus: barredSkus.slice(0, 50) };
 	if (dry) return { ...res, samples, name_samples: nameSamples };
 	for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
 	await setRbMeta(db, 1, { last_run: now, status: 'ok', message: null, products: list.size, matched, changed: stockChanged });
-	return res;
+	return { ...res, flipped: barredSkus };
+}
+
+// ── Tell the B2B shops about barred flips ───────────────────────────────────
+// A product barred (or unbarred) in Rackbeat must vanish from (return to) the
+// shops at once: they re-read these SKUs from the feed, whose `barred` they
+// honour whatever the publishing. Same webhook as a sheet save in the app
+// ({ type: 'products', skus }, src/lib/server/shopNotify.js); the shops queue
+// it and fetch 50 per call. Only for the prod DB (the shops read the
+// production Portal). Needs the SHOP_FEED_KEY secret on this worker.
+// Shops: SHOP_WEBHOOK_URLS (comma-separated, wrangler.toml [vars]).
+const SHOP_NOTIFY_CHUNK = 200;
+
+async function notifyShopsBarred(env, skus) {
+	const urls = String(env.SHOP_WEBHOOK_URLS ?? '').split(',').map((u) => u.trim()).filter((u) => /^https:\/\//.test(u));
+	if (!skus.length || !env.SHOP_FEED_KEY || !urls.length) return { sent: 0, skipped: !skus.length ? null : 'no key or shop URLs' };
+	const errors = [];
+	for (let i = 0; i < skus.length; i += SHOP_NOTIFY_CHUNK) {
+		const body = JSON.stringify({ type: 'products', skus: skus.slice(i, i + SHOP_NOTIFY_CHUNK) });
+		await Promise.all(urls.map(async (url) => {
+			try {
+				const res = await fetch(url, {
+					method: 'POST',
+					headers: { Authorization: `Bearer ${env.SHOP_FEED_KEY}`, 'Content-Type': 'application/json', 'User-Agent': 'spilbraet-portal/1.0' },
+					body,
+					signal: AbortSignal.timeout(8000)
+				});
+				if (!res.ok) errors.push(`${url}: ${res.status}`);
+			} catch (e) {
+				errors.push(`${url}: ${e?.message ?? e}`);
+			}
+		}));
+	}
+	if (errors.length) console.warn('shop notify (barred):', errors.join('; '));
+	return { sent: skus.length, shops: urls.length, errors };
 }
 
 async function setRbMeta(db, id, m) {

@@ -58,3 +58,8 @@ to opening a PR or pushing to another branch.
   next to the original. Deploy: `npx wrangler deploy -c workers/image-cdn/wrangler.toml`.
 - The `hubspot-sales-sync` worker (in `workers/`) must be deployed with
   `npx wrangler deploy --keep-vars` (otherwise secrets are wiped).
+  Its hourly Rackbeat → sheets run tells the B2B shops about barred flips
+  (prod DB only) with the same `{ type: 'products', skus }` webhook as a sheet
+  save: shops in `SHOP_WEBHOOK_URLS` (wrangler.toml vars, both shop
+  environments), Bearer = the worker secret `SHOP_FEED_KEY` (same key as the
+  Pages app's). The shops hide barred products whatever their publishing.
