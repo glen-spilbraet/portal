@@ -3,6 +3,8 @@
 	/**
 	 * Edit the webshop landing-page content for one publisher or series:
 	 * subheader + text per language, and one 4:3 image (often a logo).
+	 * The Danish text can be marked "AI-written" (not yet checked by a person);
+	 * editing it unticks the mark. Translations are never marked.
 	 * Talks to /api/admin/brand-pages.
 	 */
 	import { untrack } from 'svelte';
@@ -11,7 +13,8 @@
 	let { kind, ref, initial = null, onsaved = () => {} } = $props();
 
 	const LANGS = LANGUAGES.map((l) => ({ code: l.code, label: l.english }));
-	const blank = () => Object.fromEntries(LANGS.map((l) => [l.code, { subheader: '', body: '' }]));
+	const AI_LANG = 'da';
+	const blank = () => Object.fromEntries(LANGS.map((l) => [l.code, { subheader: '', body: '', ai_written: false }]));
 
 	let loaded = $state(false);
 	let imageKey = $state(/** @type {string | null} */ (null));
@@ -19,7 +22,7 @@
 	let toggling = $state(false);
 	let updatedAt = $state(/** @type {string | null} */ (null));
 	let updatedBy = $state(/** @type {string | null} */ (null));
-	/** @type {Record<string, {subheader: string, body: string}>} */
+	/** @type {Record<string, {subheader: string, body: string, ai_written: boolean}>} */
 	let texts = $state(blank());
 	let saved = $state(''); // JSON of last-saved texts → dirty check
 	let lang = $state('da');
@@ -41,7 +44,7 @@
 		updatedAt = d.updated_at ?? null;
 		updatedBy = d.updated_by ?? null;
 		const t = blank();
-		for (const l of LANGS) if (d.texts?.[l.code]) t[l.code] = { subheader: d.texts[l.code].subheader ?? '', body: d.texts[l.code].body ?? '' };
+		for (const l of LANGS) if (d.texts?.[l.code]) t[l.code] = { subheader: d.texts[l.code].subheader ?? '', body: d.texts[l.code].body ?? '', ai_written: l.code === AI_LANG && !!d.texts[l.code].ai_written };
 		texts = t;
 		saved = JSON.stringify(t);
 		loaded = true;
@@ -122,6 +125,11 @@
 		finally { uploading = false; }
 	}
 
+	/** A person edited the Danish text: it is no longer "AI-written". */
+	function edited() {
+		if (lang === AI_LANG) texts[AI_LANG].ai_written = false;
+	}
+
 	function onKey(e) {
 		if ((e.metaKey || e.ctrlKey) && e.key === 's' && dirty) { e.preventDefault(); save(); }
 	}
@@ -159,16 +167,22 @@
 				<div class="tabs" role="tablist">
 					{#each LANGS as l (l.code)}
 						<button type="button" role="tab" class="tab" class:on={lang === l.code} aria-selected={lang === l.code} title={l.label} onclick={() => (lang = l.code)}>
-							{langShort(l.code)}<span class="dot" class:filled={filled(l.code)}></span>
+							{langShort(l.code)}{#if l.code === AI_LANG && texts[AI_LANG].ai_written}<span class="ai-tag">AI</span>{/if}<span class="dot" class:filled={filled(l.code)}></span>
 						</button>
 					{/each}
 				</div>
 				<label class="fld">Subheader
-					<input bind:value={texts[lang].subheader} placeholder="e.g. Comfort and development from 0 to 18 months" maxlength="200" />
+					<input bind:value={texts[lang].subheader} oninput={edited} placeholder="e.g. Comfort and development from 0 to 18 months" maxlength="200" />
 				</label>
 				<label class="fld">Text
-					<textarea bind:value={texts[lang].body} rows="7" placeholder="What the brand / series is about — shown on the shop's landing page."></textarea>
+					<textarea bind:value={texts[lang].body} oninput={edited} rows="7" placeholder="What the brand / series is about — shown on the shop's landing page."></textarea>
 				</label>
+				{#if lang === AI_LANG}
+					<label class="ai" title="Shown in the shop's text overview (Admin → Content → Texts). Editing the Danish text unticks it.">
+						<input type="checkbox" bind:checked={texts[AI_LANG].ai_written} disabled={!filled(AI_LANG)} />
+						AI-written — not yet checked by a person
+					</label>
+				{/if}
 				<div class="foot">
 					<span class="meta">
 						{#if msg}<span class:err={msg !== 'Saved'}>{msg}</span>
@@ -212,6 +226,9 @@
 	.fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: #52525B; margin-bottom: 10px; }
 	.fld input, .fld textarea { padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; font-size: 14px; font-family: inherit; font-weight: 400; color: #18181B; outline: none; background: #FFFBF0; resize: vertical; }
 	.fld input:focus, .fld textarea:focus { border-color: #F57832; box-shadow: 0 0 0 3px rgba(245,120,50,0.12); background: #fff; }
+	.ai { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: #52525B; margin: -2px 0 12px; cursor: pointer; }
+	.ai input { accent-color: #F57832; width: 15px; height: 15px; }
+	.ai-tag { font-size: 9px; font-weight: 800; letter-spacing: .04em; padding: 1px 5px; border-radius: 5px; background: #EDE9FE; color: #5B21B6; }
 	.foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 	.meta { font-size: 12px; color: #A1A1AA; }
 	.meta .err { color: #dc2626; }

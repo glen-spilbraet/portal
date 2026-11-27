@@ -9,9 +9,11 @@ import { requireShopKey } from '$lib/server/shopFeedAuth.js';
  *
  *   { generated_at, languages: ['da','sv','no','en','pl','fi'],
  *     publishers: [{ name, slug, sku_prefixes, show_in_shop, image, image_cdn, has_content, updated_at,
- *                    texts: { da: { subheader, text }, … },
+ *                    texts: { da: { subheader, text, ai_written }, … },
  *                    series: [{ id, name, slug, product_count, show_in_shop, image, image_cdn, has_content, updated_at, texts }] }] }
  *
+ * ai_written = the Danish text was written by AI and not yet checked by a
+ * person (only ever true on `da`; translations are always AI and never marked).
  * image = the 4:3 original; image_cdn = WebP via img.spilbraet.dk (append ?w=300|600|1000|1600).
  * Which products belong where: the /api/shop/products feed (`publishers` + `series`).
  * ?publisher=<name> narrows to one publisher (for the instant refresh after a

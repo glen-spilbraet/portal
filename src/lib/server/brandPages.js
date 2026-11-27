@@ -12,6 +12,11 @@ import { LANGS } from '$lib/languages.js';
 
 /** Landing-page texts exist in every content language. */
 export const BRAND_LANGS = LANGS;
+/**
+ * The one language whose text can be marked "AI-written" (not yet checked by
+ * a person). Translations are always AI and are never marked.
+ */
+export const AI_MARK_LANG = 'da';
 export const BRAND_KINDS = ['publisher', 'series'];
 
 /** URL-safe slug from a name ("Æsel & Co." → "aesel-co"). */
@@ -24,19 +29,19 @@ export function slugify(/** @type {string} */ s) {
 }
 
 /**
- * Content for one publisher/series: { image_key, updated_at, updated_by, texts: { da: {subheader, body}, … } }.
+ * Content for one publisher/series: { image_key, updated_at, updated_by, texts: { da: {subheader, body, ai_written}, … } }.
  * @param {any} db @param {string} kind @param {string} ref
  */
 export async function getBrandPage(db, kind, ref) {
 	const [pageRes, textRes] = await db.batch([
 		db.prepare('SELECT image_key, show_in_shop, updated_by, updated_at FROM brand_page WHERE kind = ? AND ref = ?').bind(kind, ref),
-		db.prepare('SELECT language, subheader, body FROM brand_page_text WHERE kind = ? AND ref = ?').bind(kind, ref)
+		db.prepare('SELECT language, subheader, body, ai_written FROM brand_page_text WHERE kind = ? AND ref = ?').bind(kind, ref)
 	]);
 	const page = /** @type {any} */ (pageRes.results?.[0]) ?? {};
-	/** @type {Record<string, {subheader: string, body: string}>} */
+	/** @type {Record<string, {subheader: string, body: string, ai_written: boolean}>} */
 	const texts = {};
-	for (const l of BRAND_LANGS) texts[l] = { subheader: '', body: '' };
-	for (const r of /** @type {any[]} */ (textRes.results ?? [])) texts[r.language] = { subheader: r.subheader ?? '', body: r.body ?? '' };
+	for (const l of BRAND_LANGS) texts[l] = { subheader: '', body: '', ai_written: false };
+	for (const r of /** @type {any[]} */ (textRes.results ?? [])) texts[r.language] = { subheader: r.subheader ?? '', body: r.body ?? '', ai_written: r.language === AI_MARK_LANG && !!r.ai_written };
 	return { image_key: page.image_key ?? null, show_in_shop: !!page.show_in_shop, updated_by: page.updated_by ?? null, updated_at: page.updated_at ?? null, texts };
 }
 
@@ -57,9 +62,11 @@ export async function brandPageStatus(db, kind, refs) {
 }
 
 /**
- * Save texts (only the languages given) and touch updated_*.
+ * Save texts (only the languages given) and touch updated_*. `ai_written`
+ * is kept only on the Danish text (AI_MARK_LANG); the editor clears it as
+ * soon as a person changes that text.
  * @param {any} db @param {string} kind @param {string} ref
- * @param {Record<string, {subheader?: string, body?: string}>} texts
+ * @param {Record<string, {subheader?: string, body?: string, ai_written?: boolean}>} texts
  * @param {string} by
  */
 export async function saveBrandTexts(db, kind, ref, texts, by) {
@@ -68,9 +75,10 @@ export async function saveBrandTexts(db, kind, ref, texts, by) {
 		if (!BRAND_LANGS.includes(lang)) continue;
 		const sub = String(t?.subheader ?? '').trim();
 		const body = String(t?.body ?? '').trim();
+		const ai = lang === AI_MARK_LANG && t?.ai_written === true ? 1 : 0;
 		stmts.push(sub || body
-			? db.prepare(`INSERT INTO brand_page_text (kind, ref, language, subheader, body) VALUES (?,?,?,?,?)
-				ON CONFLICT (kind, ref, language) DO UPDATE SET subheader = excluded.subheader, body = excluded.body`).bind(kind, ref, lang, sub, body)
+			? db.prepare(`INSERT INTO brand_page_text (kind, ref, language, subheader, body, ai_written) VALUES (?,?,?,?,?,?)
+				ON CONFLICT (kind, ref, language) DO UPDATE SET subheader = excluded.subheader, body = excluded.body, ai_written = excluded.ai_written`).bind(kind, ref, lang, sub, body, ai)
 			: db.prepare('DELETE FROM brand_page_text WHERE kind = ? AND ref = ? AND language = ?').bind(kind, ref, lang));
 	}
 	await db.batch(stmts);
@@ -129,7 +137,7 @@ export async function buildBrandFeed(db, origin, opts = {}) {
 			: db.prepare(`SELECT s.id, s.publisher, s.name, (SELECT COUNT(*) FROM product_series ps WHERE ps.series_id = s.id) AS product_count
 				FROM series s ORDER BY s.publisher COLLATE NOCASE, s.name COLLATE NOCASE`),
 		db.prepare('SELECT kind, ref, image_key, show_in_shop, updated_at FROM brand_page'),
-		db.prepare('SELECT kind, ref, language, subheader, body FROM brand_page_text'),
+		db.prepare('SELECT kind, ref, language, subheader, body, ai_written FROM brand_page_text'),
 		db.prepare('SELECT prefix, publisher FROM publisher_prefix ORDER BY prefix')
 	]);
 
@@ -137,12 +145,12 @@ export async function buildBrandFeed(db, origin, opts = {}) {
 	/** @type {Map<string, any>} */
 	const pages = new Map();
 	for (const p of /** @type {any[]} */ (pageRes.results ?? [])) pages.set(`${p.kind}\u0000${p.ref}`, p);
-	/** @type {Map<string, Record<string, {subheader: string|null, text: string|null}>>} */
+	/** @type {Map<string, Record<string, {subheader: string|null, text: string|null, ai_written: boolean}>>} */
 	const texts = new Map();
 	for (const t of /** @type {any[]} */ (textRes.results ?? [])) {
 		const k = `${t.kind}\u0000${t.ref}`;
 		if (!texts.has(k)) texts.set(k, {});
-		/** @type {any} */ (texts.get(k))[t.language] = { subheader: t.subheader || null, text: t.body || null };
+		/** @type {any} */ (texts.get(k))[t.language] = { subheader: t.subheader || null, text: t.body || null, ai_written: t.language === AI_MARK_LANG && !!t.ai_written };
 	}
 	/** @type {Record<string, string[]>} */
 	const prefixes = {};
@@ -151,9 +159,9 @@ export async function buildBrandFeed(db, origin, opts = {}) {
 	const content = (/** @type {string} */ kind, /** @type {string} */ ref) => {
 		const page = pages.get(`${kind}\u0000${ref}`);
 		const t = texts.get(`${kind}\u0000${ref}`) ?? {};
-		/** @type {Record<string, {subheader: string|null, text: string|null}>} */
+		/** @type {Record<string, {subheader: string|null, text: string|null, ai_written: boolean}>} */
 		const byLang = {};
-		for (const l of BRAND_LANGS) byLang[l] = t[l] ?? { subheader: null, text: null };
+		for (const l of BRAND_LANGS) byLang[l] = t[l] ?? { subheader: null, text: null, ai_written: false };
 		const image = imgUrl(page?.image_key ?? null);
 		return {
 			show_in_shop: !!page?.show_in_shop, // only build a landing page when true
